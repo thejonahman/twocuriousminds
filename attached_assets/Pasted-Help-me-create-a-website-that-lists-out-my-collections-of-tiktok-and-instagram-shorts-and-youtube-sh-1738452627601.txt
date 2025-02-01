@@ -1,0 +1,10 @@
+Help me create a website that lists out my collections of tiktok and instagram shorts and youtube short videos on educational topics and then has an AI chatbot embedded that you can ask questions to and that know the contents of each video the person is watching and can answer questions about it as they're watching the video and the questions come up from them. The purpose is to surface subjects users may find fascinating, starting with those that can help them learn about themselves (ADHD, etc), and then make it easy for them to ask questions to an AI bot that come up as they watch so they can dive into the subjects they find interesting
+Make sure to add an AI chatbot users can add questions to as they watch videos. Ideally in an really easy and frictionless way as the video plays so they can still watch it but ask questions as they do and the video doesnt get interrupted. I have a bot with Delphi.ai we can use (delphi.ai/jonah) but we can try others too if that doesn't work well. And I need to make sure the bot on each page knows the content of the page and video the user is watching
+
+Vision: help adults learn to love learning and enable them to want to spend free time with self directed learning on subjects that are very relevant to wherever they are in life.
+Mission: surface subjects users may find fascinating, starting with those that can help them learn about themselves (ADHD, etc), and then make it easy for them to ask questions to an AI bot that come up as they watch so they can dive into the subjects they find interesting
+Tactics:
+collect the very best short form educational content (via youtube, tiktok, and instagram),
+pair it with a helpful Jonah AI chatbot that knows the content of each video and surfaces relevant questions on each
+(eventually) learns about each user and guides them to new content so they can continue their learning journey
+Brand: a fun, quirky brand that resonates with younger, casual learners and approachable branding makes learning feel less intimidating and more enjoyable.
