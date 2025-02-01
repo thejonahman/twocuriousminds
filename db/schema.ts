@@ -8,6 +8,12 @@ export const categories = pgTable("categories", {
   description: text("description"),
 });
 
+export const subcategories = pgTable("subcategories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  categoryId: integer("category_id").references(() => categories.id),
+});
+
 export const videos = pgTable("videos", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
@@ -15,7 +21,8 @@ export const videos = pgTable("videos", {
   thumbnailUrl: text("thumbnail_url"),
   description: text("description"),
   categoryId: integer("category_id").references(() => categories.id),
-  platform: text("platform").notNull(), // youtube, tiktok, instagram
+  subcategoryId: integer("subcategory_id").references(() => subcategories.id),
+  platform: text("platform").notNull(),
   watched: boolean("watched").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -33,6 +40,17 @@ export const videoRelations = relations(videos, ({ one }) => ({
     fields: [videos.categoryId],
     references: [categories.id],
   }),
+  subcategory: one(subcategories, {
+    fields: [videos.subcategoryId],
+    references: [subcategories.id],
+  }),
+}));
+
+export const subcategoryRelations = relations(subcategories, ({ one }) => ({
+  category: one(categories, {
+    fields: [subcategories.categoryId],
+    references: [categories.id],
+  }),
 }));
 
 export const chatMessageRelations = relations(chatMessages, ({ one }) => ({
@@ -42,9 +60,12 @@ export const chatMessageRelations = relations(chatMessages, ({ one }) => ({
   }),
 }));
 
+
 export const insertVideoSchema = createInsertSchema(videos);
 export const selectVideoSchema = createSelectSchema(videos);
 export const insertCategorySchema = createInsertSchema(categories);
 export const selectCategorySchema = createSelectSchema(categories);
+export const insertSubcategorySchema = createInsertSchema(subcategories);
+export const selectSubcategorySchema = createSelectSchema(subcategories);
 export const insertChatMessageSchema = createInsertSchema(chatMessages);
 export const selectChatMessageSchema = createSelectSchema(chatMessages);
