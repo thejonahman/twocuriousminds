@@ -10,22 +10,22 @@ export function VideoPlayer({ video }: { video: Video }) {
   const getEmbedUrl = (url: string, platform: string) => {
     try {
       switch (platform.toLowerCase()) {
-        case 'youtube':
+        case 'youtube': {
           const youtubeId = url.split('v=')[1]?.split('&')[0];
-          return youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : url;
-        case 'tiktok':
-          return `https://www.tiktok.com/embed/v2/${url.split('/video/')[1]?.split('?')[0]}`;
-        case 'instagram':
-          // For Instagram, extract the post ID and use proper embed format
+          return `https://www.youtube.com/embed/${youtubeId}`;
+        }
+        case 'tiktok': {
+          const videoId = url.split('/video/')[1]?.split('?')[0];
+          return `https://www.tiktok.com/embed/${videoId}`;
+        }
+        case 'instagram': {
           const match = url.match(/\/(p|reel|share)\/([^/?]+)/);
           if (match) {
-            const [, type, id] = match;
-            if (type === 'share') {
-              return `https://www.instagram.com/reel/${id}/embed`;
-            }
-            return `https://www.instagram.com/${type}/${id}/embed`;
+            const [, , id] = match;
+            return `https://www.instagram.com/p/${id}/embed/`;
           }
           return url;
+        }
         default:
           return url;
       }
@@ -40,7 +40,7 @@ export function VideoPlayer({ video }: { video: Video }) {
 
   return (
     <div className="flex justify-center w-full">
-      <Card className={`overflow-hidden ${video.platform.toLowerCase() === 'instagram' ? 'max-w-[540px]' : video.platform.toLowerCase() === 'tiktok' ? 'max-w-[325px]' : 'max-w-[860px]'}`}>
+      <Card className={`overflow-hidden ${video.platform.toLowerCase() === 'tiktok' ? 'w-[325px]' : 'w-full max-w-[800px]'}`}>
         <AspectRatio ratio={video.platform.toLowerCase() === 'tiktok' ? 9/16 : 16/9}>
           <iframe
             src={embedUrl}
