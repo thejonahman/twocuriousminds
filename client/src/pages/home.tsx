@@ -9,7 +9,7 @@ interface Video {
   id: number;
   title: string;
   url: string;
-  thumbnailUrl: string | null;
+  thumbnailUrl: string;
   platform: string;
   watched: boolean;
   category: {
