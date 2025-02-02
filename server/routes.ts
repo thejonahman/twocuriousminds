@@ -6,29 +6,85 @@ import { eq } from "drizzle-orm";
 import fetch from "node-fetch";
 
 async function getThumbnailUrl(url: string, platform: string): Promise<string | null> {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  };
+
   try {
     switch (platform.toLowerCase()) {
       case 'youtube': {
         const videoId = url.split('v=')[1]?.split('&')[0];
+        if (!videoId) {
+          console.error('Could not extract YouTube video ID from:', url);
+          return null;
+        }
         return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
       }
       case 'tiktok': {
-        const response = await fetch(url);
-        const html = await response.text();
-        const ogImage = html.match(/<meta property="og:image" content="([^"]+)"/);
-        return ogImage ? ogImage[1] : null;
+        try {
+          // Handle both web and mobile TikTok URLs
+          let tiktokUrl = url;
+          if (!url.includes('www.tiktok.com')) {
+            // Convert mobile URL to web URL
+            const videoId = url.match(/\d+/)?.[0];
+            if (!videoId) {
+              console.error('Could not extract TikTok video ID from:', url);
+              return null;
+            }
+            tiktokUrl = `https://www.tiktok.com/t/${videoId}`;
+          }
+
+          const response = await fetch(tiktokUrl, { headers });
+          const html = await response.text();
+
+          // Try different meta tag patterns
+          const patterns = [
+            /<meta\s+property="og:image"\s+content="([^"]+)"/i,
+            /<meta\s+name="twitter:image"\s+content="([^"]+)"/i,
+            /<link\s+rel="preload"\s+as="image"\s+href="([^"]+)"/i
+          ];
+
+          for (const pattern of patterns) {
+            const match = html.match(pattern);
+            if (match?.[1]) return match[1];
+          }
+
+          console.error('No thumbnail found in TikTok HTML for:', url);
+          return null;
+        } catch (error) {
+          console.error('Error fetching TikTok thumbnail:', error);
+          return null;
+        }
       }
       case 'instagram': {
-        const response = await fetch(url);
-        const html = await response.text();
-        const ogImage = html.match(/<meta property="og:image" content="([^"]+)"/);
-        return ogImage ? ogImage[1] : null;
+        try {
+          const response = await fetch(url, { headers });
+          const html = await response.text();
+
+          // Try different meta tag patterns
+          const patterns = [
+            /<meta\s+property="og:image"\s+content="([^"]+)"/i,
+            /<meta\s+name="twitter:image"\s+content="([^"]+)"/i
+          ];
+
+          for (const pattern of patterns) {
+            const match = html.match(pattern);
+            if (match?.[1]) return match[1];
+          }
+
+          console.error('No thumbnail found in Instagram HTML for:', url);
+          return null;
+        } catch (error) {
+          console.error('Error fetching Instagram thumbnail:', error);
+          return null;
+        }
       }
       default:
+        console.error('Unsupported platform:', platform);
         return null;
     }
   } catch (error) {
-    console.error('Error fetching thumbnail:', error);
+    console.error('Error in getThumbnailUrl:', error);
     return null;
   }
 }
@@ -47,12 +103,16 @@ export function registerRoutes(app: Express): Server {
     // Update missing thumbnails
     for (const video of result) {
       if (!video.thumbnailUrl) {
+        console.log(`Fetching thumbnail for video ${video.id} (${video.platform}): ${video.url}`);
         const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
         if (thumbnailUrl) {
+          console.log(`Found thumbnail for video ${video.id}:`, thumbnailUrl);
           await db.update(videos)
             .set({ thumbnailUrl })
             .where(eq(videos.id, video.id));
           video.thumbnailUrl = thumbnailUrl;
+        } else {
+          console.log(`No thumbnail found for video ${video.id}`);
         }
       }
     }
