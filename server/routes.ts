@@ -58,18 +58,25 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
       }
       case 'instagram': {
         try {
-          const response = await fetch(url, { headers });
-          const html = await response.text();
+          const match = url.match(/\/(p|reel|share)\/([^/?]+)/);
+          if (match) {
+            const [, , id] = match;
+            // Try to get the embed version which might be more accessible
+            const embedUrl = `https://www.instagram.com/p/${id}/embed/`;
+            const response = await fetch(embedUrl, { headers });
+            const html = await response.text();
 
-          // Try different meta tag patterns
-          const patterns = [
-            /<meta\s+property="og:image"\s+content="([^"]+)"/i,
-            /<meta\s+name="twitter:image"\s+content="([^"]+)"/i
-          ];
+            // Try different meta tag patterns
+            const patterns = [
+              /<meta\s+property="og:image"\s+content="([^"]+)"/i,
+              /<meta\s+name="twitter:image"\s+content="([^"]+)"/i,
+              /<img\s+class="EmbeddedMediaImage"\s+src="([^"]+)"/i
+            ];
 
-          for (const pattern of patterns) {
-            const match = html.match(pattern);
-            if (match?.[1]) return match[1];
+            for (const pattern of patterns) {
+              const match = html.match(pattern);
+              if (match?.[1]) return match[1];
+            }
           }
 
           console.error('No thumbnail found in Instagram HTML for:', url);
