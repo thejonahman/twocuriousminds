@@ -1,54 +1,75 @@
-import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 import { promisify } from "util";
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024
-const openai = new OpenAI();
-
 const writeFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
 
-export async function generateThumbnail(videoTitle: string, category: string): Promise<string> {
+// Function to extract video ID from different platforms
+function extractVideoId(url: string, platform: string): string | null {
   try {
-    const prompt = `Create an educational thumbnail image for a video titled "${videoTitle}" in the category "${category}". 
-    Style: Modern, clean, professional education platform look.
-    Must include: Visual elements that clearly represent the topic, simple iconography, and a clean background.
-    Do not include: Text, watermarks, or complex patterns.`;
-
-    const response = await openai.images.generate({
-      model: "dall-e-3",
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      quality: "standard",
-    });
-
-    const imageUrl = response.data[0].url;
-    if (!imageUrl) {
-      throw new Error("No image URL received from OpenAI");
+    switch (platform) {
+      case 'youtube':
+        const youtubeMatch = url.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})/);
+        return youtubeMatch ? youtubeMatch[1] : null;
+      case 'tiktok':
+        const tiktokMatch = url.match(/video\/(\d+)/);
+        return tiktokMatch ? tiktokMatch[1] : null;
+      default:
+        return null;
     }
+  } catch (error) {
+    console.error("Error extracting video ID:", error);
+    return null;
+  }
+}
 
-    // Download the image
-    const imageResponse = await fetch(imageUrl);
-    const arrayBuffer = await imageResponse.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
+export async function generateThumbnail(videoTitle: string, category: string, videoUrl: string, platform: string): Promise<string> {
+  try {
     // Create thumbnails directory if it doesn't exist
     const thumbnailsDir = path.join(process.cwd(), "public", "thumbnails");
     await mkdir(thumbnailsDir, { recursive: true });
 
     // Generate a unique filename based on the video title
     const safeTitle = videoTitle.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    const filename = `${safeTitle}-${Date.now()}.png`;
+    const filename = `${safeTitle}-${Date.now()}.jpg`;
     const filePath = path.join(thumbnailsDir, filename);
 
-    // Save the image
-    await writeFile(filePath, buffer);
+    // Try to get platform-specific thumbnail
+    const videoId = extractVideoId(videoUrl, platform);
+    let thumbnailUrl: string | null = null;
 
-    return `/thumbnails/${filename}`;
+    if (videoId) {
+      switch (platform) {
+        case 'youtube':
+          thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+          break;
+        case 'tiktok':
+          // TikTok doesn't provide direct thumbnail URLs, fallback to category icon
+          break;
+      }
+    }
+
+    if (thumbnailUrl) {
+      try {
+        const response = await fetch(thumbnailUrl);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          const buffer = Buffer.from(arrayBuffer);
+          await writeFile(filePath, buffer);
+          console.log(`Generated thumbnail for "${videoTitle}": ${filename}`);
+          return `/thumbnails/${filename}`;
+        }
+      } catch (error) {
+        console.error("Error fetching platform thumbnail:", error);
+      }
+    }
+
+    // Fallback: Return null to indicate that no thumbnail could be generated
+    // The frontend will handle this by showing a category-specific icon
+    return null;
   } catch (error) {
     console.error("Error generating thumbnail:", error);
-    throw error;
+    return null;
   }
 }

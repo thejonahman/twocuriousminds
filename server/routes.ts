@@ -27,6 +27,7 @@ export function registerRoutes(app: Express): Server {
       });
 
       const results = [];
+
       for (const record of records) {
         try {
           // First, create or get the category
@@ -47,17 +48,21 @@ export function registerRoutes(app: Express): Server {
             subcategory = sub;
           }
 
-          // Generate thumbnail using OpenAI
-          const thumbnailUrl = await generateThumbnail(
-            record.Name,
-            record.Topic.split(" (")[0]
-          );
-
           // Determine platform from URL
           let platform = "unknown";
           if (record.URL.includes("tiktok.com")) platform = "tiktok";
           else if (record.URL.includes("instagram.com")) platform = "instagram";
           else if (record.URL.includes("youtube.com")) platform = "youtube";
+
+          // Try to generate thumbnail
+          console.log(`Generating thumbnail for: ${record.Name}`);
+          const thumbnailUrl = await generateThumbnail(
+            record.Name,
+            record.Topic.split(" (")[0],
+            record.URL,
+            platform
+          );
+          console.log(`Thumbnail result for ${record.Name}:`, thumbnailUrl || "Using fallback icon");
 
           // Insert video
           const [video] = await db.insert(videos)
@@ -91,8 +96,9 @@ export function registerRoutes(app: Express): Server {
         videos: results 
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error("Error importing videos:", error);
-      res.status(500).json({ message: "Failed to import videos", error: error.message });
+      res.status(500).json({ message: "Failed to import videos", error: errorMessage });
     }
   });
 
