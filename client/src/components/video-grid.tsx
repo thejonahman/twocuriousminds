@@ -3,7 +3,6 @@ import { Link } from "wouter";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle2, Clock, Image } from "lucide-react";
-import { useState } from "react";
 
 interface Video {
   id: number;
@@ -23,7 +22,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
         <Link key={video.id} href={`/video/${video.id}`}>
           <Card className="overflow-hidden hover:shadow-lg transition-shadow">
             <AspectRatio ratio={16 / 9}>
-              <div className="w-full h-full bg-muted relative">
+              <div className="w-full h-full bg-muted relative group">
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Image className="h-8 w-8 text-muted-foreground" />
                 </div>
@@ -31,7 +30,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}
-                    className="absolute inset-0 w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-cover transition-opacity group-hover:opacity-90"
                     loading="lazy"
                     onError={(e) => {
                       const img = e.target as HTMLImageElement;

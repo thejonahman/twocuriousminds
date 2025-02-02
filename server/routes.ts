@@ -3,8 +3,13 @@ import { createServer, type Server } from "http";
 import { db } from "@db";
 import { videos, categories, chatMessages } from "@db/schema";
 import { eq } from "drizzle-orm";
+import path from "path";
+import express from "express";
 
 export function registerRoutes(app: Express): Server {
+  // Serve thumbnail images from attached_assets directory
+  app.use('/thumbnails', express.static(path.join(process.cwd(), 'attached_assets', 'Videos links 18dddbcd8a1080daa23ad9562f0ed3e4')));
+
   // Videos endpoints
   app.get("/api/videos", async (_req, res) => {
     const result = await db.query.videos.findMany({
