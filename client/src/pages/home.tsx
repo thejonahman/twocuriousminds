@@ -138,35 +138,33 @@ export default function Home() {
 
           {sortedCategories.map(([id, category]) => (
             <TabsContent key={id} value={id}>
-              <div className="grid md:grid-cols-[250px,1fr] gap-4">
-                <div className="md:border-r md:pr-4">
+              <div className="grid grid-cols-1 md:grid-cols-[200px,1fr] gap-6">
+                <aside className="md:border-r pr-4">
                   <h2 className="font-semibold text-lg mb-2">Subcategories</h2>
-                  <ScrollArea className="h-[500px]">
-                    <div className="space-y-1 pr-4">
-                      {Object.entries(category.subcategories)
-                        .sort(([,a], [,b]) => a.name.localeCompare(b.name))
-                        .map(([subId, subcategory]) => (
-                          <button
-                            key={subId}
-                            onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
-                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
-                          >
-                            <span>{subcategory.name}</span>
-                            <Badge variant="outline" className="group-hover:bg-primary group-hover:text-primary-foreground">
-                              {subcategory.videos.length}
-                            </Badge>
-                          </button>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                </div>
+                  <div className="space-y-1">
+                    {Object.entries(category.subcategories)
+                      .sort(([,a], [,b]) => a.name.localeCompare(b.name))
+                      .map(([subId, subcategory]) => (
+                        <button
+                          key={subId}
+                          onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
+                          className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
+                        >
+                          <span>{subcategory.name}</span>
+                          <Badge variant="outline" className="group-hover:bg-primary group-hover:text-primary-foreground">
+                            {subcategory.videos.length}
+                          </Badge>
+                        </button>
+                    ))}
+                  </div>
+                </aside>
 
-                <div className="space-y-4">
+                <div className="space-y-8">
                   {Object.entries(category.subcategories)
                     .sort(([,a], [,b]) => a.name.localeCompare(b.name))
                     .map(([subId, subcategory]) => (
                       <div key={subId} id={`subcategory-${subId}`}>
-                        <div className="flex items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2 mb-4">
                           <h2 className="text-xl font-semibold">{subcategory.name}</h2>
                           <Badge variant="secondary">
                             {subcategory.videos.length} videos
