@@ -12,7 +12,7 @@ export function registerRoutes(app: Express): Server {
     // Remove /thumbnails/ from the start of the URL
     const requestedFile = decodeURIComponent(req.url.replace(/^\/+/, ''));
     // Create the full path to the file
-    const filePath = path.join(process.cwd(), 'attached_assets', 'Videos links 18dddbcd8a1080daa23ad9562f0ed3e4', requestedFile);
+    const filePath = path.join(process.cwd(), 'attached_assets', requestedFile);
     res.sendFile(filePath, (err) => {
       if (err) {
         console.error(`Error serving thumbnail: ${requestedFile}`, err);
@@ -34,7 +34,7 @@ export function registerRoutes(app: Express): Server {
     // Transform the results to ensure thumbnail URLs are properly encoded
     const transformedResults = result.map(video => ({
       ...video,
-      thumbnailUrl: video.thumbnailUrl ? `/thumbnails/${encodeURIComponent(path.basename(video.thumbnailUrl))}` : null
+      thumbnailUrl: video.thumbnailUrl ? `/thumbnails/${encodeURIComponent(video.thumbnailUrl)}` : null
     }));
 
     res.json(transformedResults);
@@ -57,7 +57,7 @@ export function registerRoutes(app: Express): Server {
     // Transform the thumbnail URL
     const transformedResult = {
       ...result,
-      thumbnailUrl: result.thumbnailUrl ? `/thumbnails/${encodeURIComponent(path.basename(result.thumbnailUrl))}` : null
+      thumbnailUrl: result.thumbnailUrl ? `/thumbnails/${encodeURIComponent(result.thumbnailUrl)}` : null
     };
 
     res.json(transformedResult);
