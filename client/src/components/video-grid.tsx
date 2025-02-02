@@ -31,25 +31,14 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
     }
   };
 
-  const getAspectRatio = (platform: string) => {
-    switch (platform.toLowerCase()) {
-      case 'tiktok':
-        return 9/16; // TikTok vertical videos
-      case 'instagram':
-        return 1; // Instagram square format
-      default:
-        return 16/9; // YouTube and others
-    }
-  };
-
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {videos.map((video) => (
         <Link key={video.id} href={`/video/${video.id}`}>
           <Card className="overflow-hidden hover:shadow-lg transition-shadow">
-            <AspectRatio ratio={getAspectRatio(video.platform)}>
+            <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted relative">
-                <div className="absolute inset-0 flex items-center justify-center z-10">
+                <div className="absolute inset-0 flex items-center justify-center">
                   {getPlatformIcon(video.platform)}
                 </div>
                 {video.thumbnailUrl && (
@@ -61,11 +50,10 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                     onError={(e) => {
                       const img = e.target as HTMLImageElement;
                       img.style.opacity = '0';
-                      console.error(`Failed to load thumbnail for video ${video.id}:`, video.thumbnailUrl);
                     }}
                   />
                 )}
-                <div className="absolute top-2 right-2 z-20">
+                <div className="absolute top-2 right-2 z-10">
                   <Badge 
                     variant={video.watched ? "secondary" : "outline"}
                     className="flex items-center gap-1 bg-background/80 backdrop-blur-sm"

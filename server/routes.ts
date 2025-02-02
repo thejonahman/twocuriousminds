@@ -16,12 +16,12 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
         return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
       }
       case 'tiktok': {
-        // Use TikTok's logo on a dark background as fallback
-        return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjU0MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMzIwIiBoZWlnaHQ9IjU0MCIgZmlsbD0iIzFGMUYxRiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSI+VGlrVG9rIFZpZGVvPC90ZXh0Pjwvc3ZnPg==';
+        // Placeholder image for TikTok videos
+        return 'https://placehold.co/600x800/1F1F1F/FFFFFF?text=TikTok+Video';
       }
       case 'instagram': {
-        // Use Instagram's logo on a dark background as fallback
-        return 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAwIiBoZWlnaHQ9IjYwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjAwIiBoZWlnaHQ9IjYwMCIgZmlsbD0iIzFGMUYxRiIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjI0IiBmaWxsPSJ3aGl0ZSI+SW5zdGFncmFtIENvbnRlbnQ8L3RleHQ+PC9zdmc+';
+        // Placeholder image for Instagram content
+        return 'https://placehold.co/600x600/1F1F1F/FFFFFF?text=Instagram+Content';
       }
       default:
         console.error('Unsupported platform:', platform);
