@@ -1,12 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { VideoGrid } from "@/components/video-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,7 +47,6 @@ export default function Home() {
       acc[categoryId] = {
         name: video.category.name,
         subcategories: {},
-        unorganizedVideos: [],
       };
     }
 
@@ -66,14 +59,11 @@ export default function Home() {
         };
       }
       acc[categoryId].subcategories[subcategoryId].videos.push(video);
-    } else {
-      acc[categoryId].unorganizedVideos.push(video);
     }
     return acc;
   }, {} as Record<number, { 
     name: string; 
     subcategories: Record<number, { name: string; videos: Video[] }>;
-    unorganizedVideos: Video[];
   }>);
 
   const sortedCategories = Object.entries(videosByCategory || {}).sort(([,a], [,b]) => 
@@ -110,17 +100,19 @@ export default function Home() {
                 <h2 className="font-semibold text-lg">Subcategories</h2>
                 <ScrollArea className="h-[calc(100vh-200px)]">
                   <div className="space-y-2">
-                    {Object.entries(category.subcategories).map(([subId, subcategory]) => (
-                      <button
-                        key={subId}
-                        onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
-                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
-                      >
-                        <span>{subcategory.name}</span>
-                        <Badge variant="outline" className="group-hover:bg-primary group-hover:text-primary-foreground">
-                          {subcategory.videos.length}
-                        </Badge>
-                      </button>
+                    {Object.entries(category.subcategories)
+                      .sort(([,a], [,b]) => a.name.localeCompare(b.name))
+                      .map(([subId, subcategory]) => (
+                        <button
+                          key={subId}
+                          onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
+                          className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
+                        >
+                          <span>{subcategory.name}</span>
+                          <Badge variant="outline" className="group-hover:bg-primary group-hover:text-primary-foreground">
+                            {subcategory.videos.length}
+                          </Badge>
+                        </button>
                     ))}
                   </div>
                 </ScrollArea>
@@ -128,24 +120,19 @@ export default function Home() {
 
               {/* Videos content area */}
               <div className="space-y-8">
-                {Object.entries(category.subcategories).map(([subId, subcategory]) => (
-                  <div key={subId} id={`subcategory-${subId}`} className="space-y-4">
-                    <div className="flex items-center gap-2">
-                      <h2 className="text-xl font-semibold">{subcategory.name}</h2>
-                      <Badge variant="secondary">
-                        {subcategory.videos.length} videos
-                      </Badge>
+                {Object.entries(category.subcategories)
+                  .sort(([,a], [,b]) => a.name.localeCompare(b.name))
+                  .map(([subId, subcategory]) => (
+                    <div key={subId} id={`subcategory-${subId}`} className="space-y-4">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold">{subcategory.name}</h2>
+                        <Badge variant="secondary">
+                          {subcategory.videos.length} videos
+                        </Badge>
+                      </div>
+                      <VideoGrid videos={subcategory.videos} />
                     </div>
-                    <VideoGrid videos={subcategory.videos} />
-                  </div>
                 ))}
-
-                {category.unorganizedVideos.length > 0 && (
-                  <div className="space-y-4">
-                    <h2 className="text-xl font-semibold">Other Videos</h2>
-                    <VideoGrid videos={category.unorganizedVideos} />
-                  </div>
-                )}
               </div>
             </div>
           </TabsContent>
