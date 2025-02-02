@@ -14,16 +14,22 @@ export function VideoPlayer({ video }: { video: Video }) {
           const youtubeId = url.split('v=')[1]?.split('&')[0];
           return youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : url;
         case 'tiktok':
-          // First, clean the URL of any tracking parameters
-          const cleanUrl = url.split('?')[0];
+          // First try to extract video ID from various URL formats
+          const tiktokUrl = new URL(url);
+          const pathParts = tiktokUrl.pathname.split('/').filter(Boolean);
+
           // Handle /video/ format
-          if (cleanUrl.includes('/video/')) {
-            const videoId = cleanUrl.split('/video/')[1];
-            return `https://www.tiktok.com/embed/v2/${videoId}`;
-          } else {
-            // For shortened URLs or any other format, use the blockquote embed
-            return `https://www.tiktok.com/embed?url=${encodeURIComponent(url)}`;
+          if (pathParts.includes('video')) {
+            const videoIndex = pathParts.indexOf('video');
+            if (videoIndex >= 0 && pathParts[videoIndex + 1]) {
+              return `https://www.tiktok.com/embed/v2/${pathParts[videoIndex + 1]}`;
+            }
           }
+
+          // For shortened URLs (/t/ format) or any other format
+          // use the URL embed format which has better compatibility
+          return `https://www.tiktok.com/embed/discover?url=${encodeURIComponent(url)}`;
+
         case 'instagram':
           // For Instagram, extract the post ID and use proper embed format
           const match = url.match(/\/(p|reel|share)\/([^/?]+)/);
@@ -37,6 +43,10 @@ export function VideoPlayer({ video }: { video: Video }) {
       }
     } catch (error) {
       console.error('Error parsing video URL:', error);
+      // Fallback to direct URL embed for TikTok
+      if (platform.toLowerCase() === 'tiktok') {
+        return `https://www.tiktok.com/embed?url=${encodeURIComponent(url)}`;
+      }
       return url;
     }
   };
