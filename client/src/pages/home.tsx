@@ -86,7 +86,7 @@ export default function Home() {
   ) : [];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">
           Ready to see yourself clearly?
@@ -137,12 +137,12 @@ export default function Home() {
           </TabsList>
 
           {sortedCategories.map(([id, category]) => (
-            <TabsContent key={id} value={id} className="space-y-6">
-              <div className="grid md:grid-cols-[300px,1fr] gap-6">
-                <div className="space-y-4 border-r pr-4">
-                  <h2 className="font-semibold text-lg">Subcategories</h2>
-                  <ScrollArea className="h-[calc(100vh-200px)]">
-                    <div className="space-y-2">
+            <TabsContent key={id} value={id}>
+              <div className="grid md:grid-cols-[250px,1fr] gap-4">
+                <div className="md:border-r md:pr-4">
+                  <h2 className="font-semibold text-lg mb-2">Subcategories</h2>
+                  <ScrollArea className="h-[calc(100vh-300px)]">
+                    <div className="space-y-1 pr-4">
                       {Object.entries(category.subcategories)
                         .sort(([,a], [,b]) => a.name.localeCompare(b.name))
                         .map(([subId, subcategory]) => (
@@ -161,12 +161,12 @@ export default function Home() {
                   </ScrollArea>
                 </div>
 
-                <div className="space-y-8">
+                <div className="space-y-6">
                   {Object.entries(category.subcategories)
                     .sort(([,a], [,b]) => a.name.localeCompare(b.name))
                     .map(([subId, subcategory]) => (
-                      <div key={subId} id={`subcategory-${subId}`} className="space-y-4">
-                        <div className="flex items-center gap-2">
+                      <div key={subId} id={`subcategory-${subId}`}>
+                        <div className="flex items-center gap-2 mb-4">
                           <h2 className="text-xl font-semibold">{subcategory.name}</h2>
                           <Badge variant="secondary">
                             {subcategory.videos.length} videos
