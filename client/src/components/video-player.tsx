@@ -14,12 +14,24 @@ export function VideoPlayer({ video }: { video: Video }) {
           const youtubeId = url.split('v=')[1]?.split('&')[0];
           return youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : url;
         case 'tiktok':
-          // Use TikTok's block embed format which works for all URL types
-          return `https://www.tiktok.com/embed/v2/${encodeURIComponent(url)}`;
+          // First, clean the URL of any tracking parameters
+          const cleanUrl = url.split('?')[0];
+          // Handle both /video/ and /t/ formats
+          if (cleanUrl.includes('/video/')) {
+            const videoId = cleanUrl.split('/video/')[1];
+            return `https://www.tiktok.com/embed/v2/${videoId}`;
+          } else {
+            // For shortened URLs or any other format, use the blockquote embed
+            return `https://www.tiktok.com/embed?url=${encodeURIComponent(url)}`;
+          }
         case 'instagram':
-          // For Instagram, we'll use their oEmbed endpoint
-          const instagramUrl = new URL(url);
-          return `https://www.instagram.com/embed${instagramUrl.pathname}`;
+          // For Instagram, extract the post ID and use proper embed format
+          const match = url.match(/\/(p|reel|share)\/([^/?]+)/);
+          if (match) {
+            const [, type, id] = match;
+            return `https://www.instagram.com/${type}/${id}/embed`;
+          }
+          return url;
         default:
           return url;
       }
@@ -29,11 +41,14 @@ export function VideoPlayer({ video }: { video: Video }) {
     }
   };
 
+  const embedUrl = getEmbedUrl(video.url, video.platform);
+  console.log('Generated embed URL:', embedUrl); // Debug log
+
   return (
     <Card className="overflow-hidden">
       <AspectRatio ratio={16 / 9}>
         <iframe
-          src={getEmbedUrl(video.url, video.platform)}
+          src={embedUrl}
           className="w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
