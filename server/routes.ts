@@ -1,24 +1,99 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { db } from "@db";
-import { videos, categories, chatMessages } from "@db/schema";
+import { videos, categories, subcategories, chatMessages } from "@db/schema";
 import { eq } from "drizzle-orm";
 import path from "path";
 import express from "express";
+import { generateThumbnail } from "./utils/thumbnail-generator";
+import { parse } from "csv-parse";
+import fs from "fs";
 
 export function registerRoutes(app: Express): Server {
   // Serve thumbnail images with proper encoding
-  app.use('/thumbnails', (req, res, next) => {
-    // Remove /thumbnails/ from the start of the URL
-    const requestedFile = decodeURIComponent(req.url.replace(/^\/+/, ''));
-    // Create the full path to the file
-    const filePath = path.join(process.cwd(), 'attached_assets', requestedFile);
-    res.sendFile(filePath, (err) => {
-      if (err) {
-        console.error(`Error serving thumbnail: ${requestedFile}`, err);
-        next();
+  app.use('/thumbnails', express.static(path.join(process.cwd(), "public", "thumbnails")));
+
+  // Import videos from CSV
+  app.post("/api/import-videos", async (_req, res) => {
+    try {
+      const csvPath = path.join(process.cwd(), "attached_assets", "Videos links 18dddbcd8a1080daa23ad9562f0ed3e4_all.csv");
+      const fileContent = fs.readFileSync(csvPath, 'utf-8');
+
+      const records: any[] = await new Promise((resolve, reject) => {
+        parse(fileContent, { columns: true }, (err, records) => {
+          if (err) reject(err);
+          else resolve(records);
+        });
+      });
+
+      const results = [];
+      for (const record of records) {
+        try {
+          // First, create or get the category
+          const [category] = await db.insert(categories)
+            .values({ name: record.Topic.split(" (")[0] })
+            .onConflictDoNothing()
+            .returning();
+
+          let subcategory = null;
+          if (record.Subcategory) {
+            const [sub] = await db.insert(subcategories)
+              .values({ 
+                name: record.Subcategory, 
+                categoryId: category.id 
+              })
+              .onConflictDoNothing()
+              .returning();
+            subcategory = sub;
+          }
+
+          // Generate thumbnail using OpenAI
+          const thumbnailUrl = await generateThumbnail(
+            record.Name,
+            record.Topic.split(" (")[0]
+          );
+
+          // Determine platform from URL
+          let platform = "unknown";
+          if (record.URL.includes("tiktok.com")) platform = "tiktok";
+          else if (record.URL.includes("instagram.com")) platform = "instagram";
+          else if (record.URL.includes("youtube.com")) platform = "youtube";
+
+          // Insert video
+          const [video] = await db.insert(videos)
+            .values({
+              title: record.Name,
+              url: record.URL,
+              thumbnailUrl,
+              platform,
+              categoryId: category.id,
+              subcategoryId: subcategory?.id || null,
+              watched: record.Status === "Already watched",
+            })
+            .onConflictDoNothing()
+            .returning();
+
+          if (video) {
+            results.push({
+              id: video.id,
+              title: video.title,
+              thumbnailUrl: video.thumbnailUrl
+            });
+          }
+        } catch (error) {
+          console.error(`Error processing record: ${record.Name}`, error);
+        }
       }
-    });
+
+      res.json({ 
+        message: "Videos imported successfully", 
+        count: results.length,
+        videos: results 
+      });
+    } catch (error) {
+      console.error("Error importing videos:", error);
+      res.status(500).json({ message: "Failed to import videos", error: error.message });
+    }
   });
 
   // Videos endpoints
@@ -30,14 +105,7 @@ export function registerRoutes(app: Express): Server {
       },
       orderBy: (videos) => [videos.title],
     });
-
-    // Transform the results to ensure thumbnail URLs are properly encoded
-    const transformedResults = result.map(video => ({
-      ...video,
-      thumbnailUrl: video.thumbnailUrl ? `/thumbnails/${encodeURIComponent(video.thumbnailUrl)}` : null
-    }));
-
-    res.json(transformedResults);
+    res.json(result);
   });
 
   app.get("/api/videos/:id", async (req, res) => {
@@ -54,13 +122,7 @@ export function registerRoutes(app: Express): Server {
       return;
     }
 
-    // Transform the thumbnail URL
-    const transformedResult = {
-      ...result,
-      thumbnailUrl: result.thumbnailUrl ? `/thumbnails/${encodeURIComponent(result.thumbnailUrl)}` : null
-    };
-
-    res.json(transformedResult);
+    res.json(result);
   });
 
   // Chat messages endpoints
