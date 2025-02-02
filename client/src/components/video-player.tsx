@@ -35,6 +35,10 @@ export function VideoPlayer({ video }: { video: Video }) {
           const match = url.match(/\/(p|reel|share)\/([^/?]+)/);
           if (match) {
             const [, type, id] = match;
+            if (type === 'share') {
+              // Handle special case for Instagram share URLs
+              return `https://www.instagram.com/reel/${id}/embed`;
+            }
             return `https://www.instagram.com/${type}/${id}/embed`;
           }
           return url;
@@ -54,17 +58,32 @@ export function VideoPlayer({ video }: { video: Video }) {
   const embedUrl = getEmbedUrl(video.url, video.platform);
   console.log('Generated embed URL:', embedUrl); // Debug log
 
+  // Calculate max width based on platform
+  const getMaxWidth = () => {
+    switch (video.platform.toLowerCase()) {
+      case 'instagram':
+        return 'max-w-[540px]'; // Instagram's recommended width
+      case 'tiktok':
+        return 'max-w-[325px]'; // TikTok's recommended width
+      case 'youtube':
+      default:
+        return 'max-w-full'; // YouTube can be full width
+    }
+  };
+
   return (
-    <Card className="overflow-hidden">
-      <AspectRatio ratio={16 / 9}>
-        <iframe
-          src={embedUrl}
-          className="w-full h-full"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowFullScreen
-          sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-        />
-      </AspectRatio>
-    </Card>
+    <div className="flex justify-center w-full">
+      <Card className={`overflow-hidden ${getMaxWidth()}`}>
+        <AspectRatio ratio={video.platform.toLowerCase() === 'tiktok' ? 16/20 : 16/9}>
+          <iframe
+            src={embedUrl}
+            className="w-full h-full"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+          />
+        </AspectRatio>
+      </Card>
+    </div>
   );
 }
