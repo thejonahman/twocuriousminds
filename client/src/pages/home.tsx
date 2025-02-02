@@ -141,7 +141,7 @@ export default function Home() {
               <div className="grid md:grid-cols-[250px,1fr] gap-4">
                 <div className="md:border-r md:pr-4">
                   <h2 className="font-semibold text-lg mb-2">Subcategories</h2>
-                  <ScrollArea className="h-[calc(100vh-300px)]">
+                  <ScrollArea className="h-[500px]">
                     <div className="space-y-1 pr-4">
                       {Object.entries(category.subcategories)
                         .sort(([,a], [,b]) => a.name.localeCompare(b.name))
@@ -161,12 +161,12 @@ export default function Home() {
                   </ScrollArea>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-4">
                   {Object.entries(category.subcategories)
                     .sort(([,a], [,b]) => a.name.localeCompare(b.name))
                     .map(([subId, subcategory]) => (
                       <div key={subId} id={`subcategory-${subId}`}>
-                        <div className="flex items-center gap-2 mb-4">
+                        <div className="flex items-center gap-2 mb-2">
                           <h2 className="text-xl font-semibold">{subcategory.name}</h2>
                           <Badge variant="secondary">
                             {subcategory.videos.length} videos
