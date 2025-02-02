@@ -8,18 +8,30 @@ interface Video {
 
 export function VideoPlayer({ video }: { video: Video }) {
   const getEmbedUrl = (url: string, platform: string) => {
-    switch (platform) {
-      case 'youtube':
-        const youtubeId = url.split('v=')[1];
-        return `https://www.youtube.com/embed/${youtubeId}`;
-      case 'tiktok':
-        const tiktokId = url.split('/video/')[1].split('?')[0];
-        return `https://www.tiktok.com/embed/${tiktokId}`;
-      case 'instagram':
-        // Instagram requires oEmbed API for proper embedding
-        return url;
-      default:
-        return url;
+    try {
+      switch (platform.toLowerCase()) {
+        case 'youtube':
+          const youtubeId = url.split('v=')[1]?.split('&')[0];
+          return youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : url;
+        case 'tiktok':
+          // Handle different TikTok URL formats
+          let tiktokId;
+          if (url.includes('/video/')) {
+            tiktokId = url.split('/video/')[1]?.split('?')[0];
+          } else if (url.includes('/t/')) {
+            tiktokId = url.split('/t/')[1]?.split('?')[0];
+          }
+          return tiktokId ? `https://www.tiktok.com/embed/v2/${tiktokId}` : url;
+        case 'instagram':
+          // For Instagram, we'll use their oEmbed endpoint
+          const instagramUrl = new URL(url);
+          return `https://www.instagram.com/embed${instagramUrl.pathname}`;
+        default:
+          return url;
+      }
+    } catch (error) {
+      console.error('Error parsing video URL:', error);
+      return url;
     }
   };
 
@@ -31,6 +43,7 @@ export function VideoPlayer({ video }: { video: Video }) {
           className="w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
+          sandbox="allow-same-origin allow-scripts allow-popups"
         />
       </AspectRatio>
     </Card>
