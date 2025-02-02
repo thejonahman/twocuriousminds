@@ -43,12 +43,14 @@ export function VideoPlayer({ video }: { video: Video }) {
   const embedUrl = getEmbedUrl(video.url, video.platform);
   console.log('Platform:', video.platform, 'URL:', video.url, 'Embed URL:', embedUrl);
 
-  const getDefaultWidth = () => {
+  const getAspectRatio = () => {
     switch (video.platform.toLowerCase()) {
       case 'tiktok':
-        return 'w-[325px]';
+        return 9/16; // TikTok vertical videos
+      case 'instagram':
+        return 4/5; // Instagram typical aspect ratio
       default:
-        return 'w-full max-w-[800px]';
+        return 16/9; // YouTube and others
     }
   };
 
@@ -81,10 +83,12 @@ export function VideoPlayer({ video }: { video: Video }) {
               ? 'w-full' 
               : video.platform.toLowerCase() === 'tiktok'
                 ? 'w-[325px]'
-                : 'w-full max-w-[800px]'
+                : video.platform.toLowerCase() === 'instagram'
+                  ? 'w-[400px]' // Instagram recommended width
+                  : 'w-full max-w-[800px]'
           }`}
         >
-          <AspectRatio ratio={video.platform.toLowerCase() === 'tiktok' ? 9/16 : 16/9}>
+          <AspectRatio ratio={getAspectRatio()}>
             <iframe
               src={embedUrl}
               className="w-full h-full"
