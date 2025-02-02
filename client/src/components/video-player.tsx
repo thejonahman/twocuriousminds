@@ -14,10 +14,17 @@ export function VideoPlayer({ video }: { video: Video }) {
           const youtubeId = url.split('v=')[1]?.split('&')[0];
           return youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : url;
         case 'tiktok':
-          // TikTok's official embed format requires the full URL
-          // Remove any tracking parameters
+          // First, clean the URL of any tracking parameters
           const cleanUrl = url.split('?')[0];
-          return `https://www.tiktok.com/embed/${cleanUrl}`;
+          // Handle both /video/ and /t/ formats
+          if (cleanUrl.includes('/video/')) {
+            const videoId = cleanUrl.split('/video/')[1];
+            return `https://www.tiktok.com/embed/v2/${videoId}`;
+          } else if (cleanUrl.includes('/t/')) {
+            // For shortened URLs, we use a different embed format
+            return `https://www.tiktok.com/embed?url=${encodeURIComponent(url)}`;
+          }
+          return `https://www.tiktok.com/embed?url=${encodeURIComponent(url)}`;
         case 'instagram':
           // For Instagram, we'll use their oEmbed endpoint
           const instagramUrl = new URL(url);
@@ -39,7 +46,7 @@ export function VideoPlayer({ video }: { video: Video }) {
           className="w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
-          sandbox="allow-same-origin allow-scripts allow-popups"
+          sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
         />
       </AspectRatio>
     </Card>
