@@ -74,15 +74,15 @@ export default function Home() {
     <div className="space-y-8">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">
-          Educational Content Library
+          Ready to see yourself clearly?
         </h1>
         <p className="text-muted-foreground">
-          Browse through our curated collection of educational videos
+          Browse through the best handpicked videos
         </p>
       </div>
 
       <Tabs defaultValue={sortedCategories[0]?.[0]} className="space-y-4">
-        {/* Category tabs at the top */}
+        {/* Rest of the component remains unchanged */}
         <TabsList className="h-auto flex-wrap">
           {sortedCategories.map(([id, category]) => (
             <TabsTrigger key={id} value={id} className="text-base py-2">
@@ -91,11 +91,9 @@ export default function Home() {
           ))}
         </TabsList>
 
-        {/* Content for each category */}
         {sortedCategories.map(([id, category]) => (
           <TabsContent key={id} value={id} className="space-y-6">
             <div className="grid md:grid-cols-[300px,1fr] gap-6">
-              {/* Subcategories sidebar */}
               <div className="space-y-4 border-r pr-4">
                 <h2 className="font-semibold text-lg">Subcategories</h2>
                 <ScrollArea className="h-[calc(100vh-200px)]">
@@ -118,7 +116,6 @@ export default function Home() {
                 </ScrollArea>
               </div>
 
-              {/* Videos content area */}
               <div className="space-y-8">
                 {Object.entries(category.subcategories)
                   .sort(([,a], [,b]) => a.name.localeCompare(b.name))
