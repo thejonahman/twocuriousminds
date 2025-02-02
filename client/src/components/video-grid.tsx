@@ -2,7 +2,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Clock, Image } from "lucide-react";
+import { CheckCircle2, Clock, Youtube, Instagram, Image } from "lucide-react";
+import { SiTiktok } from "react-icons/si";
 import { useState } from "react";
 
 interface Video {
@@ -17,6 +18,19 @@ interface Video {
 }
 
 export function VideoGrid({ videos }: { videos: Video[] }) {
+  const getPlatformIcon = (platform: string) => {
+    switch (platform.toLowerCase()) {
+      case 'youtube':
+        return <Youtube className="h-8 w-8 text-red-500" />;
+      case 'tiktok':
+        return <SiTiktok className="h-8 w-8 text-black" />;
+      case 'instagram':
+        return <Instagram className="h-8 w-8 text-pink-500" />;
+      default:
+        return <Image className="h-8 w-8 text-muted-foreground" />;
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {videos.map((video) => (
@@ -25,7 +39,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted relative">
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <Image className="h-8 w-8 text-muted-foreground" />
+                  {getPlatformIcon(video.platform)}
                 </div>
                 {video.thumbnailUrl && (
                   <img
@@ -35,7 +49,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                     loading="lazy"
                     onError={(e) => {
                       const img = e.target as HTMLImageElement;
-                      img.style.display = 'none';
+                      img.style.opacity = '0';
                     }}
                   />
                 )}
