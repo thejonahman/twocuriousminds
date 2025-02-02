@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Video {
   id: number;
@@ -36,7 +37,11 @@ export default function Home() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-1/3" />
-        <Skeleton className="h-[200px] w-full" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Skeleton className="h-[300px]" />
+          <Skeleton className="h-[300px]" />
+          <Skeleton className="h-[300px]" />
+        </div>
       </div>
     );
   }
@@ -87,6 +92,7 @@ export default function Home() {
       </div>
 
       <Tabs defaultValue={sortedCategories[0]?.[0]} className="space-y-4">
+        {/* Category tabs at the top */}
         <TabsList className="h-auto flex-wrap">
           {sortedCategories.map(([id, category]) => (
             <TabsTrigger key={id} value={id} className="text-base py-2">
@@ -95,37 +101,52 @@ export default function Home() {
           ))}
         </TabsList>
 
+        {/* Content for each category */}
         {sortedCategories.map(([id, category]) => (
           <TabsContent key={id} value={id} className="space-y-6">
-            <div className="grid gap-6">
-              {/* Render subcategories in an accordion */}
-              <Accordion type="multiple" className="space-y-4">
-                {Object.entries(category.subcategories).map(([subId, subcategory]) => (
-                  <AccordionItem key={subId} value={subId} className="border rounded-lg">
-                    <AccordionTrigger className="px-4 hover:no-underline">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg font-semibold">
-                          {subcategory.name}
-                        </span>
-                        <Badge variant="secondary">
-                          {subcategory.videos.length} videos
+            <div className="grid md:grid-cols-[300px,1fr] gap-6">
+              {/* Subcategories sidebar */}
+              <div className="space-y-4 border-r pr-4">
+                <h2 className="font-semibold text-lg">Subcategories</h2>
+                <ScrollArea className="h-[calc(100vh-200px)]">
+                  <div className="space-y-2">
+                    {Object.entries(category.subcategories).map(([subId, subcategory]) => (
+                      <button
+                        key={subId}
+                        onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
+                      >
+                        <span>{subcategory.name}</span>
+                        <Badge variant="outline" className="group-hover:bg-primary group-hover:text-primary-foreground">
+                          {subcategory.videos.length}
                         </Badge>
-                      </div>
-                    </AccordionTrigger>
-                    <AccordionContent className="px-4 pb-4">
-                      <VideoGrid videos={subcategory.videos} />
-                    </AccordionContent>
-                  </AccordionItem>
-                ))}
-              </Accordion>
+                      </button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
 
-              {/* Render videos without subcategories if any */}
-              {category.unorganizedVideos.length > 0 && (
-                <div className="space-y-4">
-                  <h2 className="text-xl font-semibold">Other Videos</h2>
-                  <VideoGrid videos={category.unorganizedVideos} />
-                </div>
-              )}
+              {/* Videos content area */}
+              <div className="space-y-8">
+                {Object.entries(category.subcategories).map(([subId, subcategory]) => (
+                  <div key={subId} id={`subcategory-${subId}`} className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <h2 className="text-xl font-semibold">{subcategory.name}</h2>
+                      <Badge variant="secondary">
+                        {subcategory.videos.length} videos
+                      </Badge>
+                    </div>
+                    <VideoGrid videos={subcategory.videos} />
+                  </div>
+                ))}
+
+                {category.unorganizedVideos.length > 0 && (
+                  <div className="space-y-4">
+                    <h2 className="text-xl font-semibold">Other Videos</h2>
+                    <VideoGrid videos={category.unorganizedVideos} />
+                  </div>
+                )}
+              </div>
             </div>
           </TabsContent>
         ))}
