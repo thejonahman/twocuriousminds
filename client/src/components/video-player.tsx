@@ -14,14 +14,10 @@ export function VideoPlayer({ video }: { video: Video }) {
           const youtubeId = url.split('v=')[1]?.split('&')[0];
           return youtubeId ? `https://www.youtube.com/embed/${youtubeId}` : url;
         case 'tiktok':
-          // Handle different TikTok URL formats
-          let tiktokId;
-          if (url.includes('/video/')) {
-            tiktokId = url.split('/video/')[1]?.split('?')[0];
-          } else if (url.includes('/t/')) {
-            tiktokId = url.split('/t/')[1]?.split('?')[0];
-          }
-          return tiktokId ? `https://www.tiktok.com/embed/v2/${tiktokId}` : url;
+          // TikTok's official embed format requires the full URL
+          // Remove any tracking parameters
+          const cleanUrl = url.split('?')[0];
+          return `https://www.tiktok.com/embed/${cleanUrl}`;
         case 'instagram':
           // For Instagram, we'll use their oEmbed endpoint
           const instagramUrl = new URL(url);
