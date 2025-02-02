@@ -20,7 +20,14 @@ export function registerRoutes(app: Express): Server {
       const fileContent = fs.readFileSync(csvPath, 'utf-8');
 
       const records: any[] = await new Promise((resolve, reject) => {
-        parse(fileContent, { columns: true }, (err, records) => {
+        parse(fileContent, { 
+          columns: true,
+          skip_empty_lines: true,
+          trim: true,
+          quote: '"',
+          escape: '"',
+          relaxColumnCount: true
+        }, (err, records) => {
           if (err) reject(err);
           else resolve(records);
         });
@@ -67,7 +74,7 @@ export function registerRoutes(app: Express): Server {
           // Insert video
           const [video] = await db.insert(videos)
             .values({
-              title: record.Name,
+              title: record.Name.trim(),
               url: record.URL,
               thumbnailUrl,
               platform,

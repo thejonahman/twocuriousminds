@@ -5,18 +5,15 @@ import { promisify } from "util";
 const writeFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
 
-async function fetchRelevantImage(query: string): Promise<string | null> {
+async function fetchRandomImage(): Promise<string | null> {
   try {
-    // Using Unsplash Source API which doesn't require authentication
-    const searchQuery = encodeURIComponent(query.replace(/[^a-zA-Z0-9 ]/g, ' '));
-    const imageUrl = `https://source.unsplash.com/1600x900/?${searchQuery}`;
-
+    // Using Lorem Picsum which provides random high-quality images
+    const imageUrl = `https://picsum.photos/1600/900`;
     const response = await fetch(imageUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.statusText}`);
     }
-
-    return response.url; // Unsplash Source API redirects to a random relevant image
+    return response.url; // This will be the URL of a random image
   } catch (error) {
     console.error("Error fetching image:", error);
     return null;
@@ -29,14 +26,10 @@ export async function generateThumbnail(videoTitle: string, category: string, vi
     const thumbnailsDir = path.join(process.cwd(), "public", "thumbnails");
     await mkdir(thumbnailsDir, { recursive: true });
 
-    // Generate search query based on title and category
-    const searchQuery = `${videoTitle} ${category}`;
-    console.log(`Searching for image with query: ${searchQuery}`);
-
-    // Get image URL from Unsplash
-    const imageUrl = await fetchRelevantImage(searchQuery);
+    // Get random image URL
+    const imageUrl = await fetchRandomImage();
     if (!imageUrl) {
-      console.error("Could not fetch image for:", searchQuery);
+      console.error("Could not fetch image for:", videoTitle);
       return null;
     }
 
