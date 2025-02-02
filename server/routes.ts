@@ -17,11 +17,11 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
       }
       case 'tiktok': {
         // Placeholder image for TikTok videos
-        return 'https://placehold.co/600x800/1F1F1F/FFFFFF?text=TikTok+Video';
+        return 'https://via.placeholder.com/320x540/1F1F1F/FFFFFF?text=TikTok+Video';
       }
       case 'instagram': {
         // Placeholder image for Instagram content
-        return 'https://placehold.co/600x600/1F1F1F/FFFFFF?text=Instagram+Content';
+        return 'https://via.placeholder.com/600x600/1F1F1F/FFFFFF?text=Instagram+Content';
       }
       default:
         console.error('Unsupported platform:', platform);
