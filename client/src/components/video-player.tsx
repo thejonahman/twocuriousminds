@@ -16,7 +16,7 @@ export function VideoPlayer({ video }: { video: Video }) {
         case 'tiktok':
           // First, clean the URL of any tracking parameters
           const cleanUrl = url.split('?')[0];
-          // Handle both /video/ and /t/ formats
+          // Handle /video/ format
           if (cleanUrl.includes('/video/')) {
             const videoId = cleanUrl.split('/video/')[1];
             return `https://www.tiktok.com/embed/v2/${videoId}`;
