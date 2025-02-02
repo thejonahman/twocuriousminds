@@ -44,7 +44,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted relative group">
                 {/* Show category icon if no thumbnail */}
-                <div className="absolute inset-0 flex items-center justify-center">
+                <div className={`absolute inset-0 flex items-center justify-center ${video.thumbnailUrl ? 'opacity-0' : 'opacity-100'}`}>
                   {getCategoryIcon(video.category.name)}
                 </div>
                 {video.thumbnailUrl && (
@@ -57,7 +57,11 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                       const img = e.target as HTMLImageElement;
                       img.style.display = 'none';
                       // Show the parent div with the icon when image fails
-                      img.parentElement?.classList.remove('hidden');
+                      const iconContainer = img.previousElementSibling;
+                      if (iconContainer) {
+                        iconContainer.classList.remove('opacity-0');
+                        iconContainer.classList.add('opacity-100');
+                      }
                     }}
                   />
                 )}

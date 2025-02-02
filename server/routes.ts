@@ -37,9 +37,12 @@ export function registerRoutes(app: Express): Server {
 
       for (const record of records) {
         try {
+          // Clean up category name by removing Notion URL parts
+          const categoryName = record.Topic.split(" (")[0].trim();
+
           // First, create or get the category
           const [category] = await db.insert(categories)
-            .values({ name: record.Topic.split(" (")[0] })
+            .values({ name: categoryName })
             .onConflictDoNothing()
             .returning();
 
@@ -47,7 +50,7 @@ export function registerRoutes(app: Express): Server {
           if (record.Subcategory) {
             const [sub] = await db.insert(subcategories)
               .values({ 
-                name: record.Subcategory, 
+                name: record.Subcategory.trim(), 
                 categoryId: category.id 
               })
               .onConflictDoNothing()
@@ -65,7 +68,7 @@ export function registerRoutes(app: Express): Server {
           console.log(`Generating thumbnail for: ${record.Name}`);
           const thumbnailUrl = await generateThumbnail(
             record.Name,
-            record.Topic.split(" (")[0],
+            categoryName,
             record.URL,
             platform
           );
