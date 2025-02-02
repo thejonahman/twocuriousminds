@@ -7,8 +7,19 @@ import path from "path";
 import express from "express";
 
 export function registerRoutes(app: Express): Server {
-  // Serve thumbnail images from attached_assets directory
-  app.use('/thumbnails', express.static(path.join(process.cwd(), 'attached_assets', 'Videos links 18dddbcd8a1080daa23ad9562f0ed3e4')));
+  // Serve thumbnail images with proper encoding
+  app.use('/thumbnails', (req, res, next) => {
+    // Remove /thumbnails/ from the start of the URL
+    const requestedFile = req.url.replace(/^\/+/, '');
+    // Create the full path to the file
+    const filePath = path.join(process.cwd(), 'attached_assets', 'Videos links 18dddbcd8a1080daa23ad9562f0ed3e4', requestedFile);
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        console.error(`Error serving thumbnail: ${requestedFile}`, err);
+        next();
+      }
+    });
+  });
 
   // Videos endpoints
   app.get("/api/videos", async (_req, res) => {
