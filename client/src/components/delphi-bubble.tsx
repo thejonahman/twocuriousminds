@@ -11,7 +11,7 @@ export function DelphiBubble() {
             window.delphi.bubble = {
               config: "29e395c0-35fd-49b1-96f5-ecf9e3e4fab1",
               overrides: {
-                landingPage: "OVERVIEW",
+                landingPage: "CHAT",
               },
               trigger: {
                 color: "#FF6A27",
