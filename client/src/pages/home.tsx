@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { VideoGrid } from "@/components/video-grid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Video {
   id: number;
@@ -10,6 +16,7 @@ interface Video {
   url: string;
   thumbnailUrl: string;
   platform: string;
+  watched: boolean;
   category: {
     id: number;
     name: string;
@@ -26,7 +33,12 @@ export default function Home() {
   });
 
   if (isLoading) {
-    return <Skeleton className="w-full h-[200px] rounded-lg" />;
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-1/3" />
+        <Skeleton className="h-[200px] w-full" />
+      </div>
+    );
   }
 
   // Group videos by category and subcategory
@@ -36,9 +48,10 @@ export default function Home() {
       acc[categoryId] = {
         name: video.category.name,
         subcategories: {},
-        videos: [],
+        unorganizedVideos: [],
       };
     }
+
     if (video.subcategory) {
       const subcategoryId = video.subcategory.id;
       if (!acc[categoryId].subcategories[subcategoryId]) {
@@ -49,50 +62,71 @@ export default function Home() {
       }
       acc[categoryId].subcategories[subcategoryId].videos.push(video);
     } else {
-      acc[categoryId].videos.push(video);
+      acc[categoryId].unorganizedVideos.push(video);
     }
     return acc;
-  }, {} as Record<number, { name: string; subcategories: Record<number, { name: string; videos: Video[] }>; videos: Video[] }>);
+  }, {} as Record<number, { 
+    name: string; 
+    subcategories: Record<number, { name: string; videos: Video[] }>;
+    unorganizedVideos: Video[];
+  }>);
+
+  const sortedCategories = Object.entries(videosByCategory || {}).sort(([,a], [,b]) => 
+    a.name.localeCompare(b.name)
+  );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">
-          Discover Educational Content
+          Educational Content Library
         </h1>
         <p className="text-muted-foreground">
-          Explore curated short-form videos on various topics
+          Browse through our curated collection of educational videos
         </p>
       </div>
 
-      <Tabs defaultValue={Object.keys(videosByCategory || {})[0]}>
-        <TabsList className="w-full h-auto flex-wrap">
-          {Object.entries(videosByCategory || {}).map(([id, category]) => (
-            <TabsTrigger key={id} value={id} className="text-base">
+      <Tabs defaultValue={sortedCategories[0]?.[0]} className="space-y-4">
+        <TabsList className="h-auto flex-wrap">
+          {sortedCategories.map(([id, category]) => (
+            <TabsTrigger key={id} value={id} className="text-base py-2">
               {category.name}
             </TabsTrigger>
           ))}
         </TabsList>
 
-        {Object.entries(videosByCategory || {}).map(([id, category]) => (
-          <TabsContent key={id} value={id} className="space-y-8">
-            {Object.entries(category.subcategories).map(([subId, subcategory]) => (
-              <div key={subId} className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-semibold">{subcategory.name}</h2>
-                  <Badge variant="secondary">
-                    {subcategory.videos.length} videos
-                  </Badge>
+        {sortedCategories.map(([id, category]) => (
+          <TabsContent key={id} value={id} className="space-y-6">
+            <div className="grid gap-6">
+              {/* Render subcategories in an accordion */}
+              <Accordion type="multiple" className="space-y-4">
+                {Object.entries(category.subcategories).map(([subId, subcategory]) => (
+                  <AccordionItem key={subId} value={subId} className="border rounded-lg">
+                    <AccordionTrigger className="px-4 hover:no-underline">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-semibold">
+                          {subcategory.name}
+                        </span>
+                        <Badge variant="secondary">
+                          {subcategory.videos.length} videos
+                        </Badge>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="px-4 pb-4">
+                      <VideoGrid videos={subcategory.videos} />
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+
+              {/* Render videos without subcategories if any */}
+              {category.unorganizedVideos.length > 0 && (
+                <div className="space-y-4">
+                  <h2 className="text-xl font-semibold">Other Videos</h2>
+                  <VideoGrid videos={category.unorganizedVideos} />
                 </div>
-                <VideoGrid videos={subcategory.videos} />
-              </div>
-            ))}
-            {category.videos.length > 0 && (
-              <div className="space-y-4">
-                <h2 className="text-xl font-semibold">Other Videos</h2>
-                <VideoGrid videos={category.videos} />
-              </div>
-            )}
+              )}
+            </div>
           </TabsContent>
         ))}
       </Tabs>
