@@ -10,7 +10,9 @@ export function registerRoutes(app: Express): Server {
     const result = await db.query.videos.findMany({
       with: {
         category: true,
+        subcategory: true,
       },
+      orderBy: (videos) => [videos.title],
     });
     res.json(result);
   });
@@ -20,6 +22,7 @@ export function registerRoutes(app: Express): Server {
       where: eq(videos.id, parseInt(req.params.id)),
       with: {
         category: true,
+        subcategory: true,
       },
     });
     if (!result) {
@@ -31,7 +34,11 @@ export function registerRoutes(app: Express): Server {
 
   // Categories endpoints
   app.get("/api/categories", async (_req, res) => {
-    const result = await db.query.categories.findMany();
+    const result = await db.query.categories.findMany({
+      with: {
+        subcategories: true,
+      },
+    });
     res.json(result);
   });
 
@@ -46,7 +53,7 @@ export function registerRoutes(app: Express): Server {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question })
       });
-      
+
       const answer = await delphiResponse.text();
 
       const message = await db.insert(chatMessages).values({

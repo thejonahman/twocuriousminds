@@ -10,6 +10,9 @@ interface Video {
   thumbnailUrl: string;
   platform: string;
   watched: boolean;
+  subcategory: {
+    name: string;
+  } | null;
 }
 
 export function VideoGrid({ videos }: { videos: Video[] }) {
@@ -19,12 +22,18 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
         <Link key={video.id} href={`/video/${video.id}`}>
           <Card className="overflow-hidden hover:shadow-lg transition-shadow">
             <AspectRatio ratio={16 / 9}>
-              <img
-                src={video.thumbnailUrl}
-                alt={video.title}
-                className="object-cover w-full h-full"
-                loading="lazy"
-              />
+              {video.thumbnailUrl ? (
+                <img
+                  src={video.thumbnailUrl}
+                  alt={video.title}
+                  className="object-cover w-full h-full"
+                  loading="lazy"
+                />
+              ) : (
+                <div className="w-full h-full bg-muted flex items-center justify-center">
+                  <span className="text-muted-foreground">No thumbnail</span>
+                </div>
+              )}
               <div className="absolute top-2 right-2">
                 <Badge 
                   variant={video.watched ? "secondary" : "outline"}
@@ -46,9 +55,16 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
             </AspectRatio>
             <CardContent className="p-4">
               <div className="space-y-2">
-                <Badge variant="secondary" className="capitalize">
-                  {video.platform}
-                </Badge>
+                <div className="flex gap-2">
+                  <Badge variant="secondary" className="capitalize">
+                    {video.platform}
+                  </Badge>
+                  {video.subcategory && (
+                    <Badge variant="outline">
+                      {video.subcategory.name}
+                    </Badge>
+                  )}
+                </div>
                 <h3 className="font-semibold leading-none tracking-tight line-clamp-2">
                   {video.title}
                 </h3>
