@@ -3,15 +3,26 @@ import { useParams } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
 import { ChatInterface } from "@/components/chat-interface";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DelphiBubble } from "@/components/delphi-bubble";
 
 export default function Video() {
   const { id } = useParams();
-  const { data: video, isLoading } = useQuery({
+  const { data: video, isLoading } = useQuery<{
+    id: number;
+    title: string;
+    description: string;
+    url: string;
+    platform: string;
+  }>({
     queryKey: [`/api/videos/${id}`],
   });
 
   if (isLoading) {
     return <Skeleton className="w-full h-[500px] rounded-lg" />;
+  }
+
+  if (!video) {
+    return <div>Video not found</div>;
   }
 
   return (
@@ -26,6 +37,7 @@ export default function Video() {
       <div className="lg:col-span-1">
         <ChatInterface videoId={video.id} />
       </div>
+      <DelphiBubble />
     </div>
   );
 }
