@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
 import { Youtube, Instagram, ExternalLink } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
+import { cn } from "@/lib/utils";
 
 interface Video {
   id: number;
@@ -36,7 +37,7 @@ export function RecommendationSidebar({
       case 'youtube':
         return <Youtube className="h-4 w-4 text-red-500" />;
       case 'tiktok':
-        return <SiTiktok className="h-4 w-4 text-black" />;
+        return <SiTiktok className="h-4 w-4 text-black dark:text-white" />;
       case 'instagram':
         return <Instagram className="h-4 w-4 text-pink-500" />;
       default:
@@ -48,13 +49,17 @@ export function RecommendationSidebar({
     return (
       <Card>
         <CardHeader>
-          <h3 className="text-lg font-semibold">Related Videos</h3>
+          <h3 className="text-lg font-semibold animate-pulse bg-muted w-32 h-6 rounded" />
+          <p className="text-sm text-muted-foreground animate-pulse bg-muted w-48 h-4 mt-2 rounded" />
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="space-y-4">
           {[1, 2, 3].map((i) => (
             <div key={i} className="animate-pulse">
-              <div className="h-20 bg-muted rounded-lg mb-2" />
-              <div className="h-4 bg-muted rounded w-3/4" />
+              <div className="aspect-video bg-muted rounded-lg mb-2" />
+              <div className="space-y-2">
+                <div className="h-4 bg-muted rounded w-3/4" />
+                <div className="h-4 bg-muted rounded w-1/2" />
+              </div>
             </div>
           ))}
         </CardContent>
@@ -67,47 +72,67 @@ export function RecommendationSidebar({
   }
 
   return (
-    <Card>
+    <Card className="backdrop-blur-sm bg-background/95">
       <CardHeader>
-        <h3 className="text-lg font-semibold">Related Videos</h3>
+        <h3 className="text-lg font-semibold tracking-tight">Related Videos</h3>
         <p className="text-sm text-muted-foreground">
           Based on {recommendations[0].category.name}
-          {recommendations[0].subcategory && ` › ${recommendations[0].subcategory.name}`}
+          {recommendations[0].subcategory && (
+            <span className="inline-flex items-center">
+              <svg className="w-3 h-3 mx-1 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+              {recommendations[0].subcategory.name}
+            </span>
+          )}
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 p-4">
         {recommendations.map((video) => (
           <Link 
             key={video.id} 
             href={`/video/${video.id}`}
             className="block"
           >
-            <div className="group space-y-2">
+            <div className="group relative space-y-2 rounded-lg transition-all duration-300 hover:bg-accent/50 p-2 -mx-2">
               <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
                 {video.thumbnailUrl ? (
-                  <img
-                    src={video.thumbnailUrl}
-                    alt={video.title}
-                    className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
-                  />
+                  <>
+                    <img
+                      src={video.thumbnailUrl}
+                      alt={video.title}
+                      className="absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  </>
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
                     <ExternalLink className="h-8 w-8" />
                   </div>
                 )}
                 <div className="absolute top-2 right-2">
-                  <Badge variant="secondary" className="flex items-center gap-1 bg-background/80 backdrop-blur-sm">
+                  <Badge 
+                    variant="secondary" 
+                    className={cn(
+                      "flex items-center gap-1 transition-all duration-300",
+                      "bg-background/80 backdrop-blur-sm",
+                      "group-hover:bg-background/95 group-hover:shadow-md"
+                    )}
+                  >
                     {getPlatformIcon(video.platform)}
                     <span className="capitalize">{video.platform}</span>
                   </Badge>
                 </div>
               </div>
-              <div>
-                <h4 className="font-medium line-clamp-2 group-hover:text-primary transition-colors">
+              <div className="space-y-1">
+                <h4 className="font-medium line-clamp-2 transition-colors duration-300 group-hover:text-primary">
                   {video.title}
                 </h4>
                 {video.subcategory && (
-                  <Badge variant="outline" className="mt-1">
+                  <Badge 
+                    variant="outline" 
+                    className="transition-all duration-300 group-hover:bg-primary group-hover:text-primary-foreground"
+                  >
                     {video.subcategory.name}
                   </Badge>
                 )}
