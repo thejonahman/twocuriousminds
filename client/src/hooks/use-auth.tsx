@@ -1,5 +1,5 @@
 import { ReactNode, createContext, useContext } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -31,6 +31,7 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const {
     data: user,
@@ -44,9 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
       const res = await apiRequest("POST", "/api/login", credentials);
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error || 'Login failed');
+      }
       return res.json();
     },
     onSuccess: (user: User) => {
+      queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome back!",
         description: `Logged in as ${user.username}`,
@@ -64,9 +70,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registerMutation = useMutation({
     mutationFn: async (newUser: RegisterData) => {
       const res = await apiRequest("POST", "/api/register", newUser);
+       if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error || 'Registration failed');
+      }
       return res.json();
     },
     onSuccess: (user: User) => {
+      queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome!",
         description: "Your account has been created successfully.",
@@ -86,6 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await apiRequest("POST", "/api/logout");
     },
     onSuccess: () => {
+      queryClient.setQueryData(["/api/user"], null);
       toast({
         title: "Logged out",
         description: "See you next time!",

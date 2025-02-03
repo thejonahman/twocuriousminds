@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +27,12 @@ export default function Auth() {
   const [, navigate] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
 
+  useEffect(() => {
+    if (user) {
+      navigate("/profile/wizard");
+    }
+  }, [user, navigate]);
+
   const form = useForm<LoginValues | RegisterValues>({
     resolver: zodResolver(isLogin ? loginSchema : registerSchema),
     defaultValues: {
@@ -36,26 +42,21 @@ export default function Auth() {
     },
   });
 
-  if (user) {
-    navigate("/profile/wizard");
-    return null;
-  }
-
-  const onSubmit = (values: LoginValues | RegisterValues) => {
-    if (isLogin) {
-      loginMutation.mutate(values as LoginValues, {
-        onSuccess: () => {
-          navigate("/profile/wizard");
-        },
-      });
-    } else {
-      registerMutation.mutate(values as RegisterValues, {
-        onSuccess: () => {
-          navigate("/profile/wizard");
-        },
-      });
+  const onSubmit = async (values: LoginValues | RegisterValues) => {
+    try {
+      if (isLogin) {
+        await loginMutation.mutateAsync(values as LoginValues);
+      } else {
+        await registerMutation.mutateAsync(values as RegisterValues);
+      }
+    } catch (error) {
+      // Error is handled by the mutation callbacks
     }
   };
+
+  if (user) {
+    return null;
+  }
 
   return (
     <div className="grid lg:grid-cols-2 gap-8 items-center max-w-5xl mx-auto">
