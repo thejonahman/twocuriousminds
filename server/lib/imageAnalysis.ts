@@ -9,14 +9,15 @@ export async function analyzeImage(imagePath: string): Promise<string> {
   try {
     const imageBuffer = fs.readFileSync(imagePath);
     const base64Image = imageBuffer.toString('base64');
-    
+    console.log(`Analyzing image: ${path.basename(imagePath)}`);
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "user",
           content: [
-            { type: "text", text: "What is the main subject or theme of this image? Respond with key themes like 'skiing', 'psychology', 'business', 'science', 'learning', etc. Only respond with the theme, no other text." },
+            { type: "text", text: "What is the main subject or theme of this image? Please respond with one of these themes: 'skiing', 'psychology', 'business', 'science', 'learning'. Only respond with the theme, no other text." },
             {
               type: "image_url",
               image_url: {
@@ -29,7 +30,9 @@ export async function analyzeImage(imagePath: string): Promise<string> {
       max_tokens: 50
     });
 
-    return response.choices[0].message.content.toLowerCase().trim();
+    const theme = response.choices[0].message.content.toLowerCase().trim();
+    console.log(`Theme detected for ${path.basename(imagePath)}: ${theme}`);
+    return theme;
   } catch (error) {
     console.error('Error analyzing image:', error);
     return '';
@@ -42,45 +45,51 @@ export async function findBestImageForVideo(
   imagesFolder: string
 ): Promise<string | null> {
   try {
+    console.log(`Finding best image for: "${title}"`);
+
     // Get all images from the folder
     const files = fs.readdirSync(imagesFolder).filter(file => 
-      /\.(jpg|jpeg|png|webp)$/i.test(file)
+      /\.(jpg|jpeg|png|webp)$/i.test(file) && !file.includes('875752ee') && !file.includes('8fa9df90')
     );
 
-    // Analyze the title and description to determine the theme
+    // Get content theme
     const contentResponse = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
           role: "user",
-          content: `What is the main theme of this content? Title: "${title}" Description: "${description}". Respond with only one word from: skiing, psychology, business, science, learning, lifestyle. Just the word, no other text.`
+          content: `What is the main theme of this content? Title: "${title}" Description: "${description}". Respond with only one word from: skiing, psychology, business, science, learning. Just the word, no other text.`
         }
       ],
       max_tokens: 10
     });
 
     const contentTheme = contentResponse.choices[0].message.content.toLowerCase().trim();
+    console.log(`Content theme detected: ${contentTheme}`);
 
     // Analyze each image and find the best match
     const imageAnalyses = await Promise.all(
       files.map(async file => {
         const fullPath = path.join(imagesFolder, file);
         const imageTheme = await analyzeImage(fullPath);
+        const score = calculateThemeMatch(contentTheme, imageTheme);
+        console.log(`Score for ${file}: ${score} (${imageTheme} vs ${contentTheme})`);
         return {
           file,
           theme: imageTheme,
-          score: calculateThemeMatch(contentTheme, imageTheme)
+          score
         };
       })
     );
 
     // Sort by score and get the best match
     const bestMatch = imageAnalyses.sort((a, b) => b.score - a.score)[0];
+    console.log(`Best match: ${bestMatch?.file} (score: ${bestMatch?.score})`);
+
     if (bestMatch && bestMatch.score > 0) {
       return bestMatch.file;
     }
 
-    // If no good match found, return null
     return null;
   } catch (error) {
     console.error('Error finding best image:', error);
@@ -90,7 +99,7 @@ export async function findBestImageForVideo(
 
 function calculateThemeMatch(contentTheme: string, imageTheme: string): number {
   if (contentTheme === imageTheme) return 1;
-  
+
   // Define related themes that might partially match
   const themeGroups = {
     learning: ['education', 'study', 'knowledge', 'school', 'teaching'],
