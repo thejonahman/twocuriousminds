@@ -4,6 +4,8 @@ import { videos, categories, userPreferences } from "@db/schema";
 import { sql, eq, and, or, ne, inArray, notInArray, desc } from "drizzle-orm";
 import { setupAuth } from "./auth";
 import fetch from "node-fetch";
+import * as fs from 'fs';
+import * as path from 'path';
 
 async function getThumbnailUrl(url: string, platform: string, title?: string): Promise<string | null> {
   try {
@@ -19,6 +21,18 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
       case 'tiktok':
       case 'instagram': {
         const titleLower = title?.toLowerCase() || '';
+
+        // Dimples video - use actual image
+        if (titleLower.includes('dimple')) {
+          try {
+            const imagePath = path.join(process.cwd(), 'attached_assets', 'dimples-2.webp');
+            const imageBuffer = fs.readFileSync(imagePath);
+            return `data:image/webp;base64,${imageBuffer.toString('base64')}`;
+          } catch (error) {
+            console.error('Error loading dimple image:', error);
+            return null;
+          }
+        }
 
         // RSD/ADHD themed thumbnail
         if (titleLower.includes('rsd') || titleLower.includes('adhd')) {
@@ -106,54 +120,55 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
           `).toString('base64');
         }
          // Dimples themed thumbnail
+       
         if (titleLower.includes('dimple')) {
-          return 'data:image/svg+xml;base64,' + Buffer.from(`
-            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="skinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#FFE4D6;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#FFD5C2;stop-opacity:1" />
-                </linearGradient>
-                <pattern id="gridDots" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <circle cx="10" cy="10" r="1" fill="#D4A598" opacity="0.3"/>
-                </pattern>
-              </defs>
+            return 'data:image/svg+xml;base64,' + Buffer.from(`
+              <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="skinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#FFE4D6;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#FFD5C2;stop-opacity:1" />
+                  </linearGradient>
+                  <pattern id="gridDots" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <circle cx="10" cy="10" r="1" fill="#D4A598" opacity="0.3"/>
+                  </pattern>
+                </defs>
 
-              <!-- Background -->
-              <rect width="100%" height="100%" fill="url(#skinGrad)"/>
-              <rect width="100%" height="100%" fill="url(#gridDots)"/>
+                <!-- Background -->
+                <rect width="100%" height="100%" fill="url(#skinGrad)"/>
+                <rect width="100%" height="100%" fill="url(#gridDots)"/>
 
-              <!-- Content area with outline -->
-              <rect x="40" y="40" width="1200" height="640" rx="20" 
-                    fill="white" opacity="0.97"
-                    stroke="#D4A598" stroke-width="4"/>
+                <!-- Content area with outline -->
+                <rect x="40" y="40" width="1200" height="640" rx="20" 
+                      fill="white" opacity="0.97"
+                      stroke="#D4A598" stroke-width="4"/>
 
-              <!-- Stylized face outline with dimple -->
-              <path d="M300,200 C450,200 500,350 450,450 S350,550 300,500 C250,450 250,350 300,200" 
-                    fill="#FFF0E6" stroke="#D4A598" stroke-width="3"/>
+                <!-- Stylized face outline with dimple -->
+                <path d="M300,200 C450,200 500,350 450,450 S350,550 300,500 C250,450 250,350 300,200" 
+                      fill="#FFF0E6" stroke="#D4A598" stroke-width="3"/>
 
-              <!-- Dimple detail -->
-              <path d="M380,380 C360,400 350,420 370,440" 
-                    fill="none" stroke="#D4A598" stroke-width="4"
-                    stroke-linecap="round"/>
+                <!-- Dimple detail -->
+                <path d="M380,380 C360,400 350,420 370,440" 
+                      fill="none" stroke="#D4A598" stroke-width="4"
+                      stroke-linecap="round"/>
 
-              <!-- Anatomical labels -->
-              <path d="M400,400 L500,380" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
-              <text x="520" y="385" font-family="Arial" font-size="24" fill="#666">
-                Dimple Formation
-              </text>
+                <!-- Anatomical labels -->
+                <path d="M400,400 L500,380" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
+                <text x="520" y="385" font-family="Arial" font-size="24" fill="#666">
+                  Dimple Formation
+                </text>
 
-              <!-- Title -->
-              <text x="800" y="300" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
-                Understanding Dimples
-              </text>
-              <text x="800" y="380" font-family="Arial" font-size="36" fill="#666" text-anchor="middle">
-                Human Anatomy Explained
-              </text>
-            </svg>
-          `).toString('base64');
-        }
-
+                <!-- Title -->
+                <text x="800" y="300" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
+                  Understanding Dimples
+                </text>
+                <text x="800" y="380" font-family="Arial" font-size="36" fill="#666" text-anchor="middle">
+                  Human Anatomy Explained
+                </text>
+              </svg>
+            `).toString('base64');
+          }
+         
 
         // Learning/Education themed thumbnail
         if (titleLower.includes('learn') || titleLower.includes('how to') || titleLower.includes('guide')) {
