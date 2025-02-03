@@ -30,31 +30,14 @@ export const videos = pgTable("videos", {
 
 export const recommendationPreferences = pgTable("recommendation_preferences", {
   id: serial("id").primaryKey(),
-  sessionId: text("session_id").notNull().unique(),
+  sessionId: text("session_id").notNull(),
   preferredCategories: jsonb("preferred_categories").$type<number[]>().default([]),
   preferredPlatforms: jsonb("preferred_platforms").$type<string[]>().default([]),
   excludedCategories: jsonb("excluded_categories").$type<number[]>().default([]),
-  createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const chatMessages = pgTable("chat_messages", {
-  id: serial("id").primaryKey(),
-  videoId: integer("video_id").references(() => videos.id),
-  question: text("question").notNull(),
-  answer: text("answer").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const recommendationFeedback = pgTable("recommendation_feedback", {
-  id: serial("id").primaryKey(),
-  videoId: integer("video_id").references(() => videos.id),
-  recommendedVideoId: integer("recommended_video_id").references(() => videos.id),
-  isRelevant: boolean("is_relevant").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Define all relations
+// Define relations
 export const videoRelations = relations(videos, ({ one }) => ({
   category: one(categories, {
     fields: [videos.categoryId],
@@ -73,34 +56,12 @@ export const subcategoryRelations = relations(subcategories, ({ one }) => ({
   }),
 }));
 
-export const chatMessageRelations = relations(chatMessages, ({ one }) => ({
-  video: one(videos, {
-    fields: [chatMessages.videoId],
-    references: [videos.id],
-  }),
-}));
-
-export const recommendationFeedbackRelations = relations(recommendationFeedback, ({ one }) => ({
-  video: one(videos, {
-    fields: [recommendationFeedback.videoId],
-    references: [videos.id],
-  }),
-  recommendedVideo: one(videos, {
-    fields: [recommendationFeedback.recommendedVideoId],
-    references: [videos.id],
-  }),
-}));
-
-// Create Zod schemas for type safety
+// Create Zod schemas
 export const insertVideoSchema = createInsertSchema(videos);
 export const selectVideoSchema = createSelectSchema(videos);
 export const insertCategorySchema = createInsertSchema(categories);
 export const selectCategorySchema = createSelectSchema(categories);
 export const insertSubcategorySchema = createInsertSchema(subcategories);
 export const selectSubcategorySchema = createSelectSchema(subcategories);
-export const insertChatMessageSchema = createInsertSchema(chatMessages);
-export const selectChatMessageSchema = createSelectSchema(chatMessages);
-export const insertRecommendationFeedbackSchema = createInsertSchema(recommendationFeedback);
-export const selectRecommendationFeedbackSchema = createSelectSchema(recommendationFeedback);
 export const insertRecommendationPreferencesSchema = createInsertSchema(recommendationPreferences);
 export const selectRecommendationPreferencesSchema = createSelectSchema(recommendationPreferences);

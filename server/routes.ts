@@ -1,6 +1,6 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
-import { videos, categories, chatMessages, recommendationFeedback, recommendationPreferences } from "@db/schema";
+import { videos, categories, recommendationPreferences } from "@db/schema";
 import { sql, eq, and, or, ne, inArray, notInArray } from "drizzle-orm";
 import fetch from "node-fetch";
 
@@ -101,41 +101,7 @@ export function registerRoutes(app: any): Server {
     res.json(result);
   });
 
-  // Chat messages endpoints
-  app.post("/api/chat", async (req, res) => {
-    const { videoId, question } = req.body;
-
-    try {
-      // Call Delphi.ai API
-      const delphiResponse = await fetch("https://delphi.ai/jonah/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question })
-      });
-
-      const answer = await delphiResponse.text();
-
-      const message = await db.insert(chatMessages).values({
-        videoId,
-        question,
-        answer
-      }).returning();
-
-      res.json(message[0]);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to get chat response" });
-    }
-  });
-
-  app.get("/api/chat/:videoId", async (req, res) => {
-    const messages = await db.query.chatMessages.findMany({
-      where: eq(chatMessages.videoId, parseInt(req.params.videoId)),
-      orderBy: (messages) => [messages.createdAt],
-    });
-    res.json(messages);
-  });
-
-    // Add preferences endpoints
+  // Add preferences endpoints
   app.get("/api/preferences", async (req, res) => {
     const sessionId = req.session?.id;
     if (!sessionId) {
@@ -203,9 +169,8 @@ export function registerRoutes(app: any): Server {
   app.get("/api/videos/:id/recommendations", async (req, res) => {
     try {
       const videoId = parseInt(req.params.id);
-      const sessionId = req.session?.id;
 
-      // Get current video details
+      // Get current video
       const currentVideo = await db.query.videos.findFirst({
         where: eq(videos.id, videoId),
       });
@@ -215,40 +180,15 @@ export function registerRoutes(app: any): Server {
         return;
       }
 
-      // Get user preferences if they exist
-      const preferences = sessionId ? await db.query.recommendationPreferences.findFirst({
-        where: eq(recommendationPreferences.sessionId, sessionId),
-      }) : null;
-
-      // Start with base condition to exclude current video
-      const baseConditions = [ne(videos.id, videoId)];
-
-      // Add preference-based conditions
-      if (preferences) {
-        if (preferences.excludedCategories?.length > 0) {
-          baseConditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
-        }
-        if (preferences.preferredCategories?.length > 0) {
-          baseConditions.push(inArray(videos.categoryId, preferences.preferredCategories));
-        }
-        if (preferences.preferredPlatforms?.length > 0) {
-          baseConditions.push(inArray(videos.platform, preferences.preferredPlatforms));
-        }
-      }
-
-      // Add similarity-based conditions if no category preferences
-      if (!preferences?.preferredCategories?.length) {
-        baseConditions.push(
+      // Get recommendations based on current video
+      const recommendations = await db.query.videos.findMany({
+        where: and(
+          ne(videos.id, videoId),
           or(
             eq(videos.categoryId, currentVideo.categoryId),
             eq(videos.platform, currentVideo.platform)
           )
-        );
-      }
-
-      // Execute query with all conditions
-      const recommendations = await db.query.videos.findMany({
-        where: and(...baseConditions),
+        ),
         with: {
           category: true,
           subcategory: true,
@@ -265,27 +205,6 @@ export function registerRoutes(app: any): Server {
       });
     }
   });
-
-  // Add new recommendation feedback endpoint
-  app.post("/api/videos/:id/recommendations/:recommendedId/feedback", async (req, res) => {
-    const videoId = parseInt(req.params.id);
-    const recommendedVideoId = parseInt(req.params.recommendedId);
-    const { isRelevant } = req.body;
-
-    try {
-      const feedback = await db.insert(recommendationFeedback).values({
-        videoId,
-        recommendedVideoId,
-        isRelevant,
-      }).returning();
-
-      res.json(feedback[0]);
-    } catch (error) {
-      console.error('Error saving recommendation feedback:', error);
-      res.status(500).json({ message: "Failed to save feedback" });
-    }
-  });
-
 
   return createServer(app);
 }

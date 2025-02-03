@@ -37,8 +37,7 @@ export function RecommendationSidebar({
 
   const { data: recommendations, isLoading, error } = useQuery<Video[]>({
     queryKey: [`/api/videos/${currentVideoId}/recommendations`],
-    retry: 2,
-    retryDelay: 1000,
+    retry: false,
   });
 
   const feedbackMutation = useMutation({
@@ -91,43 +90,25 @@ export function RecommendationSidebar({
     );
   }
 
-  if (error) {
+  if (error || !recommendations) {
     return (
       <Card className="backdrop-blur-sm bg-background/95">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold">Related Videos</h3>
-            <p className="text-sm text-muted-foreground text-destructive">Error loading recommendations</p>
+            <p className="text-sm text-destructive">Unable to load recommendations</p>
           </div>
           <PreferencesDialog />
         </CardHeader>
         <CardContent className="p-4">
           <p className="text-muted-foreground text-center">
-            Unable to load recommendations. Please try again later.
+            Please try refreshing the page
           </p>
         </CardContent>
       </Card>
     );
   }
 
-  if (!recommendations?.length) {
-    return (
-      <Card className="backdrop-blur-sm bg-background/95">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold">Related Videos</h3>
-            <p className="text-sm text-muted-foreground">No recommendations found</p>
-          </div>
-          <PreferencesDialog />
-        </CardHeader>
-        <CardContent className="p-4">
-          <p className="text-muted-foreground text-center">
-            No related videos available at the moment
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   const handleFeedback = (recommendedId: number, isRelevant: boolean) => {
     feedbackMutation.mutate({ recommendedId, isRelevant });
