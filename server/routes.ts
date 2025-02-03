@@ -19,7 +19,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
       case 'tiktok': {
         if (title?.toLowerCase().includes('rsd')) {
           // Special thumbnail for RSD video
-          return 'data:image/svg+xml;base64,' + btoa(`
+          return 'data:image/svg+xml;base64,' + Buffer.from(`
             <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
               <defs>
                 <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -28,7 +28,6 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
                 </linearGradient>
               </defs>
               <rect width="100%" height="100%" fill="url(#grad1)"/>
-              <!-- Background pattern -->
               <rect x="20" y="20" width="275" height="520" rx="15" fill="#FFF" opacity="0.95"/>
 
               <!-- Main character -->
@@ -61,10 +60,10 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
                 Sensitive Dysphoria
               </text>
             </svg>
-          `);
+          `).toString('base64');
         } else if (title?.toLowerCase().includes('adhd')) {
           // Other ADHD content thumbnail
-          return 'data:image/svg+xml;base64,' + btoa(`
+          return 'data:image/svg+xml;base64,' + Buffer.from(`
             <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
               <defs>
                 <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -82,48 +81,9 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
               </text>
               <path d="M157.5 340 L187.5 360 L157.5 380 Z" fill="#333333"/>
             </svg>
-          `);
+          `).toString('base64');
         }
-        return 'data:image/svg+xml;base64,' + btoa(`
-          <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
-            <rect width="100%" height="100%" fill="#1F1F1F"/>
-            <text x="50%" y="50%" font-family="Arial" font-size="24" fill="white" text-anchor="middle">
-              TikTok Video
-            </text>
-          </svg>
-        `);
-      }
-      case 'instagram': {
-        if (title?.toLowerCase().includes('adhd')) {
-          // Instagram ADHD thumbnail with gradient background
-          return 'data:image/svg+xml;base64,' + btoa(`
-            <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#8A2BE2;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#FF69B4;stop-opacity:1" />
-                </linearGradient>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grad2)"/>
-              <rect x="20" y="20" width="360" height="360" rx="15" fill="white" opacity="0.95"/>
-              <text x="200" y="160" font-family="Arial" font-size="32" fill="#333333" text-anchor="middle" font-weight="bold">
-                ADHD Basics
-              </text>
-              <text x="200" y="240" font-family="Arial" font-size="22" fill="#666666" text-anchor="middle" width="360">
-                ${title?.length > 40 ? title.substring(0, 40) + '...' : title}
-              </text>
-              <circle cx="200" cy="300" r="20" fill="#333333"/>
-            </svg>
-          `);
-        }
-        return 'data:image/svg+xml;base64,' + btoa(`
-          <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
-            <rect width="100%" height="100%" fill="#1F1F1F"/>
-            <text x="50%" y="50%" font-family="Arial" font-size="24" fill="white" text-anchor="middle">
-              Instagram Content
-            </text>
-          </svg>
-        `);
+        return null;
       }
       default:
         console.error('Unsupported platform:', platform);
