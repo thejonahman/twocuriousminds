@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
 import { videos, categories, userPreferences } from "@db/schema";
-import { sql, eq, and, or, ne, inArray, notInArray } from "drizzle-orm";
+import { sql, eq, and, or, ne, inArray, notInArray, desc } from "drizzle-orm";
 import { setupAuth } from "./auth";
 import fetch from "node-fetch";
 
@@ -33,29 +33,59 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
 export function registerRoutes(app: any): Server {
   setupAuth(app);
 
-  app.get("/api/videos", async (_req, res) => {
-    const result = await db.query.videos.findMany({
-      with: {
-        category: true,
-        subcategory: true,
-      },
-      orderBy: (videos) => [videos.title],
-    });
+  app.get("/api/videos", async (req, res) => {
+    try {
+      // Get user preferences if authenticated
+      const preferences = req.user ? await db.query.userPreferences.findFirst({
+        where: eq(userPreferences.userId, req.user.id),
+      }) : null;
 
-    // Update missing thumbnails
-    for (const video of result) {
-      if (!video.thumbnailUrl) {
-        const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
-        if (thumbnailUrl) {
-          await db.update(videos)
-            .set({ thumbnailUrl })
-            .where(eq(videos.id, video.id));
-          video.thumbnailUrl = thumbnailUrl;
+      // Build query conditions
+      const conditions = [];
+
+      // Add preference-based filters if user has preferences
+      if (preferences) {
+        if (preferences.excludedCategories?.length > 0) {
+          conditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
+        }
+        if (preferences.preferredCategories?.length > 0) {
+          conditions.push(inArray(videos.categoryId, preferences.preferredCategories));
+        }
+        if (preferences.preferredPlatforms?.length > 0) {
+          conditions.push(inArray(videos.platform, preferences.preferredPlatforms));
         }
       }
-    }
 
-    res.json(result);
+      const result = await db.query.videos.findMany({
+        where: conditions.length > 0 ? and(...conditions) : undefined,
+        with: {
+          category: true,
+          subcategory: true,
+        },
+        orderBy: (videos) => [desc(videos.createdAt)],
+      });
+
+      // Update missing thumbnails
+      for (const video of result) {
+        if (!video.thumbnailUrl) {
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
+          if (thumbnailUrl) {
+            await db.update(videos)
+              .set({ thumbnailUrl })
+              .where(eq(videos.id, video.id));
+            video.thumbnailUrl = thumbnailUrl;
+          }
+        }
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error('Error fetching videos:', error);
+      res.status(500).json({ 
+        message: "Failed to fetch videos",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   });
 
   app.get("/api/videos/:id", async (req, res) => {
