@@ -248,6 +248,19 @@ export function registerRoutes(app: any): Server {
         limit: 5,
       });
 
+      // Update missing thumbnails for recommendations
+      for (const video of recommendations) {
+        if (!video.thumbnailUrl) {
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
+          if (thumbnailUrl) {
+            await db.update(videos)
+              .set({ thumbnailUrl })
+              .where(eq(videos.id, video.id));
+            video.thumbnailUrl = thumbnailUrl;
+          }
+        }
+      }
+
       res.json(recommendations);
     } catch (error) {
       console.error('Error in recommendations:', error);
