@@ -18,56 +18,64 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
       }
       case 'tiktok': {
         if (title?.toLowerCase().includes('rsd')) {
-          // Enhanced RSD thumbnail with better visual design
+          // Enhanced RSD thumbnail with 16:9 aspect ratio
           return 'data:image/svg+xml;base64,' + Buffer.from(`
-            <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
+            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
               <defs>
-                <pattern id="smallGrid" width="10" height="10" patternUnits="userSpaceOnUse">
-                  <path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" stroke-width="0.5" opacity="0.1"/>
+                <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="white" stroke-width="0.5" opacity="0.1"/>
                 </pattern>
               </defs>
+
+              <!-- Background -->
               <rect width="100%" height="100%" fill="#4A148C"/>
               <rect width="100%" height="100%" fill="url(#smallGrid)"/>
-              <rect x="15" y="15" width="285" height="530" rx="20" fill="white" opacity="0.97"/>
 
-              <!-- Large decorative circle -->
-              <circle cx="157.5" cy="220" r="80" fill="#FFB6C1" opacity="0.9"/>
-              <circle cx="157.5" cy="220" r="70" fill="#FF69B4" opacity="0.7"/>
+              <!-- Content area -->
+              <rect x="40" y="40" width="1200" height="640" rx="20" fill="white" opacity="0.97"/>
 
-              <!-- Title and subtitle with better spacing -->
-              <text x="157.5" y="380" font-family="Arial" font-size="32" fill="#333" text-anchor="middle" font-weight="bold">
+              <!-- Main visual element -->
+              <circle cx="400" cy="360" r="200" fill="#FFB6C1" opacity="0.9"/>
+              <circle cx="400" cy="360" r="180" fill="#FF69B4" opacity="0.7"/>
+
+              <!-- Title and subtitle -->
+              <text x="800" y="300" font-family="Arial" font-size="80" fill="#333" text-anchor="middle" font-weight="bold">
                 RSD and ADHD
               </text>
-              <text x="157.5" y="425" font-family="Arial" font-size="20" fill="#666" text-anchor="middle">
+              <text x="800" y="400" font-family="Arial" font-size="48" fill="#666" text-anchor="middle">
                 Understanding RSD
               </text>
 
               <!-- Decorative elements -->
-              <circle cx="80" cy="480" r="15" fill="#4A148C" opacity="0.2"/>
-              <circle cx="235" cy="480" r="15" fill="#4A148C" opacity="0.2"/>
+              <circle cx="200" cy="600" r="30" fill="#4A148C" opacity="0.2"/>
+              <circle cx="1080" cy="600" r="30" fill="#4A148C" opacity="0.2"/>
             </svg>
           `).toString('base64');
         } else if (title?.toLowerCase().includes('adhd')) {
-          // Other ADHD content thumbnail with consistent styling
+          // Other ADHD content thumbnail with 16:9 aspect ratio
           return 'data:image/svg+xml;base64,' + Buffer.from(`
-            <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
+            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
               <defs>
-                <pattern id="smallGrid" width="10" height="10" patternUnits="userSpaceOnUse">
-                  <path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" stroke-width="0.5" opacity="0.1"/>
+                <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="white" stroke-width="0.5" opacity="0.1"/>
                 </pattern>
               </defs>
+
+              <!-- Background -->
               <rect width="100%" height="100%" fill="#4A148C"/>
               <rect width="100%" height="100%" fill="url(#smallGrid)"/>
-              <rect x="15" y="15" width="285" height="530" rx="20" fill="white" opacity="0.97"/>
+
+              <!-- Content area -->
+              <rect x="40" y="40" width="1200" height="640" rx="20" fill="white" opacity="0.97"/>
 
               <!-- Title with better spacing and wrapping -->
-              <text x="157.5" y="280" font-family="Arial" font-size="28" fill="#333" text-anchor="middle" font-weight="bold">
-                <tspan x="157.5" dy="0">${title?.length > 40 ? title.substring(0, 40) + '...' : title}</tspan>
+              <text x="640" y="360" font-family="Arial" font-size="64" fill="#333" text-anchor="middle" font-weight="bold">
+                <tspan x="640" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
               </text>
 
               <!-- Decorative elements -->
-              <circle cx="80" cy="480" r="15" fill="#4A148C" opacity="0.2"/>
-              <circle cx="235" cy="480" r="15" fill="#4A148C" opacity="0.2"/>
+              <circle cx="200" cy="600" r="30" fill="#4A148C" opacity="0.2"/>
+              <circle cx="1080" cy="600" r="30" fill="#4A148C" opacity="0.2"/>
             </svg>
           `).toString('base64');
         }

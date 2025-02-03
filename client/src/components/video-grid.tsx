@@ -34,7 +34,11 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
   };
 
   const handleThumbnailError = (videoId: number) => {
-    setFailedThumbnails(prev => new Set([...prev, videoId]));
+    setFailedThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.add(videoId);
+      return newSet;
+    });
   };
 
   return (
@@ -55,7 +59,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}
-                    className="absolute inset-0 w-full h-full object-contain bg-white dark:bg-gray-900"
+                    className="absolute inset-0 w-full h-full object-cover bg-white dark:bg-gray-900"
                     loading="lazy"
                     onError={() => handleThumbnailError(video.id)}
                   />
