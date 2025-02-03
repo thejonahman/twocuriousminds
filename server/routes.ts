@@ -208,10 +208,6 @@ export function registerRoutes(app: any): Server {
       // Get current video details
       const currentVideo = await db.query.videos.findFirst({
         where: eq(videos.id, videoId),
-        with: {
-          category: true,
-          subcategory: true,
-        },
       });
 
       if (!currentVideo) {
@@ -224,42 +220,33 @@ export function registerRoutes(app: any): Server {
         where: eq(recommendationPreferences.sessionId, sessionId),
       }) : null;
 
-      // Build the base query
+      // Start with base condition to exclude current video
       const baseConditions = [ne(videos.id, videoId)];
 
-      // Add preference filters if they exist
+      // Add preference-based conditions
       if (preferences) {
-        if (preferences.excludedCategories?.length) {
+        if (preferences.excludedCategories?.length > 0) {
           baseConditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
         }
-        if (preferences.preferredCategories?.length) {
+        if (preferences.preferredCategories?.length > 0) {
           baseConditions.push(inArray(videos.categoryId, preferences.preferredCategories));
         }
-        if (preferences.preferredPlatforms?.length) {
+        if (preferences.preferredPlatforms?.length > 0) {
           baseConditions.push(inArray(videos.platform, preferences.preferredPlatforms));
         }
       }
 
-      // If no category preferences, use similarity-based recommendations
+      // Add similarity-based conditions if no category preferences
       if (!preferences?.preferredCategories?.length) {
-        const similarityConditions = [];
-
-        // Add subcategory condition if it exists
-        if (currentVideo.subcategoryId) {
-          similarityConditions.push(eq(videos.subcategoryId, currentVideo.subcategoryId));
-        }
-
-        // Always include category and platform conditions
-        similarityConditions.push(eq(videos.categoryId, currentVideo.categoryId));
-        similarityConditions.push(eq(videos.platform, currentVideo.platform));
-
-        // Add the similarity conditions as an OR group
-        if (similarityConditions.length > 0) {
-          baseConditions.push(or(...similarityConditions));
-        }
+        baseConditions.push(
+          or(
+            eq(videos.categoryId, currentVideo.categoryId),
+            eq(videos.platform, currentVideo.platform)
+          )
+        );
       }
 
-      // Get recommendations using the combined conditions
+      // Execute query with all conditions
       const recommendations = await db.query.videos.findMany({
         where: and(...baseConditions),
         with: {
@@ -269,23 +256,13 @@ export function registerRoutes(app: any): Server {
         limit: 5,
       });
 
-      // Update thumbnails if missing
-      for (const video of recommendations) {
-        if (!video.thumbnailUrl) {
-          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
-          if (thumbnailUrl) {
-            await db.update(videos)
-              .set({ thumbnailUrl })
-              .where(eq(videos.id, video.id));
-            video.thumbnailUrl = thumbnailUrl;
-          }
-        }
-      }
-
       res.json(recommendations);
     } catch (error) {
-      console.error('Error getting recommendations:', error);
-      res.status(500).json({ message: "Failed to get recommendations" });
+      console.error('Error in recommendations:', error);
+      res.status(500).json({ 
+        message: "Failed to get recommendations",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 

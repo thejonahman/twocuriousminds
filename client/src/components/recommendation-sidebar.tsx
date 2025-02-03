@@ -37,7 +37,8 @@ export function RecommendationSidebar({
 
   const { data: recommendations, isLoading, error } = useQuery<Video[]>({
     queryKey: [`/api/videos/${currentVideoId}/recommendations`],
-    retry: 1, // Only retry once to avoid infinite loops on permanent failures
+    retry: 2,
+    retryDelay: 1000,
   });
 
   const feedbackMutation = useMutation({
@@ -70,22 +71,19 @@ export function RecommendationSidebar({
 
   if (isLoading) {
     return (
-      <Card>
+      <Card className="backdrop-blur-sm bg-background/95">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold animate-pulse bg-muted w-32 h-6 rounded" />
-            <p className="text-sm text-muted-foreground animate-pulse bg-muted w-48 h-4 mt-2 rounded" />
+            <h3 className="text-lg font-semibold">Related Videos</h3>
+            <p className="text-sm text-muted-foreground">Loading recommendations...</p>
           </div>
           <PreferencesDialog />
         </CardHeader>
         <CardContent className="space-y-4">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="animate-pulse">
-              <div className="aspect-video bg-muted rounded-lg mb-2" />
-              <div className="space-y-2">
-                <div className="h-4 bg-muted rounded w-3/4" />
-                <div className="h-4 bg-muted rounded w-1/2" />
-              </div>
+            <div key={i} className="space-y-2">
+              <div className="aspect-video bg-muted rounded-lg animate-pulse" />
+              <div className="h-4 w-3/4 bg-muted rounded animate-pulse" />
             </div>
           ))}
         </CardContent>
@@ -98,8 +96,8 @@ export function RecommendationSidebar({
       <Card className="backdrop-blur-sm bg-background/95">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold tracking-tight">Related Videos</h3>
-            <p className="text-sm text-muted-foreground">Error loading recommendations</p>
+            <h3 className="text-lg font-semibold">Related Videos</h3>
+            <p className="text-sm text-muted-foreground text-destructive">Error loading recommendations</p>
           </div>
           <PreferencesDialog />
         </CardHeader>
@@ -117,13 +115,15 @@ export function RecommendationSidebar({
       <Card className="backdrop-blur-sm bg-background/95">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold tracking-tight">Related Videos</h3>
+            <h3 className="text-lg font-semibold">Related Videos</h3>
             <p className="text-sm text-muted-foreground">No recommendations found</p>
           </div>
           <PreferencesDialog />
         </CardHeader>
         <CardContent className="p-4">
-          <p className="text-muted-foreground text-center">No related videos available</p>
+          <p className="text-muted-foreground text-center">
+            No related videos available at the moment
+          </p>
         </CardContent>
       </Card>
     );
