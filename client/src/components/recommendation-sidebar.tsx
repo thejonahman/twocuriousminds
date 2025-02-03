@@ -90,29 +90,46 @@ export function RecommendationSidebar({
   }
 
   if (!recommendations?.length) {
-    return null;
+    return (
+      <Card className="backdrop-blur-sm bg-background/95">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold tracking-tight">Related Videos</h3>
+            <p className="text-sm text-muted-foreground">No recommendations found</p>
+          </div>
+          <PreferencesDialog />
+        </CardHeader>
+        <CardContent className="p-4">
+          <p className="text-muted-foreground text-center">No related videos available</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   const handleFeedback = (recommendedId: number, isRelevant: boolean) => {
     feedbackMutation.mutate({ recommendedId, isRelevant });
   };
 
+  const firstRecommendation = recommendations[0];
+
   return (
     <Card className="backdrop-blur-sm bg-background/95">
       <CardHeader className="flex flex-row items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold tracking-tight">Related Videos</h3>
-          <p className="text-sm text-muted-foreground">
-            Based on {recommendations[0].category.name}
-            {recommendations[0].subcategory && (
-              <span className="inline-flex items-center">
-                <svg className="w-3 h-3 mx-1 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M9 18l6-6-6-6" />
-                </svg>
-                {recommendations[0].subcategory.name}
-              </span>
-            )}
-          </p>
+          {firstRecommendation && (
+            <p className="text-sm text-muted-foreground">
+              Based on {firstRecommendation.category.name}
+              {firstRecommendation.subcategory && (
+                <span className="inline-flex items-center">
+                  <svg className="w-3 h-3 mx-1 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M9 18l6-6-6-6" />
+                  </svg>
+                  {firstRecommendation.subcategory.name}
+                </span>
+              )}
+            </p>
+          )}
         </div>
         <PreferencesDialog />
       </CardHeader>
