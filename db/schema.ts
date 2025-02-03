@@ -36,6 +36,14 @@ export const chatMessages = pgTable("chat_messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const recommendationFeedback = pgTable("recommendation_feedback", {
+  id: serial("id").primaryKey(),
+  videoId: integer("video_id").references(() => videos.id),
+  recommendedVideoId: integer("recommended_video_id").references(() => videos.id),
+  isRelevant: boolean("is_relevant").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const videoRelations = relations(videos, ({ one }) => ({
   category: one(categories, {
     fields: [videos.categoryId],
@@ -61,6 +69,18 @@ export const chatMessageRelations = relations(chatMessages, ({ one }) => ({
   }),
 }));
 
+export const recommendationFeedbackRelations = relations(recommendationFeedback, ({ one }) => ({
+  video: one(videos, {
+    fields: [recommendationFeedback.videoId],
+    references: [videos.id],
+  }),
+  recommendedVideo: one(videos, {
+    fields: [recommendationFeedback.recommendedVideoId],
+    references: [videos.id],
+  }),
+}));
+
+// Create Zod schemas for type safety
 export const insertVideoSchema = createInsertSchema(videos);
 export const selectVideoSchema = createSelectSchema(videos);
 export const insertCategorySchema = createInsertSchema(categories);
@@ -69,3 +89,5 @@ export const insertSubcategorySchema = createInsertSchema(subcategories);
 export const selectSubcategorySchema = createSelectSchema(subcategories);
 export const insertChatMessageSchema = createInsertSchema(chatMessages);
 export const selectChatMessageSchema = createSelectSchema(chatMessages);
+export const insertRecommendationFeedbackSchema = createInsertSchema(recommendationFeedback);
+export const selectRecommendationFeedbackSchema = createSelectSchema(recommendationFeedback);

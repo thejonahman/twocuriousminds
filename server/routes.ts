@@ -1,6 +1,6 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
-import { videos, categories, chatMessages } from "@db/schema";
+import { videos, categories, chatMessages, recommendationFeedback } from "@db/schema";
 import { sql, eq, and, or, ne } from "drizzle-orm";
 import fetch from "node-fetch";
 
@@ -193,6 +193,27 @@ export function registerRoutes(app: any): Server {
 
     res.json(recommendations);
   });
+
+  // Add new recommendation feedback endpoint
+  app.post("/api/videos/:id/recommendations/:recommendedId/feedback", async (req, res) => {
+    const videoId = parseInt(req.params.id);
+    const recommendedVideoId = parseInt(req.params.recommendedId);
+    const { isRelevant } = req.body;
+
+    try {
+      const feedback = await db.insert(recommendationFeedback).values({
+        videoId,
+        recommendedVideoId,
+        isRelevant,
+      }).returning();
+
+      res.json(feedback[0]);
+    } catch (error) {
+      console.error('Error saving recommendation feedback:', error);
+      res.status(500).json({ message: "Failed to save feedback" });
+    }
+  });
+
 
   return createServer(app);
 }

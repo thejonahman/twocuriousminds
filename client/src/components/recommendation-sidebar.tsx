@@ -1,10 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import { Youtube, Instagram, ExternalLink } from "lucide-react";
+import { Youtube, Instagram, ExternalLink, ThumbsUp, ThumbsDown } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { apiRequest } from "@/lib/queryClient";
 
 interface Video {
   id: number;
@@ -28,8 +31,26 @@ export function RecommendationSidebar({
   categoryId: number;
   subcategoryId?: number;
 }) {
+  const [feedbackGiven, setFeedbackGiven] = useState<Record<number, boolean>>({});
+  const queryClient = useQueryClient();
+
   const { data: recommendations, isLoading } = useQuery<Video[]>({
     queryKey: [`/api/videos/${currentVideoId}/recommendations`],
+  });
+
+  const feedbackMutation = useMutation({
+    mutationFn: async ({ recommendedId, isRelevant }: { recommendedId: number, isRelevant: boolean }) => {
+      const res = await apiRequest(
+        "POST", 
+        `/api/videos/${currentVideoId}/recommendations/${recommendedId}/feedback`,
+        { isRelevant }
+      );
+      return res.json();
+    },
+    onSuccess: (_, { recommendedId }) => {
+      setFeedbackGiven(prev => ({ ...prev, [recommendedId]: true }));
+      queryClient.invalidateQueries({ queryKey: [`/api/videos/${currentVideoId}/recommendations`] });
+    },
   });
 
   const getPlatformIcon = (platform: string) => {
@@ -71,6 +92,10 @@ export function RecommendationSidebar({
     return null;
   }
 
+  const handleFeedback = (recommendedId: number, isRelevant: boolean) => {
+    feedbackMutation.mutate({ recommendedId, isRelevant });
+  };
+
   return (
     <Card className="backdrop-blur-sm bg-background/95">
       <CardHeader>
@@ -89,12 +114,11 @@ export function RecommendationSidebar({
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {recommendations.map((video) => (
-          <Link 
-            key={video.id} 
-            href={`/video/${video.id}`}
-            className="block"
-          >
-            <div className="group relative space-y-2 rounded-lg transition-all duration-300 hover:bg-accent/50 p-2 -mx-2">
+          <div key={video.id} className="group relative space-y-2 rounded-lg transition-all duration-300 hover:bg-accent/50 p-2 -mx-2">
+            <Link 
+              href={`/video/${video.id}`}
+              className="block"
+            >
               <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
                 {video.thumbnailUrl ? (
                   <>
@@ -124,10 +148,12 @@ export function RecommendationSidebar({
                   </Badge>
                 </div>
               </div>
-              <div className="space-y-1">
-                <h4 className="font-medium line-clamp-2 transition-colors duration-300 group-hover:text-primary">
-                  {video.title}
-                </h4>
+            </Link>
+            <div className="space-y-1">
+              <h4 className="font-medium line-clamp-2 transition-colors duration-300 group-hover:text-primary">
+                {video.title}
+              </h4>
+              <div className="flex items-center justify-between">
                 {video.subcategory && (
                   <Badge 
                     variant="outline" 
@@ -136,9 +162,31 @@ export function RecommendationSidebar({
                     {video.subcategory.name}
                   </Badge>
                 )}
+                {!feedbackGiven[video.id] && (
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleFeedback(video.id, true)}
+                      className="h-8 w-8"
+                      disabled={feedbackMutation.isPending}
+                    >
+                      <ThumbsUp className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleFeedback(video.id, false)}
+                      className="h-8 w-8"
+                      disabled={feedbackMutation.isPending}
+                    >
+                      <ThumbsDown className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
-          </Link>
+          </div>
         ))}
       </CardContent>
     </Card>
