@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
 import { videos, categories, chatMessages } from "@db/schema";
-import { eq } from "drizzle-orm";
+import { sql, eq, and, or, ne } from "drizzle-orm";
 import fetch from "node-fetch";
 
 async function getThumbnailUrl(url: string, platform: string): Promise<string | null> {
@@ -133,6 +133,65 @@ export function registerRoutes(app: any): Server {
       orderBy: (messages) => [messages.createdAt],
     });
     res.json(messages);
+  });
+
+  // Add new recommendation endpoint
+  app.get("/api/videos/:id/recommendations", async (req, res) => {
+    const videoId = parseInt(req.params.id);
+
+    // First get the current video's details
+    const currentVideo = await db.query.videos.findFirst({
+      where: eq(videos.id, videoId),
+      with: {
+        category: true,
+        subcategory: true,
+      },
+    });
+
+    if (!currentVideo) {
+      res.status(404).json({ message: "Video not found" });
+      return;
+    }
+
+    // Get recommendations based on:
+    // 1. Same subcategory first
+    // 2. Same category if not enough results
+    // 3. Same platform if still not enough
+    const recommendations = await db.query.videos.findMany({
+      where: and(
+        ne(videos.id, videoId),
+        or(
+          // Same subcategory
+          currentVideo.subcategoryId 
+            ? eq(videos.subcategoryId, currentVideo.subcategoryId)
+            : undefined,
+          // Same category
+          eq(videos.categoryId, currentVideo.categoryId),
+          // Same platform as fallback
+          eq(videos.platform, currentVideo.platform)
+        )
+      ),
+      with: {
+        category: true,
+        subcategory: true,
+      },
+      limit: 5,
+    });
+
+    // Update thumbnails if missing
+    for (const video of recommendations) {
+      if (!video.thumbnailUrl) {
+        const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
+        if (thumbnailUrl) {
+          await db.update(videos)
+            .set({ thumbnailUrl })
+            .where(eq(videos.id, video.id));
+          video.thumbnailUrl = thumbnailUrl;
+        }
+      }
+    }
+
+    res.json(recommendations);
   });
 
   return createServer(app);
