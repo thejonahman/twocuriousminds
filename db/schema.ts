@@ -46,7 +46,6 @@ export const videos = pgTable("videos", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Define relations
 export const userRelations = relations(users, ({ one }) => ({
   preferences: one(userPreferences, {
     fields: [users.id],
@@ -73,21 +72,18 @@ export const subcategoryRelations = relations(subcategories, ({ one }) => ({
 }));
 
 // Create Zod schemas
-export const insertVideoSchema = createInsertSchema(videos);
-export const selectVideoSchema = createSelectSchema(videos);
-export const insertCategorySchema = createInsertSchema(categories);
-export const selectCategorySchema = createSelectSchema(categories);
-export const insertSubcategorySchema = createInsertSchema(subcategories);
-export const selectSubcategorySchema = createSelectSchema(subcategories);
-
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3).max(50),
   email: z.string().email(),
   password: z.string().min(8),
 });
+
 export const selectUserSchema = createSelectSchema(users, {
   password: z.string().optional(),
 });
+
+export type SelectUser = z.infer<typeof selectUserSchema>;
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
 export const selectUserPreferencesSchema = createSelectSchema(userPreferences);
