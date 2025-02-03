@@ -29,6 +29,7 @@ interface Video {
 }
 
 export default function Home() {
+  // Initialize all hooks first
   const [searchQuery, setSearchQuery] = useState("");
   const search = useSearch();
   const params = new URLSearchParams(search);
@@ -38,6 +39,16 @@ export default function Home() {
   const { data: videos, isLoading } = useQuery<Video[]>({
     queryKey: ["/api/videos"],
   });
+
+  // Effect to scroll to the subcategory
+  useEffect(() => {
+    if (initialSubcategoryId && videos) {
+      const element = document.getElementById(`subcategory-${initialSubcategoryId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [initialSubcategoryId, videos]);
 
   if (isLoading) {
     return (
@@ -92,16 +103,6 @@ export default function Home() {
   const sortedCategories = videosByCategory ? Object.entries(videosByCategory).sort(([,a], [,b]) => 
     a.name.localeCompare(b.name)
   ) : [];
-
-  useEffect(() => {
-    if (initialSubcategoryId) {
-      const element = document.getElementById(`subcategory-${initialSubcategoryId}`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-  }, [initialSubcategoryId, videos]);
-
 
   return (
     <div className="space-y-6">

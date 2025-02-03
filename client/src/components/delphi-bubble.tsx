@@ -1,6 +1,10 @@
 import Script from "@/components/ui/script";
 
-export function DelphiBubble() {
+interface DelphiBubbleProps {
+  videoId?: number;  // Make it optional since it's not used in the current implementation
+}
+
+export function DelphiBubble({ videoId }: DelphiBubbleProps) {
   return (
     <>
       <Script
