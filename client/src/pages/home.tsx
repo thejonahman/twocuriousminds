@@ -6,7 +6,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation, useSearch } from "wouter";
 
 interface Video {
   id: number;
@@ -29,6 +30,11 @@ interface Video {
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const initialCategoryId = params.get('category');
+  const initialSubcategoryId = params.get('subcategory');
+
   const { data: videos, isLoading } = useQuery<Video[]>({
     queryKey: ["/api/videos"],
   });
@@ -87,6 +93,16 @@ export default function Home() {
     a.name.localeCompare(b.name)
   ) : [];
 
+  useEffect(() => {
+    if (initialSubcategoryId) {
+      const element = document.getElementById(`subcategory-${initialSubcategoryId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [initialSubcategoryId, videos]);
+
+
   return (
     <div className="space-y-6">
       <div className="space-y-2">
@@ -129,7 +145,10 @@ export default function Home() {
           <VideoGrid videos={filteredVideos || []} />
         </div>
       ) : (
-        <Tabs defaultValue={sortedCategories[0]?.[0]} className="space-y-4">
+        <Tabs 
+          defaultValue={initialCategoryId || sortedCategories[0]?.[0]} 
+          className="space-y-4"
+        >
           <TabsList className="h-auto flex-wrap">
             {sortedCategories.map(([id, category]) => (
               <TabsTrigger key={id} value={id} className="text-base py-2">
