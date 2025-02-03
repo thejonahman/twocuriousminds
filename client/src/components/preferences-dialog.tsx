@@ -1,21 +1,16 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Settings } from "lucide-react";
+import { Settings, ThumbsDown, Youtube, Instagram } from "lucide-react";
+import { SiTiktok } from "react-icons/si";
 import { apiRequest } from "@/lib/queryClient";
 
 interface Category {
   id: number;
   name: string;
-}
-
-interface Platform {
-  id: string;
-  name: string;
-  icon: JSX.Element;
 }
 
 interface PreferencesData {
@@ -37,9 +32,9 @@ export function PreferencesDialog() {
   });
 
   const platforms = [
-    { id: "youtube", name: "YouTube" },
-    { id: "tiktok", name: "TikTok" },
-    { id: "instagram", name: "Instagram" },
+    { id: "youtube", name: "YouTube", icon: <Youtube className="h-4 w-4 text-red-500" /> },
+    { id: "tiktok", name: "TikTok", icon: <SiTiktok className="h-4 w-4" /> },
+    { id: "instagram", name: "Instagram", icon: <Instagram className="h-4 w-4 text-pink-500" /> },
   ];
 
   const mutation = useMutation({
@@ -102,47 +97,86 @@ export function PreferencesDialog() {
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Recommendation Preferences</DialogTitle>
+          <DialogTitle>Content Preferences</DialogTitle>
+          <DialogDescription>
+            Customize your learning experience by selecting topics you're interested in and platforms you prefer.
+          </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-6 py-4">
+        <div className="grid gap-6 py-6">
           <div>
-            <h3 className="font-medium mb-3">Content Categories</h3>
-            <ScrollArea className="h-[200px] rounded-md border p-4">
-              <div className="grid grid-cols-2 gap-2">
+            <h3 className="font-medium mb-2">Content Categories</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Select categories you're interested in or want to exclude from recommendations.
+            </p>
+            <ScrollArea className="h-[300px] rounded-md border">
+              <div className="p-4 grid gap-4">
                 {categories?.map((category) => (
-                  <div key={category.id} className="flex items-center gap-2">
-                    <Badge
-                      variant={preferences?.preferredCategories.includes(category.id) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => toggleCategory(category.id, "preferred")}
-                    >
-                      {category.name}
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className={preferences?.excludedCategories.includes(category.id) ? "text-destructive" : ""}
-                      onClick={() => toggleCategory(category.id, "excluded")}
-                    >
-                      {preferences?.excludedCategories.includes(category.id) ? "Excluded" : "Exclude"}
-                    </Button>
+                  <div 
+                    key={category.id} 
+                    className={`p-3 rounded-lg transition-colors ${
+                      preferences?.preferredCategories.includes(category.id)
+                        ? 'bg-primary/10'
+                        : preferences?.excludedCategories.includes(category.id)
+                        ? 'bg-destructive/10'
+                        : 'hover:bg-accent'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <Badge
+                        variant={preferences?.preferredCategories.includes(category.id) ? "default" : "outline"}
+                        className="text-base font-normal py-1.5"
+                      >
+                        {category.name}
+                      </Badge>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`gap-2 ${
+                            preferences?.preferredCategories.includes(category.id)
+                              ? 'text-primary hover:text-primary'
+                              : ''
+                          }`}
+                          onClick={() => toggleCategory(category.id, "preferred")}
+                        >
+                          {preferences?.preferredCategories.includes(category.id) ? "Selected" : "Select"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`gap-2 ${
+                            preferences?.excludedCategories.includes(category.id)
+                              ? 'text-destructive hover:text-destructive'
+                              : ''
+                          }`}
+                          onClick={() => toggleCategory(category.id, "excluded")}
+                        >
+                          <ThumbsDown className="h-4 w-4" />
+                          {preferences?.excludedCategories.includes(category.id) ? "Excluded" : "Exclude"}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
             </ScrollArea>
           </div>
           <div>
-            <h3 className="font-medium mb-3">Platforms</h3>
-            <div className="flex gap-2">
+            <h3 className="font-medium mb-2">Preferred Platforms</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Choose which platforms you prefer to watch content from.
+            </p>
+            <div className="flex gap-3">
               {platforms.map((platform) => (
-                <Badge
+                <Button
                   key={platform.id}
                   variant={preferences?.preferredPlatforms.includes(platform.id) ? "default" : "outline"}
-                  className="cursor-pointer"
+                  className="gap-2"
                   onClick={() => togglePlatform(platform.id)}
                 >
+                  {platform.icon}
                   {platform.name}
-                </Badge>
+                </Button>
               ))}
             </div>
           </div>
