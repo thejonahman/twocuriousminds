@@ -18,46 +18,17 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
       }
       case 'tiktok': {
         if (title?.toLowerCase().includes('rsd')) {
-          // Special thumbnail for RSD video
+          // Simplified RSD thumbnail matching the reference image
           return 'data:image/svg+xml;base64,' + Buffer.from(`
             <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#6B46C1;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#4A148C;stop-opacity:1" />
-                </linearGradient>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grad1)"/>
-              <rect x="20" y="20" width="275" height="520" rx="15" fill="#FFF" opacity="0.95"/>
-
-              <!-- Main character -->
-              <circle cx="157.5" cy="250" r="50" fill="#FFB6C1"/>
-              <path d="M137.5 240 L177.5 240" stroke="#333" stroke-width="3"/>
-              <path d="M142.5 260 Q157.5 270 172.5 260" stroke="#333" stroke-width="3" fill="none"/>
-
-              <!-- Pointing fingers -->
-              <g transform="translate(157.5, 250)">
-                ${Array.from({length: 8}).map((_, i) => {
-                  const angle = (i * 45) * Math.PI / 180;
-                  const x1 = Math.cos(angle) * 80;
-                  const y1 = Math.sin(angle) * 80;
-                  const x2 = Math.cos(angle) * 100;
-                  const y2 = Math.sin(angle) * 100;
-                  return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#333" stroke-width="3">
-                    <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" repeatCount="indefinite" begin="${i * 0.25}s"/>
-                  </line>`;
-                }).join('')}
-              </g>
-
-              <!-- Title -->
-              <text x="157.5" y="380" font-family="Arial" font-size="24" fill="#333" text-anchor="middle" font-weight="bold">
+              <rect width="100%" height="100%" fill="#4A148C"/>
+              <rect x="20" y="20" width="275" height="520" rx="15" fill="white" opacity="0.95"/>
+              <circle cx="157.5" cy="200" r="40" fill="#FFB6C1"/>
+              <text x="157.5" y="320" font-family="Arial" font-size="24" fill="#333" text-anchor="middle" font-weight="bold">
                 RSD and ADHD
               </text>
-              <text x="157.5" y="410" font-family="Arial" font-size="16" fill="#666" text-anchor="middle">
-                Understanding Rejection
-              </text>
-              <text x="157.5" y="430" font-family="Arial" font-size="16" fill="#666" text-anchor="middle">
-                Sensitive Dysphoria
+              <text x="157.5" y="360" font-family="Arial" font-size="16" fill="#666" text-anchor="middle">
+                Understanding RSD
               </text>
             </svg>
           `).toString('base64');
@@ -65,21 +36,11 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
           // Other ADHD content thumbnail
           return 'data:image/svg+xml;base64,' + Buffer.from(`
             <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#FFB6C1;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#E6E6FA;stop-opacity:1" />
-                </linearGradient>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#grad1)"/>
+              <rect width="100%" height="100%" fill="#4A148C"/>
               <rect x="20" y="20" width="275" height="520" rx="15" fill="white" opacity="0.95"/>
-              <text x="157.5" y="200" font-family="Arial" font-size="28" fill="#333333" text-anchor="middle" font-weight="bold">
-                ADHD Basics
-              </text>
-              <text x="157.5" y="280" font-family="Arial" font-size="20" fill="#666666" text-anchor="middle" width="275">
+              <text x="157.5" y="280" font-family="Arial" font-size="28" fill="#333" text-anchor="middle" font-weight="bold">
                 ${title?.length > 40 ? title.substring(0, 40) + '...' : title}
               </text>
-              <path d="M157.5 340 L187.5 360 L157.5 380 Z" fill="#333333"/>
             </svg>
           `).toString('base64');
         }
