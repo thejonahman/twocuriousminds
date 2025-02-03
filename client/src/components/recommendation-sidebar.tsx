@@ -35,8 +35,9 @@ export function RecommendationSidebar({
   const [feedbackGiven, setFeedbackGiven] = useState<Record<number, boolean>>({});
   const queryClient = useQueryClient();
 
-  const { data: recommendations, isLoading } = useQuery<Video[]>({
+  const { data: recommendations, isLoading, error } = useQuery<Video[]>({
     queryKey: [`/api/videos/${currentVideoId}/recommendations`],
+    retry: 1, // Only retry once to avoid infinite loops on permanent failures
   });
 
   const feedbackMutation = useMutation({
@@ -70,9 +71,12 @@ export function RecommendationSidebar({
   if (isLoading) {
     return (
       <Card>
-        <CardHeader>
-          <h3 className="text-lg font-semibold animate-pulse bg-muted w-32 h-6 rounded" />
-          <p className="text-sm text-muted-foreground animate-pulse bg-muted w-48 h-4 mt-2 rounded" />
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold animate-pulse bg-muted w-32 h-6 rounded" />
+            <p className="text-sm text-muted-foreground animate-pulse bg-muted w-48 h-4 mt-2 rounded" />
+          </div>
+          <PreferencesDialog />
         </CardHeader>
         <CardContent className="space-y-4">
           {[1, 2, 3].map((i) => (
@@ -84,6 +88,25 @@ export function RecommendationSidebar({
               </div>
             </div>
           ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="backdrop-blur-sm bg-background/95">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold tracking-tight">Related Videos</h3>
+            <p className="text-sm text-muted-foreground">Error loading recommendations</p>
+          </div>
+          <PreferencesDialog />
+        </CardHeader>
+        <CardContent className="p-4">
+          <p className="text-muted-foreground text-center">
+            Unable to load recommendations. Please try again later.
+          </p>
         </CardContent>
       </Card>
     );

@@ -224,38 +224,44 @@ export function registerRoutes(app: any): Server {
         where: eq(recommendationPreferences.sessionId, sessionId),
       }) : null;
 
-      let baseQuery = and(
-        ne(videos.id, videoId)
-      );
+      // Build the base query
+      const baseConditions = [ne(videos.id, videoId)];
 
       // Add preference filters if they exist
       if (preferences) {
         if (preferences.excludedCategories?.length) {
-          baseQuery = and(baseQuery, notInArray(videos.categoryId, preferences.excludedCategories));
+          baseConditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
         }
         if (preferences.preferredCategories?.length) {
-          baseQuery = and(baseQuery, inArray(videos.categoryId, preferences.preferredCategories));
+          baseConditions.push(inArray(videos.categoryId, preferences.preferredCategories));
         }
         if (preferences.preferredPlatforms?.length) {
-          baseQuery = and(baseQuery, inArray(videos.platform, preferences.preferredPlatforms));
+          baseConditions.push(inArray(videos.platform, preferences.preferredPlatforms));
         }
       }
 
-      // If no preferences, use basic similarity criteria
+      // If no category preferences, use similarity-based recommendations
       if (!preferences?.preferredCategories?.length) {
-        const similarityQuery = [];
-        if (currentVideo.subcategoryId) {
-          similarityQuery.push(eq(videos.subcategoryId, currentVideo.subcategoryId));
-        }
-        similarityQuery.push(eq(videos.categoryId, currentVideo.categoryId));
-        similarityQuery.push(eq(videos.platform, currentVideo.platform));
+        const similarityConditions = [];
 
-        baseQuery = and(baseQuery, or(...similarityQuery));
+        // Add subcategory condition if it exists
+        if (currentVideo.subcategoryId) {
+          similarityConditions.push(eq(videos.subcategoryId, currentVideo.subcategoryId));
+        }
+
+        // Always include category and platform conditions
+        similarityConditions.push(eq(videos.categoryId, currentVideo.categoryId));
+        similarityConditions.push(eq(videos.platform, currentVideo.platform));
+
+        // Add the similarity conditions as an OR group
+        if (similarityConditions.length > 0) {
+          baseConditions.push(or(...similarityConditions));
+        }
       }
 
-      // Get recommendations
+      // Get recommendations using the combined conditions
       const recommendations = await db.query.videos.findMany({
-        where: baseQuery,
+        where: and(...baseConditions),
         with: {
           category: true,
           subcategory: true,
