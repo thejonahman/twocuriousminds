@@ -127,26 +127,38 @@ export function registerRoutes(app: any): Server {
     const { preferredCategories, preferredPlatforms, excludedCategories } = req.body;
 
     try {
-      const result = await db
-        .insert(userPreferences)
-        .values({
-          userId: req.user.id,
-          preferredCategories,
-          preferredPlatforms,
-          excludedCategories,
-        })
-        .onConflictDoUpdate({
-          target: [userPreferences.userId],
-          set: {
+      // First try to find existing preferences
+      const existingPreferences = await db.query.userPreferences.findFirst({
+        where: eq(userPreferences.userId, req.user.id),
+      });
+
+      let result;
+      if (existingPreferences) {
+        // Update existing preferences
+        [result] = await db
+          .update(userPreferences)
+          .set({
             preferredCategories,
             preferredPlatforms,
             excludedCategories,
             updatedAt: new Date(),
-          },
-        })
-        .returning();
+          })
+          .where(eq(userPreferences.userId, req.user.id))
+          .returning();
+      } else {
+        // Insert new preferences
+        [result] = await db
+          .insert(userPreferences)
+          .values({
+            userId: req.user.id,
+            preferredCategories,
+            preferredPlatforms,
+            excludedCategories,
+          })
+          .returning();
+      }
 
-      res.json(result[0]);
+      res.json(result);
     } catch (error) {
       console.error('Error saving preferences:', error);
       res.status(500).json({ message: "Failed to save preferences" });

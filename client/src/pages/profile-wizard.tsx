@@ -37,6 +37,10 @@ export default function ProfileWizard() {
       preferredPlatforms: string[];
     }) => {
       const res = await apiRequest("POST", "/api/preferences", preferences);
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error || 'Failed to save preferences');
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -44,7 +48,15 @@ export default function ProfileWizard() {
         title: "Preferences saved",
         description: "Your profile has been set up successfully!",
       });
+      // Explicitly navigate to home page after successful save
       navigate("/");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -164,7 +176,11 @@ export default function ProfileWizard() {
               Back
             </Button>
           )}
-          <Button onClick={handleNext} disabled={mutation.isPending}>
+          <Button 
+            onClick={handleNext} 
+            disabled={mutation.isPending}
+            className={step === 1 ? "ml-auto" : ""}
+          >
             {step === 3 ? "Finish" : "Next"}
           </Button>
         </CardFooter>
