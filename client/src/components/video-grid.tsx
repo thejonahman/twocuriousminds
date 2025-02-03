@@ -44,14 +44,18 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
           <Card className="overflow-hidden hover:shadow-lg transition-shadow group">
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted relative group-hover:brightness-90 transition-all">
-                <div className={`absolute inset-0 flex items-center justify-center ${video.thumbnailUrl && !failedThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'}`}>
+                <div 
+                  className={`absolute inset-0 flex items-center justify-center ${
+                    video.thumbnailUrl && !failedThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
+                  }`}
+                >
                   {getPlatformIcon(video.platform)}
                 </div>
                 {video.thumbnailUrl && !failedThumbnails.has(video.id) && (
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}
-                    className="absolute inset-0 w-full h-full object-cover transition-opacity duration-200"
+                    className="absolute inset-0 w-full h-full object-contain bg-white dark:bg-gray-900"
                     loading="lazy"
                     onError={() => handleThumbnailError(video.id)}
                   />

@@ -5,7 +5,7 @@ import { sql, eq, and, or, ne, inArray, notInArray, desc } from "drizzle-orm";
 import { setupAuth } from "./auth";
 import fetch from "node-fetch";
 
-async function getThumbnailUrl(url: string, platform: string): Promise<string | null> {
+async function getThumbnailUrl(url: string, platform: string, title?: string): Promise<string | null> {
   try {
     switch (platform.toLowerCase()) {
       case 'youtube': {
@@ -17,7 +17,21 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
         return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
       }
       case 'tiktok': {
-        // TikTok videos are typically vertical (9:16 aspect ratio)
+        // For ADHD basics content, use a custom thumbnail
+        if (title?.toLowerCase().includes('adhd')) {
+          return 'data:image/svg+xml;base64,' + btoa(`
+            <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
+              <rect width="100%" height="100%" fill="#FFE4E1"/>
+              <text x="50%" y="45%" font-family="Arial" font-size="24" fill="#4A4A4A" text-anchor="middle">
+                ADHD Basics
+              </text>
+              <text x="50%" y="55%" font-family="Arial" font-size="18" fill="#666666" text-anchor="middle">
+                ${title}
+              </text>
+            </svg>
+          `);
+        }
+        // Default TikTok thumbnail
         return 'data:image/svg+xml;base64,' + btoa(`
           <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
             <rect width="100%" height="100%" fill="#1F1F1F"/>
@@ -28,7 +42,21 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
         `);
       }
       case 'instagram': {
-        // Instagram posts are typically square (1:1 aspect ratio)
+        // For ADHD basics content, use a custom thumbnail
+        if (title?.toLowerCase().includes('adhd')) {
+          return 'data:image/svg+xml;base64,' + btoa(`
+            <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+              <rect width="100%" height="100%" fill="#E1FFE4"/>
+              <text x="50%" y="45%" font-family="Arial" font-size="24" fill="#4A4A4A" text-anchor="middle">
+                ADHD Basics
+              </text>
+              <text x="50%" y="55%" font-family="Arial" font-size="18" fill="#666666" text-anchor="middle">
+                ${title}
+              </text>
+            </svg>
+          `);
+        }
+        // Default Instagram thumbnail
         return 'data:image/svg+xml;base64,' + btoa(`
           <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
             <rect width="100%" height="100%" fill="#1F1F1F"/>
@@ -86,7 +114,7 @@ export function registerRoutes(app: any): Server {
       // Update missing thumbnails
       for (const video of result) {
         if (!video.thumbnailUrl) {
-          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform, video.title);
           if (thumbnailUrl) {
             await db.update(videos)
               .set({ thumbnailUrl })
@@ -121,7 +149,7 @@ export function registerRoutes(app: any): Server {
     }
 
     if (!result.thumbnailUrl) {
-      const thumbnailUrl = await getThumbnailUrl(result.url, result.platform);
+      const thumbnailUrl = await getThumbnailUrl(result.url, result.platform, result.title);
       if (thumbnailUrl) {
         await db.update(videos)
           .set({ thumbnailUrl })
@@ -269,7 +297,7 @@ export function registerRoutes(app: any): Server {
       // Update missing thumbnails for recommendations
       for (const video of recommendations) {
         if (!video.thumbnailUrl) {
-          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform, video.title);
           if (thumbnailUrl) {
             await db.update(videos)
               .set({ thumbnailUrl })
