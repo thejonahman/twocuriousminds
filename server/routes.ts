@@ -34,221 +34,100 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
           }
         }
 
-        // RSD/ADHD themed thumbnail
+        // ADHD/RSD themed thumbnail
         if (titleLower.includes('rsd') || titleLower.includes('adhd')) {
-          return 'data:image/svg+xml;base64,' + Buffer.from(`
-            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="white" stroke-width="0.5" opacity="0.1"/>
-                </pattern>
-                <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#4A148C;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#7B1FA2;stop-opacity:1" />
-                </linearGradient>
-              </defs>
-
-              <!-- Background -->
-              <rect width="100%" height="100%" fill="url(#purpleGrad)"/>
-              <rect width="100%" height="100%" fill="url(#smallGrid)"/>
-
-              <!-- Content area with outline -->
-              <rect x="40" y="40" width="1200" height="640" rx="20" 
-                    fill="white" opacity="0.97"
-                    stroke="#4A148C" stroke-width="4"/>
-
-              <!-- Main visual element -->
-              <circle cx="400" cy="360" r="200" fill="#FFB6C1" opacity="0.9"/>
-              <circle cx="400" cy="360" r="180" fill="#FF69B4" opacity="0.7"/>
-
-              <!-- Brain visualization for ADHD/RSD -->
-              <path d="M350,260 C450,200 500,300 450,360 S380,420 350,460" 
-                    fill="none" stroke="#4A148C" stroke-width="8" opacity="0.6"/>
-              <path d="M450,260 C350,200 300,300 350,360 S420,420 450,460" 
-                    fill="none" stroke="#4A148C" stroke-width="8" opacity="0.6"/>
-
-              <!-- Title and subtitle -->
-              <text x="800" y="300" font-family="Arial" font-size="80" fill="#333" text-anchor="middle" font-weight="bold">
-                ${titleLower.includes('rsd') ? 'RSD and ADHD' : 'ADHD Basics'}
-              </text>
-              <text x="800" y="400" font-family="Arial" font-size="48" fill="#666" text-anchor="middle">
-                ${titleLower.includes('rsd') ? 'Understanding RSD' : 'Learning About ADHD'}
-              </text>
-            </svg>
-          `).toString('base64');
+          try {
+            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738599881058.png');
+            const imageBuffer = fs.readFileSync(imagePath);
+            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
+          } catch (error) {
+            console.error('Error loading ADHD image:', error);
+            return null;
+          }
         }
 
         // Skiing themed thumbnail
-        if (titleLower.includes('ski') || titleLower.includes('skiing')) {
-          return 'data:image/svg+xml;base64,' + Buffer.from(`
-            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <pattern id="snowPattern" width="50" height="50" patternUnits="userSpaceOnUse">
-                  <path d="M25,25 L35,25 M25,25 L15,25 M25,25 L25,35 M25,25 L25,15" 
-                        stroke="white" stroke-width="2" opacity="0.3"/>
-                  <path d="M25,25 L32,32 M25,25 L18,18 M25,25 L32,18 M25,25 L18,32" 
-                        stroke="white" stroke-width="2" opacity="0.3"/>
-                </pattern>
-                <linearGradient id="skyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" style="stop-color:#2B6CB0;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#4299E1;stop-opacity:1" />
-                </linearGradient>
-              </defs>
-
-              <!-- Background with gradient -->
-              <rect width="100%" height="100%" fill="url(#skyGrad)"/>
-              <rect width="100%" height="100%" fill="url(#snowPattern)"/>
-
-              <!-- Content area with outline -->
-              <rect x="40" y="40" width="1200" height="640" rx="20" 
-                    fill="white" opacity="0.97"
-                    stroke="#2B6CB0" stroke-width="4"/>
-
-              <!-- Mountain silhouettes -->
-              <path d="M40 680 L440 200 L840 680 Z" fill="#2B6CB0" opacity="0.2"/>
-              <path d="M640 680 L1040 280 L1240 680 Z" fill="#2B6CB0" opacity="0.3"/>
-
-              <!-- Skier silhouette -->
-              <path d="M600,400 L650,450 L700,400 M650,350 L650,450" 
-                    stroke="#2B6CB0" stroke-width="8" stroke-linecap="round"/>
-
-              <!-- Title -->
-              <text x="640" y="280" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
-                <tspan x="640" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
-              </text>
-            </svg>
-          `).toString('base64');
-        }
-         // Dimples themed thumbnail
-       
-        if (titleLower.includes('dimple')) {
-            return 'data:image/svg+xml;base64,' + Buffer.from(`
-              <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                  <linearGradient id="skinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style="stop-color:#FFE4D6;stop-opacity:1" />
-                    <stop offset="100%" style="stop-color:#FFD5C2;stop-opacity:1" />
-                  </linearGradient>
-                  <pattern id="gridDots" width="20" height="20" patternUnits="userSpaceOnUse">
-                    <circle cx="10" cy="10" r="1" fill="#D4A598" opacity="0.3"/>
-                  </pattern>
-                </defs>
-
-                <!-- Background -->
-                <rect width="100%" height="100%" fill="url(#skinGrad)"/>
-                <rect width="100%" height="100%" fill="url(#gridDots)"/>
-
-                <!-- Content area with outline -->
-                <rect x="40" y="40" width="1200" height="640" rx="20" 
-                      fill="white" opacity="0.97"
-                      stroke="#D4A598" stroke-width="4"/>
-
-                <!-- Stylized face outline with dimple -->
-                <path d="M300,200 C450,200 500,350 450,450 S350,550 300,500 C250,450 250,350 300,200" 
-                      fill="#FFF0E6" stroke="#D4A598" stroke-width="3"/>
-
-                <!-- Dimple detail -->
-                <path d="M380,380 C360,400 350,420 370,440" 
-                      fill="none" stroke="#D4A598" stroke-width="4"
-                      stroke-linecap="round"/>
-
-                <!-- Anatomical labels -->
-                <path d="M400,400 L500,380" stroke="#666" stroke-width="2" marker-end="url(#arrow)"/>
-                <text x="520" y="385" font-family="Arial" font-size="24" fill="#666">
-                  Dimple Formation
-                </text>
-
-                <!-- Title -->
-                <text x="800" y="300" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
-                  Understanding Dimples
-                </text>
-                <text x="800" y="380" font-family="Arial" font-size="36" fill="#666" text-anchor="middle">
-                  Human Anatomy Explained
-                </text>
-              </svg>
-            `).toString('base64');
+        if (titleLower.includes('ski') || titleLower.includes('skiing') || 
+            titleLower.includes('slope') || titleLower.includes('snow')) {
+          try {
+            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738534955389.png');
+            const imageBuffer = fs.readFileSync(imagePath);
+            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
+          } catch (error) {
+            console.error('Error loading skiing image:', error);
+            return null;
           }
-         
+        }
+
+        // Psychology/Human Nature themed thumbnail
+        if (titleLower.includes('psychology') || titleLower.includes('human nature') || 
+            titleLower.includes('brain') || titleLower.includes('mind')) {
+          try {
+            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738535077456.png');
+            const imageBuffer = fs.readFileSync(imagePath);
+            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
+          } catch (error) {
+            console.error('Error loading psychology image:', error);
+            return null;
+          }
+        }
 
         // Learning/Education themed thumbnail
-        if (titleLower.includes('learn') || titleLower.includes('how to') || titleLower.includes('guide')) {
+        if (titleLower.includes('learn') || titleLower.includes('how to') || 
+            titleLower.includes('guide') || titleLower.includes('explained')) {
+          try {
+            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738535246648.png');
+            const imageBuffer = fs.readFileSync(imagePath);
+            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
+          } catch (error) {
+            console.error('Error loading learning image:', error);
+            return null;
+          }
+        }
+
+        // Business/Economics themed thumbnail
+        if (titleLower.includes('business') || titleLower.includes('economics') || 
+            titleLower.includes('market') || titleLower.includes('competitive')) {
+          try {
+            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738535396957.png');
+            const imageBuffer = fs.readFileSync(imagePath);
+            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
+          } catch (error) {
+            console.error('Error loading business image:', error);
+            return null;
+          }
+        }
+
+        // Science/Chemistry themed thumbnail
+        if (titleLower.includes('science') || titleLower.includes('chemistry') || 
+            titleLower.includes('physics') || titleLower.includes('experiment')) {
+          try {
+            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738548930078.png');
+            const imageBuffer = fs.readFileSync(imagePath);
+            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
+          } catch (error) {
+            console.error('Error loading science image:', error);
+            return null;
+          }
+        }
+
+        // Default thumbnail for other content
+        try {
+          const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738550826598.png');
+          const imageBuffer = fs.readFileSync(imagePath);
+          return `data:image/png;base64,${imageBuffer.toString('base64')}`;
+        } catch (error) {
+          console.error('Error loading default image:', error);
+          // Fallback to a simple text-based thumbnail
           return 'data:image/svg+xml;base64,' + Buffer.from(`
             <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <pattern id="gridPattern" width="30" height="30" patternUnits="userSpaceOnUse">
-                  <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#CBD5E0" stroke-width="1"/>
-                </pattern>
-                <linearGradient id="learnGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#3182CE;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#63B3ED;stop-opacity:1" />
-                </linearGradient>
-              </defs>
-
-              <!-- Background -->
-              <rect width="100%" height="100%" fill="url(#learnGrad)"/>
-              <rect width="100%" height="100%" fill="url(#gridPattern)"/>
-
-              <!-- Content area with outline -->
-              <rect x="40" y="40" width="1200" height="640" rx="20" 
-                    fill="white" opacity="0.97"
-                    stroke="#3182CE" stroke-width="4"/>
-
-              <!-- Book or learning icon -->
-              <path d="M300,260 L300,460 L500,460 L500,260 C400,240 400,240 300,260" 
-                    fill="#3182CE" opacity="0.2"/>
-              <path d="M320,280 L480,280 M320,320 L480,320 M320,360 L480,360" 
-                    stroke="#3182CE" stroke-width="4" opacity="0.4"/>
-
-              <!-- Title -->
-              <text x="700" y="360" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
-                <tspan x="700" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
+              <rect width="100%" height="100%" fill="#718096"/>
+              <text x="640" y="360" font-family="Arial" font-size="64" fill="white" text-anchor="middle">
+                ${title || 'Video Content'}
               </text>
             </svg>
           `).toString('base64');
         }
-
-        // Default themed thumbnail with more dynamic elements
-        return 'data:image/svg+xml;base64,' + Buffer.from(`
-          <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <pattern id="dotPattern" width="40" height="40" patternUnits="userSpaceOnUse">
-                <circle cx="20" cy="20" r="1" fill="#718096"/>
-                <circle cx="40" cy="40" r="1" fill="#718096"/>
-                <circle cx="0" cy="0" r="1" fill="#718096"/>
-              </pattern>
-              <linearGradient id="defaultGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:#E2E8F0;stop-opacity:1" />
-                <stop offset="100%" style="stop-color:#F7FAFC;stop-opacity:1" />
-              </linearGradient>
-            </defs>
-
-            <!-- Background -->
-            <rect width="100%" height="100%" fill="url(#defaultGrad)"/>
-            <rect width="100%" height="100%" fill="url(#dotPattern)"/>
-
-            <!-- Content area with outline -->
-            <rect x="40" y="40" width="1200" height="640" rx="20" 
-                  fill="white" opacity="0.97"
-                  stroke="#718096" stroke-width="4"/>
-
-            <!-- Dynamic decorative elements based on title -->
-            ${titleLower.includes('tips') ? `
-              <path d="M200,200 L300,300 M250,200 L250,300" stroke="#718096" stroke-width="4"/>
-              <circle cx="250" cy="350" r="30" fill="#718096" opacity="0.2"/>
-            ` : titleLower.includes('review') ? `
-              <rect x="200" y="200" width="100" height="100" rx="10" fill="#718096" opacity="0.1"/>
-              <path d="M220,250 L280,250 M220,270 L260,270" stroke="#718096" stroke-width="4"/>
-            ` : `
-              <circle cx="250" cy="250" r="50" fill="#718096" opacity="0.1"/>
-              <rect x="220" y="220" width="60" height="60" rx="10" fill="#718096" opacity="0.1"/>
-            `}
-
-            <!-- Title -->
-            <text x="640" y="360" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
-              <tspan x="640" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
-            </text>
-          </svg>
-        `).toString('base64');
       }
       default:
         console.error('Unsupported platform:', platform);
