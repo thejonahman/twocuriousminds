@@ -16,9 +16,12 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
         }
         return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
       }
-      case 'tiktok': {
-        if (title?.toLowerCase().includes('rsd')) {
-          // Enhanced RSD thumbnail with 16:9 aspect ratio
+      case 'tiktok':
+      case 'instagram': {
+        const titleLower = title?.toLowerCase() || '';
+
+        // RSD/ADHD themed thumbnail
+        if (titleLower.includes('rsd') || titleLower.includes('adhd')) {
           return 'data:image/svg+xml;base64,' + Buffer.from(`
             <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
               <defs>
@@ -40,37 +43,10 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
 
               <!-- Title and subtitle -->
               <text x="800" y="300" font-family="Arial" font-size="80" fill="#333" text-anchor="middle" font-weight="bold">
-                RSD and ADHD
+                ${titleLower.includes('rsd') ? 'RSD and ADHD' : 'ADHD Basics'}
               </text>
               <text x="800" y="400" font-family="Arial" font-size="48" fill="#666" text-anchor="middle">
-                Understanding RSD
-              </text>
-
-              <!-- Decorative elements -->
-              <circle cx="200" cy="600" r="30" fill="#4A148C" opacity="0.2"/>
-              <circle cx="1080" cy="600" r="30" fill="#4A148C" opacity="0.2"/>
-            </svg>
-          `).toString('base64');
-        } else if (title?.toLowerCase().includes('adhd')) {
-          // Other ADHD content thumbnail with 16:9 aspect ratio
-          return 'data:image/svg+xml;base64,' + Buffer.from(`
-            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <pattern id="smallGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-                  <path d="M 20 0 L 0 0 0 20" fill="none" stroke="white" stroke-width="0.5" opacity="0.1"/>
-                </pattern>
-              </defs>
-
-              <!-- Background -->
-              <rect width="100%" height="100%" fill="#4A148C"/>
-              <rect width="100%" height="100%" fill="url(#smallGrid)"/>
-
-              <!-- Content area -->
-              <rect x="40" y="40" width="1200" height="640" rx="20" fill="white" opacity="0.97"/>
-
-              <!-- Title with better spacing and wrapping -->
-              <text x="640" y="360" font-family="Arial" font-size="64" fill="#333" text-anchor="middle" font-weight="bold">
-                <tspan x="640" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
+                ${titleLower.includes('rsd') ? 'Understanding RSD' : 'Learning About ADHD'}
               </text>
 
               <!-- Decorative elements -->
@@ -79,7 +55,93 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
             </svg>
           `).toString('base64');
         }
-        return null;
+
+        // Skiing themed thumbnail
+        if (titleLower.includes('ski') || titleLower.includes('skiing')) {
+          return 'data:image/svg+xml;base64,' + Buffer.from(`
+            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="snowPattern" width="50" height="50" patternUnits="userSpaceOnUse">
+                  <circle cx="25" cy="25" r="2" fill="white" opacity="0.3"/>
+                  <circle cx="0" cy="0" r="2" fill="white" opacity="0.3"/>
+                  <circle cx="50" cy="50" r="2" fill="white" opacity="0.3"/>
+                </pattern>
+              </defs>
+
+              <!-- Background with gradient -->
+              <rect width="100%" height="100%" fill="#2C5282"/>
+              <rect width="100%" height="100%" fill="url(#snowPattern)"/>
+
+              <!-- Content area -->
+              <rect x="40" y="40" width="1200" height="640" rx="20" fill="white" opacity="0.97"/>
+
+              <!-- Mountain silhouette -->
+              <path d="M40 680 L440 200 L840 680 Z" fill="#2B6CB0" opacity="0.2"/>
+              <path d="M640 680 L1040 280 L1240 680 Z" fill="#2B6CB0" opacity="0.3"/>
+
+              <!-- Title -->
+              <text x="640" y="360" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
+                <tspan x="640" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
+              </text>
+            </svg>
+          `).toString('base64');
+        }
+
+        // Learning/Education themed thumbnail
+        if (titleLower.includes('learn') || titleLower.includes('how to') || titleLower.includes('guide')) {
+          return 'data:image/svg+xml;base64,' + Buffer.from(`
+            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <pattern id="gridPattern" width="30" height="30" patternUnits="userSpaceOnUse">
+                  <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#E2E8F0" stroke-width="1"/>
+                </pattern>
+              </defs>
+
+              <!-- Background -->
+              <rect width="100%" height="100%" fill="#EDF2F7"/>
+              <rect width="100%" height="100%" fill="url(#gridPattern)"/>
+
+              <!-- Content area -->
+              <rect x="40" y="40" width="1200" height="640" rx="20" fill="white" opacity="0.97"/>
+
+              <!-- Decorative elements -->
+              <circle cx="300" cy="360" r="160" fill="#4299E1" opacity="0.1"/>
+              <circle cx="300" cy="360" r="120" fill="#4299E1" opacity="0.2"/>
+
+              <!-- Title -->
+              <text x="700" y="360" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
+                <tspan x="700" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
+              </text>
+            </svg>
+          `).toString('base64');
+        }
+
+        // Default themed thumbnail for other content
+        return 'data:image/svg+xml;base64,' + Buffer.from(`
+          <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <pattern id="dotPattern" width="30" height="30" patternUnits="userSpaceOnUse">
+                <circle cx="15" cy="15" r="1" fill="#718096"/>
+              </pattern>
+            </defs>
+
+            <!-- Background -->
+            <rect width="100%" height="100%" fill="#F7FAFC"/>
+            <rect width="100%" height="100%" fill="url(#dotPattern)"/>
+
+            <!-- Content area -->
+            <rect x="40" y="40" width="1200" height="640" rx="20" fill="white" opacity="0.97"/>
+
+            <!-- Decorative elements -->
+            <rect x="200" y="200" width="200" height="200" fill="#EDF2F7" rx="20"/>
+            <rect x="880" y="400" width="160" height="160" fill="#EDF2F7" rx="15"/>
+
+            <!-- Title -->
+            <text x="640" y="360" font-family="Arial" font-size="64" fill="#2D3748" text-anchor="middle" font-weight="bold">
+              <tspan x="640" dy="0">${title?.length > 60 ? title.substring(0, 60) + '...' : title}</tspan>
+            </text>
+          </svg>
+        `).toString('base64');
       }
       default:
         console.error('Unsupported platform:', platform);
