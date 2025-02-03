@@ -18,12 +18,14 @@ interface Video {
 }
 
 export function VideoGrid({ videos }: { videos: Video[] }) {
+  const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
+
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
       case 'youtube':
         return <Youtube className="h-8 w-8 text-red-500" />;
       case 'tiktok':
-        return <SiTiktok className="h-8 w-8 text-black" />;
+        return <SiTiktok className="h-8 w-8 text-black dark:text-white" />;
       case 'instagram':
         return <Instagram className="h-8 w-8 text-pink-500" />;
       default:
@@ -31,26 +33,27 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
     }
   };
 
+  const handleThumbnailError = (videoId: number) => {
+    setFailedThumbnails(prev => new Set([...prev, videoId]));
+  };
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {videos.map((video) => (
         <Link key={video.id} href={`/video/${video.id}`}>
-          <Card className="overflow-hidden hover:shadow-lg transition-shadow">
+          <Card className="overflow-hidden hover:shadow-lg transition-shadow group">
             <AspectRatio ratio={16 / 9}>
-              <div className="w-full h-full bg-muted relative">
-                <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-full h-full bg-muted relative group-hover:brightness-90 transition-all">
+                <div className={`absolute inset-0 flex items-center justify-center ${video.thumbnailUrl && !failedThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'}`}>
                   {getPlatformIcon(video.platform)}
                 </div>
-                {video.thumbnailUrl && (
+                {video.thumbnailUrl && !failedThumbnails.has(video.id) && (
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}
-                    className="absolute inset-0 w-full h-full object-cover"
+                    className="absolute inset-0 w-full h-full object-cover transition-opacity duration-200"
                     loading="lazy"
-                    onError={(e) => {
-                      const img = e.target as HTMLImageElement;
-                      img.style.opacity = '0';
-                    }}
+                    onError={() => handleThumbnailError(video.id)}
                   />
                 )}
                 <div className="absolute top-2 right-2 z-10">
