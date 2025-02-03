@@ -6,8 +6,9 @@ import { setupAuth } from "./auth";
 import fetch from "node-fetch";
 import * as fs from 'fs';
 import * as path from 'path';
+import { analyzeImage, findBestImageForVideo } from './lib/imageAnalysis';
 
-async function getThumbnailUrl(url: string, platform: string, title?: string): Promise<string | null> {
+async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
   try {
     switch (platform.toLowerCase()) {
       case 'youtube': {
@@ -20,114 +21,30 @@ async function getThumbnailUrl(url: string, platform: string, title?: string): P
       }
       case 'tiktok':
       case 'instagram': {
-        const titleLower = title?.toLowerCase() || '';
+        // Try to find the best matching image based on the content
+        const imagesFolder = path.join(process.cwd(), 'attached_assets');
+        const bestMatch = await findBestImageForVideo(
+          title || '',
+          description || '',
+          imagesFolder
+        );
 
-        // Dimples video - use actual image
-        if (titleLower.includes('dimple')) {
-          try {
-            const imagePath = path.join(process.cwd(), 'attached_assets', 'dimples-2.webp');
-            const imageBuffer = fs.readFileSync(imagePath);
-            return `data:image/webp;base64,${imageBuffer.toString('base64')}`;
-          } catch (error) {
-            console.error('Error loading dimple image:', error);
-            return null;
-          }
-        }
-
-        // ADHD/RSD themed thumbnail
-        if (titleLower.includes('rsd') || titleLower.includes('adhd')) {
-          try {
-            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738599881058.png');
-            const imageBuffer = fs.readFileSync(imagePath);
-            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
-          } catch (error) {
-            console.error('Error loading ADHD image:', error);
-            return null;
-          }
-        }
-
-        // Skiing themed thumbnail
-        if (titleLower.includes('ski') || titleLower.includes('skiing') || 
-            titleLower.includes('slope') || titleLower.includes('snow')) {
-          try {
-            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738534955389.png');
-            const imageBuffer = fs.readFileSync(imagePath);
-            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
-          } catch (error) {
-            console.error('Error loading skiing image:', error);
-            return null;
-          }
-        }
-
-        // Psychology/Human Nature themed thumbnail
-        if (titleLower.includes('psychology') || titleLower.includes('human nature') || 
-            titleLower.includes('brain') || titleLower.includes('mind')) {
-          try {
-            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738535077456.png');
-            const imageBuffer = fs.readFileSync(imagePath);
-            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
-          } catch (error) {
-            console.error('Error loading psychology image:', error);
-            return null;
-          }
-        }
-
-        // Learning/Education themed thumbnail
-        if (titleLower.includes('learn') || titleLower.includes('how to') || 
-            titleLower.includes('guide') || titleLower.includes('explained')) {
-          try {
-            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738535246648.png');
-            const imageBuffer = fs.readFileSync(imagePath);
-            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
-          } catch (error) {
-            console.error('Error loading learning image:', error);
-            return null;
-          }
-        }
-
-        // Business/Economics themed thumbnail
-        if (titleLower.includes('business') || titleLower.includes('economics') || 
-            titleLower.includes('market') || titleLower.includes('competitive')) {
-          try {
-            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738535396957.png');
-            const imageBuffer = fs.readFileSync(imagePath);
-            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
-          } catch (error) {
-            console.error('Error loading business image:', error);
-            return null;
-          }
-        }
-
-        // Science/Chemistry themed thumbnail
-        if (titleLower.includes('science') || titleLower.includes('chemistry') || 
-            titleLower.includes('physics') || titleLower.includes('experiment')) {
-          try {
-            const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738548930078.png');
-            const imageBuffer = fs.readFileSync(imagePath);
-            return `data:image/png;base64,${imageBuffer.toString('base64')}`;
-          } catch (error) {
-            console.error('Error loading science image:', error);
-            return null;
-          }
-        }
-
-        // Default thumbnail for other content
-        try {
-          const imagePath = path.join(process.cwd(), 'attached_assets', 'image_1738550826598.png');
+        if (bestMatch) {
+          const imagePath = path.join(imagesFolder, bestMatch);
           const imageBuffer = fs.readFileSync(imagePath);
-          return `data:image/png;base64,${imageBuffer.toString('base64')}`;
-        } catch (error) {
-          console.error('Error loading default image:', error);
-          // Fallback to a simple text-based thumbnail
-          return 'data:image/svg+xml;base64,' + Buffer.from(`
-            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-              <rect width="100%" height="100%" fill="#718096"/>
-              <text x="640" y="360" font-family="Arial" font-size="64" fill="white" text-anchor="middle">
-                ${title || 'Video Content'}
-              </text>
-            </svg>
-          `).toString('base64');
+          const extension = path.extname(bestMatch).substring(1);
+          return `data:image/${extension};base64,${imageBuffer.toString('base64')}`;
         }
+
+        // Fallback to text-based thumbnail if no match found
+        return 'data:image/svg+xml;base64,' + Buffer.from(`
+          <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="#718096"/>
+            <text x="640" y="360" font-family="Arial" font-size="64" fill="white" text-anchor="middle">
+              ${title || 'Video Content'}
+            </text>
+          </svg>
+        `).toString('base64');
       }
       default:
         console.error('Unsupported platform:', platform);
@@ -177,7 +94,7 @@ export function registerRoutes(app: any): Server {
       // Update missing thumbnails
       for (const video of result) {
         if (!video.thumbnailUrl) {
-          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform, video.title);
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform, video.title, video.description);
           if (thumbnailUrl) {
             await db.update(videos)
               .set({ thumbnailUrl })
@@ -212,7 +129,7 @@ export function registerRoutes(app: any): Server {
     }
 
     if (!result.thumbnailUrl) {
-      const thumbnailUrl = await getThumbnailUrl(result.url, result.platform, result.title);
+      const thumbnailUrl = await getThumbnailUrl(result.url, result.platform, result.title, result.description);
       if (thumbnailUrl) {
         await db.update(videos)
           .set({ thumbnailUrl })
@@ -360,7 +277,7 @@ export function registerRoutes(app: any): Server {
       // Update missing thumbnails for recommendations
       for (const video of recommendations) {
         if (!video.thumbnailUrl) {
-          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform, video.title);
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform, video.title, video.description);
           if (thumbnailUrl) {
             await db.update(videos)
               .set({ thumbnailUrl })
