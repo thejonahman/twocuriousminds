@@ -23,6 +23,7 @@ interface Video {
   subcategory: {
     id: number;
     name: string;
+    displayOrder?: number;
   } | null;
 }
 
@@ -71,6 +72,7 @@ export default function Home() {
         acc[categoryId].subcategories[subcategoryId] = {
           name: video.subcategory.name,
           videos: [],
+          displayOrder: video.subcategory.displayOrder,
         };
       }
       acc[categoryId].subcategories[subcategoryId].videos.push(video);
@@ -78,7 +80,7 @@ export default function Home() {
     return acc;
   }, {} as Record<number, { 
     name: string; 
-    subcategories: Record<number, { name: string; videos: Video[] }>;
+    subcategories: Record<number, { name: string; videos: Video[], displayOrder?: number }>;
   }>) : null;
 
   const sortedCategories = videosByCategory ? Object.entries(videosByCategory).sort(([,a], [,b]) => 
@@ -143,7 +145,14 @@ export default function Home() {
                   <h2 className="font-semibold text-lg mb-2">Subcategories</h2>
                   <div className="space-y-1">
                     {Object.entries(category.subcategories)
-                      .sort(([,a], [,b]) => a.name.localeCompare(b.name))
+                      .sort(([,a], [,b]) => {
+                        // First try to sort by displayOrder if available
+                        if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
+                          return a.displayOrder - b.displayOrder;
+                        }
+                        // Fall back to name-based sorting
+                        return a.name.localeCompare(b.name);
+                      })
                       .map(([subId, subcategory]) => (
                         <button
                           key={subId}
@@ -161,7 +170,14 @@ export default function Home() {
 
                 <div className="space-y-8">
                   {Object.entries(category.subcategories)
-                    .sort(([,a], [,b]) => a.name.localeCompare(b.name))
+                    .sort(([,a], [,b]) => {
+                      // First try to sort by displayOrder if available
+                      if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
+                        return a.displayOrder - b.displayOrder;
+                      }
+                      // Fall back to name-based sorting
+                      return a.name.localeCompare(b.name);
+                    })
                     .map(([subId, subcategory]) => (
                       <div key={subId} id={`subcategory-${subId}`}>
                         <div className="flex items-center gap-2 mb-4">

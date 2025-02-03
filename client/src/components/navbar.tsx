@@ -7,7 +7,7 @@ export default function Navbar() {
       <div className="container flex h-14 items-center px-4">
         <Link href="/" className="flex items-center space-x-2">
           <Brain className="h-6 w-6 text-primary" />
-          <span className="font-bold text-xl">CuriousMind</span>
+          <span className="font-bold text-xl">TheCuriousMind</span>
         </Link>
       </div>
     </nav>

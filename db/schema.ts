@@ -12,6 +12,7 @@ export const subcategories = pgTable("subcategories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   categoryId: integer("category_id").references(() => categories.id),
+  displayOrder: integer("display_order").default(0),
 });
 
 export const videos = pgTable("videos", {
@@ -59,7 +60,6 @@ export const chatMessageRelations = relations(chatMessages, ({ one }) => ({
     references: [videos.id],
   }),
 }));
-
 
 export const insertVideoSchema = createInsertSchema(videos);
 export const selectVideoSchema = createSelectSchema(videos);
