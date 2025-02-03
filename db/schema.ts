@@ -38,6 +38,23 @@ export const recommendationPreferences = pgTable("recommendation_preferences", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  videoId: integer("video_id").references(() => videos.id),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const recommendationFeedback = pgTable("recommendation_feedback", {
+  id: serial("id").primaryKey(),
+  videoId: integer("video_id").references(() => videos.id),
+  recommendedVideoId: integer("recommended_video_id").references(() => videos.id),
+  isRelevant: boolean("is_relevant").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Define all relations
 export const videoRelations = relations(videos, ({ one }) => ({
   category: one(categories, {
     fields: [videos.categoryId],
@@ -56,21 +73,12 @@ export const subcategoryRelations = relations(subcategories, ({ one }) => ({
   }),
 }));
 
-export const chatMessages = pgTable("chat_messages", {
-  id: serial("id").primaryKey(),
-  videoId: integer("video_id").references(() => videos.id),
-  question: text("question").notNull(),
-  answer: text("answer").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const recommendationFeedback = pgTable("recommendation_feedback", {
-  id: serial("id").primaryKey(),
-  videoId: integer("video_id").references(() => videos.id),
-  recommendedVideoId: integer("recommended_video_id").references(() => videos.id),
-  isRelevant: boolean("is_relevant").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+export const chatMessageRelations = relations(chatMessages, ({ one }) => ({
+  video: one(videos, {
+    fields: [chatMessages.videoId],
+    references: [videos.id],
+  }),
+}));
 
 export const recommendationFeedbackRelations = relations(recommendationFeedback, ({ one }) => ({
   video: one(videos, {
@@ -83,6 +91,7 @@ export const recommendationFeedbackRelations = relations(recommendationFeedback,
   }),
 }));
 
+// Create Zod schemas for type safety
 export const insertVideoSchema = createInsertSchema(videos);
 export const selectVideoSchema = createSelectSchema(videos);
 export const insertCategorySchema = createInsertSchema(categories);

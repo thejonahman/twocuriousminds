@@ -200,78 +200,87 @@ export function registerRoutes(app: any): Server {
     }
   });
 
-  // Update video recommendations endpoint to use preferences
   app.get("/api/videos/:id/recommendations", async (req, res) => {
-    const videoId = parseInt(req.params.id);
-    const sessionId = req.session?.id;
+    try {
+      const videoId = parseInt(req.params.id);
+      const sessionId = req.session?.id;
 
-    // Get current video details
-    const currentVideo = await db.query.videos.findFirst({
-      where: eq(videos.id, videoId),
-      with: {
-        category: true,
-        subcategory: true,
-      },
-    });
+      // Get current video details
+      const currentVideo = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId),
+        with: {
+          category: true,
+          subcategory: true,
+        },
+      });
 
-    if (!currentVideo) {
-      res.status(404).json({ message: "Video not found" });
-      return;
-    }
+      if (!currentVideo) {
+        res.status(404).json({ message: "Video not found" });
+        return;
+      }
 
-    // Get user preferences if they exist
-    const preferences = sessionId ? await db.query.recommendationPreferences.findFirst({
-      where: eq(recommendationPreferences.sessionId, sessionId),
-    }) : null;
+      // Get user preferences if they exist
+      const preferences = sessionId ? await db.query.recommendationPreferences.findFirst({
+        where: eq(recommendationPreferences.sessionId, sessionId),
+      }) : null;
 
-    // Build recommendation query based on preferences
-    const recommendations = await db.query.videos.findMany({
-      where: and(
-        ne(videos.id, videoId),
-        // Exclude categories if specified
-        preferences?.excludedCategories?.length ? 
-          notInArray(videos.categoryId, preferences.excludedCategories) : 
-          undefined,
-        // Filter by preferred categories if specified
-        preferences?.preferredCategories?.length ? 
-          inArray(videos.categoryId, preferences.preferredCategories) : 
-          undefined,
-        // Filter by preferred platforms if specified
-        preferences?.preferredPlatforms?.length ? 
-          inArray(videos.platform, preferences.preferredPlatforms) : 
-          undefined,
-        // Fallback to basic recommendation logic if no preferences
-        preferences?.preferredCategories?.length === 0 ? 
-          or(
-            currentVideo.subcategoryId ? 
-              eq(videos.subcategoryId, currentVideo.subcategoryId) : 
-              undefined,
-            eq(videos.categoryId, currentVideo.categoryId),
-            eq(videos.platform, currentVideo.platform)
-          ) : 
-          undefined
-      ),
-      with: {
-        category: true,
-        subcategory: true,
-      },
-      limit: 5,
-    });
+      let baseQuery = and(
+        ne(videos.id, videoId)
+      );
 
-    // Update thumbnails if missing
-    for (const video of recommendations) {
-      if (!video.thumbnailUrl) {
-        const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
-        if (thumbnailUrl) {
-          await db.update(videos)
-            .set({ thumbnailUrl })
-            .where(eq(videos.id, video.id));
-          video.thumbnailUrl = thumbnailUrl;
+      // Add preference filters if they exist
+      if (preferences) {
+        if (preferences.excludedCategories?.length) {
+          baseQuery = and(baseQuery, notInArray(videos.categoryId, preferences.excludedCategories));
+        }
+        if (preferences.preferredCategories?.length) {
+          baseQuery = and(baseQuery, inArray(videos.categoryId, preferences.preferredCategories));
+        }
+        if (preferences.preferredPlatforms?.length) {
+          baseQuery = and(baseQuery, inArray(videos.platform, preferences.preferredPlatforms));
         }
       }
-    }
 
-    res.json(recommendations);
+      // If no preferences, use basic similarity criteria
+      if (!preferences?.preferredCategories?.length) {
+        const similarityQuery = [];
+        if (currentVideo.subcategoryId) {
+          similarityQuery.push(eq(videos.subcategoryId, currentVideo.subcategoryId));
+        }
+        similarityQuery.push(eq(videos.categoryId, currentVideo.categoryId));
+        similarityQuery.push(eq(videos.platform, currentVideo.platform));
+
+        baseQuery = and(baseQuery, or(...similarityQuery));
+      }
+
+      // Get recommendations
+      const recommendations = await db.query.videos.findMany({
+        where: baseQuery,
+        with: {
+          category: true,
+          subcategory: true,
+        },
+        limit: 5,
+      });
+
+      // Update thumbnails if missing
+      for (const video of recommendations) {
+        if (!video.thumbnailUrl) {
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
+          if (thumbnailUrl) {
+            await db.update(videos)
+              .set({ thumbnailUrl })
+              .where(eq(videos.id, video.id));
+            video.thumbnailUrl = thumbnailUrl;
+          }
+        }
+      }
+
+      res.json(recommendations);
+    } catch (error) {
+      console.error('Error getting recommendations:', error);
+      res.status(500).json({ message: "Failed to get recommendations" });
+    }
   });
 
   // Add new recommendation feedback endpoint
