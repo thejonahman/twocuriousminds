@@ -20,7 +20,12 @@ export default function Video() {
   });
 
   if (isLoading) {
-    return <Skeleton className="w-full h-[500px] rounded-lg" />;
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-6">
+        <Skeleton className="w-full h-[500px] rounded-lg" />
+        <Skeleton className="w-full h-[500px] rounded-lg" />
+      </div>
+    );
   }
 
   if (!video) {
@@ -35,13 +40,15 @@ export default function Video() {
           <h1 className="text-2xl font-bold">{video.title}</h1>
           <p className="text-muted-foreground">{video.description}</p>
         </div>
-        <DelphiBubble />
+        <DelphiBubble videoId={video.id} />
       </div>
-      <RecommendationSidebar 
-        currentVideoId={video.id}
-        categoryId={video.categoryId}
-        subcategoryId={video.subcategoryId}
-      />
+      <div className="lg:sticky lg:top-4">
+        <RecommendationSidebar 
+          currentVideoId={video.id}
+          categoryId={video.categoryId}
+          subcategoryId={video.subcategoryId}
+        />
+      </div>
     </div>
   );
 }
