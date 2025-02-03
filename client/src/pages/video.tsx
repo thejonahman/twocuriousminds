@@ -54,10 +54,26 @@ export default function Video() {
     <div className="space-y-6">
       <button 
         onClick={handleBack}
-        className="mb-4 text-sm text-muted-foreground hover:text-foreground flex items-center gap-2"
+        className="flex items-center gap-3 px-4 py-2.5 text-sm rounded-lg hover:bg-accent transition-colors group"
       >
-        ← Back to {video.category.name}
-        {video.subcategory && ` / ${video.subcategory.name}`}
+        <svg 
+          className="w-5 h-5 text-muted-foreground group-hover:text-foreground transition-colors"
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2"
+        >
+          <path d="M19 12H5M12 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        <span className="text-muted-foreground group-hover:text-foreground transition-colors">
+          Back to <span className="font-medium text-foreground">{video.category.name}
+          {video.subcategory && (
+            <>
+              <span className="mx-1.5 text-muted-foreground">/</span>
+              <span className="font-medium text-foreground">{video.subcategory.name}</span>
+            </>
+          )}</span>
+        </span>
       </button>
       <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-6">
         <div className="space-y-6">
