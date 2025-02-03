@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { useNavigate } from "wouter";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Youtube, Instagram } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { useAuth } from "@/hooks/use-auth";
@@ -24,7 +23,7 @@ export default function ProfileWizard() {
   const [excludedCategories, setExcludedCategories] = useState<number[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const { user } = useAuth();
-  const navigate = useNavigate();
+  const [, navigate] = useLocation();
   const { toast } = useToast();
 
   const { data: categories } = useQuery<Category[]>({
