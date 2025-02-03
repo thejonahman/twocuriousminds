@@ -1,6 +1,24 @@
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { relations } from "drizzle-orm";
+import { z } from "zod";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  email: text("email").notNull(),
+  password: text("password").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const userPreferences = pgTable("user_preferences", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  preferredCategories: jsonb("preferred_categories").$type<number[]>().default([]),
+  preferredPlatforms: jsonb("preferred_platforms").$type<string[]>().default([]),
+  excludedCategories: jsonb("excluded_categories").$type<number[]>().default([]),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
 
 export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
@@ -28,16 +46,14 @@ export const videos = pgTable("videos", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const recommendationPreferences = pgTable("recommendation_preferences", {
-  id: serial("id").primaryKey(),
-  sessionId: text("session_id").notNull(),
-  preferredCategories: jsonb("preferred_categories").$type<number[]>().default([]),
-  preferredPlatforms: jsonb("preferred_platforms").$type<string[]>().default([]),
-  excludedCategories: jsonb("excluded_categories").$type<number[]>().default([]),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
 // Define relations
+export const userRelations = relations(users, ({ one }) => ({
+  preferences: one(userPreferences, {
+    fields: [users.id],
+    references: [userPreferences.userId],
+  }),
+}));
+
 export const videoRelations = relations(videos, ({ one }) => ({
   category: one(categories, {
     fields: [videos.categoryId],
@@ -63,5 +79,15 @@ export const insertCategorySchema = createInsertSchema(categories);
 export const selectCategorySchema = createSelectSchema(categories);
 export const insertSubcategorySchema = createInsertSchema(subcategories);
 export const selectSubcategorySchema = createSelectSchema(subcategories);
-export const insertRecommendationPreferencesSchema = createInsertSchema(recommendationPreferences);
-export const selectRecommendationPreferencesSchema = createSelectSchema(recommendationPreferences);
+
+export const insertUserSchema = createInsertSchema(users, {
+  username: z.string().min(3).max(50),
+  email: z.string().email(),
+  password: z.string().min(8),
+});
+export const selectUserSchema = createSelectSchema(users, {
+  password: z.string().optional(),
+});
+
+export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
+export const selectUserPreferencesSchema = createSelectSchema(userPreferences);

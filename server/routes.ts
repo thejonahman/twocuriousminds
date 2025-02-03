@@ -1,7 +1,8 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
-import { videos, categories, recommendationPreferences } from "@db/schema";
+import { videos, categories, userPreferences } from "@db/schema";
 import { sql, eq, and, or, ne, inArray, notInArray } from "drizzle-orm";
+import { setupAuth } from "./auth";
 import fetch from "node-fetch";
 
 async function getThumbnailUrl(url: string, platform: string): Promise<string | null> {
@@ -15,14 +16,10 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
         }
         return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
       }
-      case 'tiktok': {
-        // Placeholder image for TikTok videos
+      case 'tiktok':
         return 'https://placehold.co/600x800/1F1F1F/FFFFFF?text=TikTok+Video';
-      }
-      case 'instagram': {
-        // Placeholder image for Instagram content
+      case 'instagram':
         return 'https://placehold.co/600x600/1F1F1F/FFFFFF?text=Instagram+Content';
-      }
       default:
         console.error('Unsupported platform:', platform);
         return null;
@@ -34,7 +31,8 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
 }
 
 export function registerRoutes(app: any): Server {
-  // Videos endpoints
+  setupAuth(app);
+
   app.get("/api/videos", async (_req, res) => {
     const result = await db.query.videos.findMany({
       with: {
@@ -47,16 +45,12 @@ export function registerRoutes(app: any): Server {
     // Update missing thumbnails
     for (const video of result) {
       if (!video.thumbnailUrl) {
-        console.log(`Fetching thumbnail for video ${video.id} (${video.platform}): ${video.url}`);
         const thumbnailUrl = await getThumbnailUrl(video.url, video.platform);
         if (thumbnailUrl) {
-          console.log(`Found thumbnail for video ${video.id}:`, thumbnailUrl);
           await db.update(videos)
             .set({ thumbnailUrl })
             .where(eq(videos.id, video.id));
           video.thumbnailUrl = thumbnailUrl;
-        } else {
-          console.log(`No thumbnail found for video ${video.id}`);
         }
       }
     }
@@ -72,12 +66,12 @@ export function registerRoutes(app: any): Server {
         subcategory: true,
       },
     });
+
     if (!result) {
       res.status(404).json({ message: "Video not found" });
       return;
     }
 
-    // Update thumbnail if missing
     if (!result.thumbnailUrl) {
       const thumbnailUrl = await getThumbnailUrl(result.url, result.platform);
       if (thumbnailUrl) {
@@ -91,7 +85,6 @@ export function registerRoutes(app: any): Server {
     res.json(result);
   });
 
-  // Categories endpoints
   app.get("/api/categories", async (_req, res) => {
     const result = await db.query.categories.findMany({
       with: {
@@ -101,23 +94,19 @@ export function registerRoutes(app: any): Server {
     res.json(result);
   });
 
-  // Add preferences endpoints
   app.get("/api/preferences", async (req, res) => {
-    const sessionId = req.session?.id;
-    if (!sessionId) {
-      res.status(401).json({ message: "No session found" });
-      return;
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
     }
 
-    const result = await db.query.recommendationPreferences.findFirst({
-      where: eq(recommendationPreferences.sessionId, sessionId),
+    const result = await db.query.userPreferences.findFirst({
+      where: eq(userPreferences.userId, req.user.id),
     });
 
     if (!result) {
-      // Create default preferences
-      const defaults = await db.insert(recommendationPreferences)
+      const defaults = await db.insert(userPreferences)
         .values({
-          sessionId,
+          userId: req.user.id,
           preferredCategories: [],
           preferredPlatforms: [],
           excludedCategories: [],
@@ -131,25 +120,23 @@ export function registerRoutes(app: any): Server {
   });
 
   app.post("/api/preferences", async (req, res) => {
-    const sessionId = req.session?.id;
-    if (!sessionId) {
-      res.status(401).json({ message: "No session found" });
-      return;
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
     }
 
     const { preferredCategories, preferredPlatforms, excludedCategories } = req.body;
 
     try {
       const result = await db
-        .insert(recommendationPreferences)
+        .insert(userPreferences)
         .values({
-          sessionId,
+          userId: req.user.id,
           preferredCategories,
           preferredPlatforms,
           excludedCategories,
         })
         .onConflictDoUpdate({
-          target: recommendationPreferences.sessionId,
+          target: [userPreferences.userId],
           set: {
             preferredCategories,
             preferredPlatforms,
@@ -169,6 +156,7 @@ export function registerRoutes(app: any): Server {
   app.get("/api/videos/:id/recommendations", async (req, res) => {
     try {
       const videoId = parseInt(req.params.id);
+      const userId = req.user?.id;
 
       // Get current video
       const currentVideo = await db.query.videos.findFirst({
@@ -180,15 +168,37 @@ export function registerRoutes(app: any): Server {
         return;
       }
 
-      // Get recommendations based on current video
-      const recommendations = await db.query.videos.findMany({
-        where: and(
-          ne(videos.id, videoId),
+      // Get user preferences if authenticated
+      const preferences = userId ? await db.query.userPreferences.findFirst({
+        where: eq(userPreferences.userId, userId),
+      }) : null;
+
+      // Build recommendation query conditions
+      const conditions = [ne(videos.id, videoId)];
+
+      // Add preference-based filters if user has preferences
+      if (preferences) {
+        if (preferences.excludedCategories?.length > 0) {
+          conditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
+        }
+        if (preferences.preferredCategories?.length > 0) {
+          conditions.push(inArray(videos.categoryId, preferences.preferredCategories));
+        }
+        if (preferences.preferredPlatforms?.length > 0) {
+          conditions.push(inArray(videos.platform, preferences.preferredPlatforms));
+        }
+      } else {
+        // If no preferences, use similarity-based recommendations
+        conditions.push(
           or(
             eq(videos.categoryId, currentVideo.categoryId),
             eq(videos.platform, currentVideo.platform)
           )
-        ),
+        );
+      }
+
+      const recommendations = await db.query.videos.findMany({
+        where: and(...conditions),
         with: {
           category: true,
           subcategory: true,
