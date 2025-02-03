@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
-import { videos, categories, chatMessages, recommendationFeedback } from "@db/schema";
-import { sql, eq, and, or, ne } from "drizzle-orm";
+import { videos, categories, chatMessages, recommendationFeedback, recommendationPreferences } from "@db/schema";
+import { sql, eq, and, or, ne, inArray, notInArray } from "drizzle-orm";
 import fetch from "node-fetch";
 
 async function getThumbnailUrl(url: string, platform: string): Promise<string | null> {
@@ -135,11 +135,77 @@ export function registerRoutes(app: any): Server {
     res.json(messages);
   });
 
-  // Add new recommendation endpoint
+    // Add preferences endpoints
+  app.get("/api/preferences", async (req, res) => {
+    const sessionId = req.session?.id;
+    if (!sessionId) {
+      res.status(401).json({ message: "No session found" });
+      return;
+    }
+
+    const result = await db.query.recommendationPreferences.findFirst({
+      where: eq(recommendationPreferences.sessionId, sessionId),
+    });
+
+    if (!result) {
+      // Create default preferences
+      const defaults = await db.insert(recommendationPreferences)
+        .values({
+          sessionId,
+          preferredCategories: [],
+          preferredPlatforms: [],
+          excludedCategories: [],
+        })
+        .returning();
+      res.json(defaults[0]);
+      return;
+    }
+
+    res.json(result);
+  });
+
+  app.post("/api/preferences", async (req, res) => {
+    const sessionId = req.session?.id;
+    if (!sessionId) {
+      res.status(401).json({ message: "No session found" });
+      return;
+    }
+
+    const { preferredCategories, preferredPlatforms, excludedCategories } = req.body;
+
+    try {
+      const result = await db
+        .insert(recommendationPreferences)
+        .values({
+          sessionId,
+          preferredCategories,
+          preferredPlatforms,
+          excludedCategories,
+        })
+        .onConflictDoUpdate({
+          target: recommendationPreferences.sessionId,
+          set: {
+            preferredCategories,
+            preferredPlatforms,
+            excludedCategories,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+
+      res.json(result[0]);
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+      res.status(500).json({ message: "Failed to save preferences" });
+    }
+  });
+
+  // Update video recommendations endpoint to use preferences
   app.get("/api/videos/:id/recommendations", async (req, res) => {
     const videoId = parseInt(req.params.id);
+    const sessionId = req.session?.id;
 
-    // First get the current video's details
+    // Get current video details
     const currentVideo = await db.query.videos.findFirst({
       where: eq(videos.id, videoId),
       with: {
@@ -153,23 +219,37 @@ export function registerRoutes(app: any): Server {
       return;
     }
 
-    // Get recommendations based on:
-    // 1. Same subcategory first
-    // 2. Same category if not enough results
-    // 3. Same platform if still not enough
+    // Get user preferences if they exist
+    const preferences = sessionId ? await db.query.recommendationPreferences.findFirst({
+      where: eq(recommendationPreferences.sessionId, sessionId),
+    }) : null;
+
+    // Build recommendation query based on preferences
     const recommendations = await db.query.videos.findMany({
       where: and(
         ne(videos.id, videoId),
-        or(
-          // Same subcategory
-          currentVideo.subcategoryId 
-            ? eq(videos.subcategoryId, currentVideo.subcategoryId)
-            : undefined,
-          // Same category
-          eq(videos.categoryId, currentVideo.categoryId),
-          // Same platform as fallback
-          eq(videos.platform, currentVideo.platform)
-        )
+        // Exclude categories if specified
+        preferences?.excludedCategories?.length ? 
+          notInArray(videos.categoryId, preferences.excludedCategories) : 
+          undefined,
+        // Filter by preferred categories if specified
+        preferences?.preferredCategories?.length ? 
+          inArray(videos.categoryId, preferences.preferredCategories) : 
+          undefined,
+        // Filter by preferred platforms if specified
+        preferences?.preferredPlatforms?.length ? 
+          inArray(videos.platform, preferences.preferredPlatforms) : 
+          undefined,
+        // Fallback to basic recommendation logic if no preferences
+        preferences?.preferredCategories?.length === 0 ? 
+          or(
+            currentVideo.subcategoryId ? 
+              eq(videos.subcategoryId, currentVideo.subcategoryId) : 
+              undefined,
+            eq(videos.categoryId, currentVideo.categoryId),
+            eq(videos.platform, currentVideo.platform)
+          ) : 
+          undefined
       ),
       with: {
         category: true,

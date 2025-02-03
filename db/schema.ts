@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { relations } from "drizzle-orm";
 
@@ -28,20 +28,14 @@ export const videos = pgTable("videos", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const chatMessages = pgTable("chat_messages", {
+export const recommendationPreferences = pgTable("recommendation_preferences", {
   id: serial("id").primaryKey(),
-  videoId: integer("video_id").references(() => videos.id),
-  question: text("question").notNull(),
-  answer: text("answer").notNull(),
+  sessionId: text("session_id").notNull().unique(),
+  preferredCategories: jsonb("preferred_categories").$type<number[]>().default([]),
+  preferredPlatforms: jsonb("preferred_platforms").$type<string[]>().default([]),
+  excludedCategories: jsonb("excluded_categories").$type<number[]>().default([]),
   createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const recommendationFeedback = pgTable("recommendation_feedback", {
-  id: serial("id").primaryKey(),
-  videoId: integer("video_id").references(() => videos.id),
-  recommendedVideoId: integer("recommended_video_id").references(() => videos.id),
-  isRelevant: boolean("is_relevant").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const videoRelations = relations(videos, ({ one }) => ({
@@ -62,12 +56,21 @@ export const subcategoryRelations = relations(subcategories, ({ one }) => ({
   }),
 }));
 
-export const chatMessageRelations = relations(chatMessages, ({ one }) => ({
-  video: one(videos, {
-    fields: [chatMessages.videoId],
-    references: [videos.id],
-  }),
-}));
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  videoId: integer("video_id").references(() => videos.id),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const recommendationFeedback = pgTable("recommendation_feedback", {
+  id: serial("id").primaryKey(),
+  videoId: integer("video_id").references(() => videos.id),
+  recommendedVideoId: integer("recommended_video_id").references(() => videos.id),
+  isRelevant: boolean("is_relevant").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
 export const recommendationFeedbackRelations = relations(recommendationFeedback, ({ one }) => ({
   video: one(videos, {
@@ -80,7 +83,6 @@ export const recommendationFeedbackRelations = relations(recommendationFeedback,
   }),
 }));
 
-// Create Zod schemas for type safety
 export const insertVideoSchema = createInsertSchema(videos);
 export const selectVideoSchema = createSelectSchema(videos);
 export const insertCategorySchema = createInsertSchema(categories);
@@ -91,3 +93,5 @@ export const insertChatMessageSchema = createInsertSchema(chatMessages);
 export const selectChatMessageSchema = createSelectSchema(chatMessages);
 export const insertRecommendationFeedbackSchema = createInsertSchema(recommendationFeedback);
 export const selectRecommendationFeedbackSchema = createSelectSchema(recommendationFeedback);
+export const insertRecommendationPreferencesSchema = createInsertSchema(recommendationPreferences);
+export const selectRecommendationPreferencesSchema = createSelectSchema(recommendationPreferences);
