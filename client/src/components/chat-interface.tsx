@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,8 @@ interface ChatMessage {
 
 export function ChatInterface({ videoId }: { videoId: number }) {
   const [question, setQuestion] = useState("");
-  
+  const queryClient = useQueryClient();
+
   const { data: messages, isLoading } = useQuery<ChatMessage[]>({
     queryKey: [`/api/chat/${videoId}`],
   });

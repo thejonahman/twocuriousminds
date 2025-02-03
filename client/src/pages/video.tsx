@@ -14,7 +14,7 @@ export default function Video() {
     url: string;
     platform: string;
     categoryId: number;
-    subcategoryId: number | null;
+    subcategoryId: number | undefined;
   }>({
     queryKey: [`/api/videos/${id}`],
   });

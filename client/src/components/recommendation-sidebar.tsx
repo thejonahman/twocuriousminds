@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import { Youtube, Instagram } from "lucide-react";
+import { Youtube, Instagram, ExternalLink } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 
 interface Video {
@@ -10,6 +10,9 @@ interface Video {
   title: string;
   thumbnailUrl: string | null;
   platform: string;
+  category: {
+    name: string;
+  };
   subcategory: {
     name: string;
   } | null;
@@ -67,6 +70,10 @@ export function RecommendationSidebar({
     <Card>
       <CardHeader>
         <h3 className="text-lg font-semibold">Related Videos</h3>
+        <p className="text-sm text-muted-foreground">
+          Based on {recommendations[0].category.name}
+          {recommendations[0].subcategory && ` › ${recommendations[0].subcategory.name}`}
+        </p>
       </CardHeader>
       <CardContent className="space-y-4">
         {recommendations.map((video) => (
@@ -77,15 +84,19 @@ export function RecommendationSidebar({
           >
             <div className="group space-y-2">
               <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
-                {video.thumbnailUrl && (
+                {video.thumbnailUrl ? (
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}
                     className="absolute inset-0 w-full h-full object-cover transition-transform group-hover:scale-105"
                   />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
+                    <ExternalLink className="h-8 w-8" />
+                  </div>
                 )}
                 <div className="absolute top-2 right-2">
-                  <Badge variant="secondary" className="flex items-center gap-1">
+                  <Badge variant="secondary" className="flex items-center gap-1 bg-background/80 backdrop-blur-sm">
                     {getPlatformIcon(video.platform)}
                     <span className="capitalize">{video.platform}</span>
                   </Badge>
