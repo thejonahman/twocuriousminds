@@ -16,10 +16,28 @@ async function getThumbnailUrl(url: string, platform: string): Promise<string | 
         }
         return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
       }
-      case 'tiktok':
-        return 'https://placehold.co/600x800/1F1F1F/FFFFFF?text=TikTok+Video';
-      case 'instagram':
-        return 'https://placehold.co/600x600/1F1F1F/FFFFFF?text=Instagram+Content';
+      case 'tiktok': {
+        // TikTok videos are typically vertical (9:16 aspect ratio)
+        return 'data:image/svg+xml;base64,' + btoa(`
+          <svg width="315" height="560" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="#1F1F1F"/>
+            <text x="50%" y="50%" font-family="Arial" font-size="24" fill="white" text-anchor="middle">
+              TikTok Video
+            </text>
+          </svg>
+        `);
+      }
+      case 'instagram': {
+        // Instagram posts are typically square (1:1 aspect ratio)
+        return 'data:image/svg+xml;base64,' + btoa(`
+          <svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="#1F1F1F"/>
+            <text x="50%" y="50%" font-family="Arial" font-size="24" fill="white" text-anchor="middle">
+              Instagram Content
+            </text>
+          </svg>
+        `);
+      }
       default:
         console.error('Unsupported platform:', platform);
         return null;
