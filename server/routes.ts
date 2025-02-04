@@ -6,7 +6,25 @@ import { setupAuth } from "./auth";
 import fetch from "node-fetch";
 import * as fs from 'fs';
 import * as path from 'path';
+import multer from 'multer';
 import { analyzeImage, findBestImageForVideo } from './lib/imageAnalysis';
+
+// Configure multer for handling file uploads
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (_req, file, cb) => {
+    // Accept only image files
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(null, false);
+    }
+  }
+});
 
 async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
   try {
@@ -180,7 +198,7 @@ export function registerRoutes(app: any): Server {
     }
   });
 
-  app.patch("/api/videos/:id", async (req, res) => {
+  app.patch("/api/videos/:id", upload.single('thumbnail'), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
@@ -194,8 +212,17 @@ export function registerRoutes(app: any): Server {
         return res.status(400).json({ message: "Missing required fields" });
       }
 
-      // Get thumbnail URL for the new URL if it changed
-      const thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
+      // Handle custom thumbnail if uploaded
+      let thumbnailUrl = null;
+      if (req.file) {
+        // Convert the uploaded file to base64
+        const base64Image = req.file.buffer.toString('base64');
+        const mimeType = req.file.mimetype;
+        thumbnailUrl = `data:${mimeType};base64,${base64Image}`;
+      } else {
+        // If no custom thumbnail uploaded, get thumbnail from video URL
+        thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
+      }
 
       // Update video
       const [video] = await db
@@ -205,8 +232,8 @@ export function registerRoutes(app: any): Server {
           description,
           url,
           thumbnailUrl,
-          categoryId,
-          subcategoryId: subcategoryId || null,
+          categoryId: parseInt(categoryId),
+          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
           platform,
         })
         .where(eq(videos.id, videoId))
