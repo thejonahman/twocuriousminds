@@ -9,6 +9,7 @@ import Home from "@/pages/home";
 import Video from "@/pages/video";
 import ProfileWizard from "@/pages/profile-wizard";
 import Auth from "@/pages/auth";
+import { AdminPage } from "@/pages/admin";
 import Navbar from "@/components/navbar";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
             <Route path="/" component={Home} />
             <Route path="/video/:id" component={Video} />
             <Route path="/auth" component={Auth} />
+            <ProtectedRoute path="/admin" component={AdminPage} />
             <ProtectedRoute path="/profile/wizard" component={ProfileWizard} />
             <Route component={NotFound} />
           </Switch>
