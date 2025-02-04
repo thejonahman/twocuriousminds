@@ -57,13 +57,24 @@ export async function findBestImageForVideo(
     const keywordMap = {
       "Rent the runway": ["fashion", "retail", "startup", "business"],
       "Grocery store": ["retail", "store", "business", "shopping"],
-      "Buffet": ["finance", "investment", "business", "money"]
+      "Buffet": ["finance", "investment", "business", "money", "banking", "wealth", "stock market"],
+      "Morningstar": ["finance", "investment", "business", "analysis", "stock market"]
     };
 
     // Get relevant keywords for this video
-    const relevantKeywords = Object.entries(keywordMap).find(([key]) => 
-      video.title.toLowerCase().includes(key.toLowerCase())
-    )?.[1] || [];
+    let relevantKeywords: string[] = [];
+
+    // Check for each keyword set
+    Object.entries(keywordMap).forEach(([key, keywords]) => {
+      if (video.title.toLowerCase().includes(key.toLowerCase())) {
+        relevantKeywords.push(...keywords);
+      }
+    });
+
+    // If no specific keywords found, use business-related keywords for default
+    if (relevantKeywords.length === 0) {
+      relevantKeywords = ["business", "finance", "professional"];
+    }
 
     console.log('Analyzing images for video:', video.title);
     console.log('Relevant keywords:', relevantKeywords);
@@ -91,7 +102,7 @@ export async function findBestImageForVideo(
     }
 
     // If no good match found, return default business image
-    return "/attached_assets/photo-1522056615691-da7b8106c665.jpeg";
+    return "/attached_assets/photo-1460925895917-afdab827c52f.jpeg";
   } catch (error) {
     console.error('Error finding best image:', error);
     return null;
