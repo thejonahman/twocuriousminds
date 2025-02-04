@@ -65,8 +65,8 @@ export default function Auth() {
           <CardTitle>{isLogin ? "Welcome Back" : "Create Account"}</CardTitle>
           <CardDescription>
             {isLogin
-              ? "Sign in to your account to continue"
-              : "Sign up for a new account to get started"}
+              ? "Ready to see yourself clearly? Sign in to continue your journey."
+              : "Ready to see yourself clearly? Create an account to start your journey."}
           </CardDescription>
         </CardHeader>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -140,8 +140,7 @@ export default function Auth() {
       <div className="space-y-4">
         <h2 className="text-3xl font-bold">Two Curious Minds</h2>
         <p className="text-muted-foreground">
-          Your personal learning companion that helps you discover educational content
-          across multiple platforms, tailored to your interests and learning style.
+          Ready to see yourself clearly? Join us on a journey of self-discovery and personal growth.
         </p>
         <div className="space-y-2">
           <h3 className="text-lg font-semibold">Features</h3>
