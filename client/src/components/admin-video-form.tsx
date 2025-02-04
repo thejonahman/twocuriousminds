@@ -46,6 +46,7 @@ export function AdminVideoForm() {
 
   const selectedCategoryId = form.watch("categoryId");
 
+  // Fetch subcategories when a category is selected
   const { data: subcategories } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories", selectedCategoryId, "subcategories"],
     enabled: !!selectedCategoryId,
@@ -168,7 +169,7 @@ export function AdminVideoForm() {
               name="categoryId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Category</FormLabel>
+                  <FormLabel>Topic</FormLabel>
                   <Select
                     onValueChange={(value) => {
                       field.onChange(value);
@@ -179,7 +180,7 @@ export function AdminVideoForm() {
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select category" />
+                        <SelectValue placeholder="Select topic" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>

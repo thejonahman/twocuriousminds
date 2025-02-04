@@ -191,14 +191,31 @@ export function registerRoutes(app: any): Server {
 
   app.get("/api/categories/:categoryId/subcategories", async (req, res) => {
     try {
+      const categoryId = parseInt(req.params.categoryId);
+
+      // Validate that the category exists
+      const [category] = await db.query.categories.findMany({
+        where: eq(categories.id, categoryId),
+        limit: 1,
+      });
+
+      if (!category) {
+        return res.status(404).json({ message: "Category not found" });
+      }
+
+      // Get subcategories for this category
       const result = await db.query.subcategories.findMany({
-        where: eq(subcategories.categoryId, parseInt(req.params.categoryId)),
+        where: eq(subcategories.categoryId, categoryId),
         orderBy: [asc(subcategories.displayOrder), asc(subcategories.name)],
       });
+
       res.json(result);
     } catch (error) {
       console.error('Error fetching subcategories:', error);
-      res.status(500).json({ message: "Failed to fetch subcategories" });
+      res.status(500).json({ 
+        message: "Failed to fetch subcategories",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
