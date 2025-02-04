@@ -47,10 +47,17 @@ export async function findBestImageForVideo(
   try {
     console.log(`Finding best image for: "${title}"`);
 
-    // Get all images from the folder
-    const files = fs.readdirSync(imagesFolder).filter(file => 
-      /\.(jpg|jpeg|png|webp)$/i.test(file) && !file.includes('875752ee') && !file.includes('8fa9df90')
-    );
+    // Get all photos (excluding test images and specific files we want to ignore)
+    const files = fs.readdirSync(imagesFolder).filter(file => {
+      const isImage = /\.(jpg|jpeg|png|webp)$/i.test(file);
+      const isPhotoFile = file.startsWith('photo-');
+      // Exclude test images and other non-photo files
+      const excludeFiles = ['875752ee', '8fa9df90', 'dimples-2', 'image_'];
+      const shouldExclude = excludeFiles.some(prefix => file.includes(prefix));
+      return isImage && isPhotoFile && !shouldExclude;
+    });
+
+    console.log(`Found ${files.length} potential images to analyze`);
 
     // Get content theme
     const contentResponse = await openai.chat.completions.create({
