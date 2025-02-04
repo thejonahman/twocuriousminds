@@ -23,7 +23,7 @@ interface Video {
   } | null;
 }
 
-export function AdminPage() {
+export function AdminPage(): JSX.Element {
   const [, setLocation] = useLocation();
 
   // Check if user is admin
@@ -35,7 +35,7 @@ export function AdminPage() {
   // Redirect non-admin users
   if (!isLoading && (!user || !user.isAdmin)) {
     setLocation("/");
-    return null;
+    return <></>;
   }
 
   const { data: videos } = useQuery<Video[]>({
