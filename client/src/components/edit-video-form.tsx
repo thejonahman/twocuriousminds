@@ -112,14 +112,13 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
         onClose();
       }
 
-      // Finally show toast and scroll to top
+      // Finally show toast
       setTimeout(() => {
-        window.scrollTo(0, 0);
         toast({
           title: "Success",
           description: "Video updated successfully",
         });
-      }, 200); // Increased delay to ensure dialog closes first
+      }, 100);
     },
     onError: (error: Error) => {
       toast({
