@@ -38,7 +38,6 @@ export default function Home() {
     queryKey: ["/api/videos"],
   });
 
-  // Effect to scroll to the subcategory
   useEffect(() => {
     if (initialSubcategoryId && videos) {
       const element = document.getElementById(`subcategory-${initialSubcategoryId}`);
@@ -50,11 +49,12 @@ export default function Home() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         <div className="animate-pulse space-y-4">
-          <div className="h-8 w-2/3 bg-muted rounded-lg" />
-          <div className="h-4 w-1/2 bg-muted rounded-lg" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="h-10 w-2/3 bg-muted rounded-lg" />
+          <div className="h-5 w-1/2 bg-muted rounded-lg" />
+          <div className="h-12 w-full bg-muted rounded-lg" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="aspect-video bg-muted rounded-xl" />
             ))}
@@ -107,8 +107,8 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      <div className="space-y-4">
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
+      <div className="space-y-4 text-center max-w-3xl mx-auto">
+        <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
           Ski Technique Library
         </h1>
         <p className="text-muted-foreground text-lg">
@@ -116,28 +116,28 @@ export default function Home() {
         </p>
       </div>
 
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+      <div className="relative max-w-2xl mx-auto transform transition-all duration-300 hover:scale-[1.02]">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/60" />
         <Input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search by technique, difficulty level, or terrain..."
-          className="pl-9 pr-9 h-12 text-base shadow-sm"
+          className="pl-11 py-6 text-lg bg-background/50 border-2 border-muted/30 hover:border-primary/30 focus:border-primary/50 transition-all duration-300 shadow-lg hover:shadow-xl rounded-2xl"
         />
         {searchQuery && (
           <button
             onClick={() => setSearchQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         )}
       </div>
 
       {searchQuery ? (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
+          <div className="flex items-center justify-between border-b pb-4">
+            <h2 className="text-2xl font-semibold flex items-center gap-2">
               Search Results
               <Badge variant="secondary" className="ml-2">
                 {filteredVideos?.length} tutorials
@@ -149,26 +149,30 @@ export default function Home() {
       ) : (
         <Tabs 
           defaultValue={initialCategoryId || sortedCategories[0]?.[0]} 
-          className="space-y-6"
+          className="space-y-8"
         >
-          <TabsList className="h-auto flex-wrap p-1 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            {sortedCategories.map(([id, category]) => (
-              <TabsTrigger 
-                key={id} 
-                value={id} 
-                className="text-base py-2.5 px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
-              >
-                {category.name}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+          <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 backdrop-blur-lg bg-background/80 border-b">
+            <TabsList className="h-auto flex-wrap justify-start w-full p-1 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 rounded-xl">
+              {sortedCategories.map(([id, category]) => (
+                <TabsTrigger 
+                  key={id} 
+                  value={id} 
+                  className="text-base py-2.5 px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md rounded-lg transition-all duration-200"
+                >
+                  {category.name}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
 
           {sortedCategories.map(([id, category]) => (
-            <TabsContent key={id} value={id} className="space-y-6">
+            <TabsContent key={id} value={id} className="space-y-8">
               <div className="grid grid-cols-1 lg:grid-cols-[240px,1fr] gap-8">
                 <aside className="lg:border-r lg:pr-6">
-                  <div className="lg:sticky lg:top-6 space-y-4">
-                    <h2 className="font-semibold text-lg">Skill Areas</h2>
+                  <div className="lg:sticky lg:top-24 space-y-4">
+                    <div className="pb-4 border-b">
+                      <h2 className="font-semibold text-xl text-foreground/90">Skill Areas</h2>
+                    </div>
                     <div className="space-y-1">
                       {Object.entries(category.subcategories)
                         .sort(([,a], [,b]) => {
@@ -181,10 +185,10 @@ export default function Home() {
                           <button
                             key={subId}
                             onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
-                            className="w-full text-left px-4 py-2.5 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
+                            className="w-full text-left px-4 py-3 rounded-xl hover:bg-accent/50 hover:shadow-sm transition-all duration-200 flex items-center justify-between group"
                           >
-                            <span className="text-sm">{subcategory.name}</span>
-                            <Badge variant="outline" className="group-hover:bg-primary/10">
+                            <span className="text-sm font-medium">{subcategory.name}</span>
+                            <Badge variant="secondary" className="bg-primary/5 group-hover:bg-primary/10 transition-colors">
                               {subcategory.videos.length}
                             </Badge>
                           </button>
@@ -193,7 +197,7 @@ export default function Home() {
                   </div>
                 </aside>
 
-                <div className="space-y-10">
+                <div className="space-y-12">
                   {Object.entries(category.subcategories)
                     .sort(([,a], [,b]) => {
                       if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
@@ -202,10 +206,14 @@ export default function Home() {
                       return a.name.localeCompare(b.name);
                     })
                     .map(([subId, subcategory]) => (
-                      <div key={subId} id={`subcategory-${subId}`} className="scroll-mt-6">
-                        <div className="flex items-center gap-3 mb-6">
-                          <h2 className="text-xl font-semibold">{subcategory.name}</h2>
-                          <Badge variant="secondary">
+                      <div 
+                        key={subId} 
+                        id={`subcategory-${subId}`} 
+                        className="scroll-mt-24 space-y-6 p-6 rounded-2xl bg-accent/5 border border-accent/10 hover:border-accent/20 transition-colors"
+                      >
+                        <div className="flex items-center gap-3 pb-4 border-b">
+                          <h2 className="text-2xl font-semibold tracking-tight">{subcategory.name}</h2>
+                          <Badge variant="secondary" className="bg-primary/10">
                             {subcategory.videos.length} tutorials
                           </Badge>
                         </div>

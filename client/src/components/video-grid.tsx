@@ -42,10 +42,10 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
       {videos.map((video) => (
         <Link key={video.id} href={`/video/${video.id}`}>
-          <Card className="overflow-hidden bg-card hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-0.5">
+          <Card className="overflow-hidden bg-card hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-1 border-accent/20">
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted/50 relative group">
                 <div 
@@ -85,22 +85,20 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                 </div>
               </div>
             </AspectRatio>
-            <CardContent className="p-4">
-              <div className="space-y-2.5">
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary" className="capitalize">
-                    {video.platform}
+            <CardContent className="p-4 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary" className="capitalize bg-primary/10">
+                  {video.platform}
+                </Badge>
+                {video.subcategory && (
+                  <Badge variant="outline" className="border-accent/20">
+                    {video.subcategory.name}
                   </Badge>
-                  {video.subcategory && (
-                    <Badge variant="outline">
-                      {video.subcategory.name}
-                    </Badge>
-                  )}
-                </div>
-                <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
-                  {video.title}
-                </h3>
+                )}
               </div>
+              <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
+                {video.title}
+              </h3>
             </CardContent>
           </Card>
         </Link>
