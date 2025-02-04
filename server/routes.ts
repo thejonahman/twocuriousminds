@@ -437,5 +437,31 @@ export function registerRoutes(app: any): Server {
     }
   });
 
+  app.delete("/api/videos/:id", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const videoId = parseInt(req.params.id);
+      const [deletedVideo] = await db
+        .delete(videos)
+        .where(eq(videos.id, videoId))
+        .returning();
+
+      if (!deletedVideo) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      res.json(deletedVideo);
+    } catch (error) {
+      console.error('Error deleting video:', error);
+      res.status(500).json({ 
+        message: "Failed to delete video",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   return createServer(app);
 }

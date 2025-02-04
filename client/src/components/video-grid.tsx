@@ -3,11 +3,15 @@ import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Youtube, Instagram, Image, Pencil } from "lucide-react";
+import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { EditVideoForm } from "./edit-video-form";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { toast } from "@/hooks/use-toast";
 
 interface Video {
   id: number;
@@ -39,6 +43,48 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [scrollPosition, setScrollPosition] = useState(0);
+  const queryClient = useQueryClient();
+
+  const deleteMutation = useMutation({
+    mutationFn: async (videoId: number) => {
+      const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to delete video");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      toast({
+        title: "Success",
+        description: "Video deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Store scroll position when dialog opens
+  useEffect(() => {
+    if (dialogOpen) {
+      setScrollPosition(window.scrollY);
+    }
+  }, [dialogOpen]);
+
+  // Restore scroll position when dialog closes
+  useEffect(() => {
+    if (!dialogOpen && scrollPosition > 0) {
+      setTimeout(() => {
+        window.scrollTo(0, scrollPosition);
+      }, 100);
+    }
+  }, [dialogOpen, scrollPosition]);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -59,6 +105,10 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
       newSet.add(videoId);
       return newSet;
     });
+  };
+
+  const handleDelete = (videoId: number) => {
+    deleteMutation.mutate(videoId);
   };
 
   return (
@@ -119,35 +169,70 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                 )}
               </div>
               {showEditButton && (
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button 
-                      variant="ghost" 
-                      size="icon"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setSelectedVideo(video);
-                        setDialogOpen(true);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>Edit Video</DialogTitle>
-                    </DialogHeader>
-                    {selectedVideo && (
-                      <EditVideoForm 
-                        video={selectedVideo} 
-                        onClose={() => {
-                          setDialogOpen(false);
-                          setSelectedVideo(null);
+                <div className="flex items-center gap-2">
+                  <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setSelectedVideo(video);
+                          setDialogOpen(true);
                         }}
-                      />
-                    )}
-                  </DialogContent>
-                </Dialog>
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-2xl">
+                      <DialogHeader>
+                        <DialogTitle>Edit Video</DialogTitle>
+                      </DialogHeader>
+                      {selectedVideo && (
+                        <EditVideoForm 
+                          video={selectedVideo} 
+                          onClose={() => {
+                            setDialogOpen(false);
+                            setSelectedVideo(null);
+                          }}
+                        />
+                      )}
+                    </DialogContent>
+                  </Dialog>
+
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="text-destructive hover:text-destructive/90"
+                        onClick={(e) => e.preventDefault()}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Video</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete "{video.title}"? This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleDelete(video.id);
+                          }}
+                          className="bg-destructive hover:bg-destructive/90"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               )}
             </div>
             <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
