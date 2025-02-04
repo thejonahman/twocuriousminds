@@ -69,7 +69,7 @@ export function AdminPage(): JSX.Element {
         </TabsContent>
 
         <TabsContent value="manage">
-          {videos && <VideoGrid videos={videos} />}
+          {videos && <VideoGrid videos={videos} showEditButton={true} />}
         </TabsContent>
       </Tabs>
     </div>

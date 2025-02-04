@@ -180,6 +180,52 @@ export function registerRoutes(app: any): Server {
     }
   });
 
+  app.patch("/api/videos/:id", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const videoId = parseInt(req.params.id);
+      const { title, description, url, categoryId, subcategoryId, platform } = req.body;
+
+      // Validate required fields
+      if (!title || !url || !categoryId || !platform) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Get thumbnail URL for the new URL if it changed
+      const thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
+
+      // Update video
+      const [video] = await db
+        .update(videos)
+        .set({
+          title,
+          description,
+          url,
+          thumbnailUrl,
+          categoryId,
+          subcategoryId: subcategoryId || null,
+          platform,
+        })
+        .where(eq(videos.id, videoId))
+        .returning();
+
+      if (!video) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      res.json(video);
+    } catch (error) {
+      console.error('Error updating video:', error);
+      res.status(500).json({ 
+        message: "Failed to update video",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   app.get("/api/categories", async (_req, res) => {
     const result = await db.query.categories.findMany({
       with: {

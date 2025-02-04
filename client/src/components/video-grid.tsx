@@ -2,9 +2,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, Clock, Youtube, Instagram, Image } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { CheckCircle2, Clock, Youtube, Instagram, Image, Pencil } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { useState } from "react";
+import { EditVideoForm } from "./edit-video-form";
 
 interface Video {
   id: number;
@@ -15,10 +18,20 @@ interface Video {
   subcategory: {
     name: string;
   } | null;
+  description?: string;
+  categoryId: number;
+  subcategoryId?: number;
+  url: string;
 }
 
-export function VideoGrid({ videos }: { videos: Video[] }) {
+interface VideoGridProps {
+  videos: Video[];
+  showEditButton?: boolean;
+}
+
+export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
+  const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -44,8 +57,8 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
       {videos.map((video) => (
-        <Link key={video.id} href={`/video/${video.id}`}>
-          <Card className="overflow-hidden bg-card hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-1 border-accent/20">
+        <Card key={video.id} className="overflow-hidden bg-card hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-1 border-accent/20">
+          <Link href={`/video/${video.id}`}>
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted/50 relative group">
                 <div 
@@ -85,7 +98,9 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                 </div>
               </div>
             </AspectRatio>
-            <CardContent className="p-4 space-y-3">
+          </Link>
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary" className="capitalize bg-primary/10">
                   {video.platform}
@@ -96,12 +111,36 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                   </Badge>
                 )}
               </div>
-              <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
-                {video.title}
-              </h3>
-            </CardContent>
-          </Card>
-        </Link>
+              {showEditButton && (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setSelectedVideo(video);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                      <DialogTitle>Edit Video</DialogTitle>
+                    </DialogHeader>
+                    {selectedVideo && (
+                      <EditVideoForm video={selectedVideo} />
+                    )}
+                  </DialogContent>
+                </Dialog>
+              )}
+            </div>
+            <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
+              {video.title}
+            </h3>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );
