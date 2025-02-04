@@ -30,10 +30,10 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Scroll to top when component mounts
+  // Scroll to top whenever the video ID changes
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, []);
+  }, [id]); // Added id to dependency array
 
   const handleBack = () => {
     if (video?.category) {
