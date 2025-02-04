@@ -48,7 +48,7 @@ export function AdminVideoForm() {
 
   // Fetch subcategories when a category is selected
   const { data: subcategories } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: ["/api/categories", selectedCategoryId, "subcategories"],
+    queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
   });
 
