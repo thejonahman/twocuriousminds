@@ -8,6 +8,7 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   email: text("email").notNull(),
   password: text("password").notNull(),
+  isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -46,6 +47,7 @@ export const videos = pgTable("videos", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Relations setup
 export const userRelations = relations(users, ({ many }) => ({
   preferences: many(userPreferences),
 }));
@@ -80,11 +82,12 @@ export const subcategoryRelations = relations(subcategories, ({ one }) => ({
   }),
 }));
 
-// Create Zod schemas
+// Zod schemas
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3).max(50),
   email: z.string().email(),
   password: z.string().min(8),
+  isAdmin: z.boolean().default(false),
 });
 
 export const selectUserSchema = createSelectSchema(users, {

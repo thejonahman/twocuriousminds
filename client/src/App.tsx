@@ -22,7 +22,11 @@ function Router() {
             <Route path="/" component={Home} />
             <Route path="/video/:id" component={Video} />
             <Route path="/auth" component={Auth} />
-            <ProtectedRoute path="/admin" component={AdminPage} />
+            <ProtectedRoute 
+              path="/admin" 
+              component={AdminPage}
+              adminRequired={true}
+            />
             <ProtectedRoute path="/profile/wizard" component={ProfileWizard} />
             <Route component={NotFound} />
           </Switch>
