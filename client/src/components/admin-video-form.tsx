@@ -76,14 +76,21 @@ export function AdminVideoForm() {
       }
     },
     onSuccess: () => {
+      // Scroll to top first
+      window.scrollTo(0, 0);
+
+      // Then update UI state
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       form.reset();
-      toast({
-        title: "Success",
-        description: "Video added successfully",
-      });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+
+      // Finally show toast
+      setTimeout(() => {
+        toast({
+          title: "Success",
+          description: "Video added successfully",
+        });
+      }, 100);
     },
     onError: (error: Error) => {
       toast({

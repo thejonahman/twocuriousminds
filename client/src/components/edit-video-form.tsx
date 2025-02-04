@@ -105,18 +105,25 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       }
     },
     onSuccess: () => {
+      // Scroll to top first
+      window.scrollTo(0, 0);
+
+      // Then update UI state
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
-      toast({
-        title: "Success",
-        description: "Video updated successfully",
-      });
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      if (onClose) {
-        setTimeout(() => {
+
+      // Show toast
+      setTimeout(() => {
+        toast({
+          title: "Success",
+          description: "Video updated successfully",
+        });
+
+        // Finally close dialog if needed
+        if (onClose) {
           onClose();
-        }, 100); // Small delay to ensure scroll happens before dialog closes
-      }
+        }
+      }, 100);
     },
     onError: (error: Error) => {
       toast({
