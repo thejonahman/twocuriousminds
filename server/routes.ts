@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
-import { videos, categories, userPreferences } from "@db/schema";
-import { sql, eq, and, or, ne, inArray, notInArray, desc } from "drizzle-orm";
+import { videos, categories, userPreferences, subcategories } from "@db/schema";
+import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
 import { setupAuth } from "./auth";
 import fetch from "node-fetch";
 import * as fs from 'fs';
@@ -141,6 +141,45 @@ export function registerRoutes(app: any): Server {
     res.json(result);
   });
 
+  app.post("/api/videos", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const { title, description, url, categoryId, subcategoryId, platform } = req.body;
+
+      // Validate required fields
+      if (!title || !url || !categoryId || !platform) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Get thumbnail URL
+      const thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
+
+      // Insert new video
+      const [video] = await db.insert(videos)
+        .values({
+          title,
+          description,
+          url,
+          thumbnailUrl,
+          categoryId,
+          subcategoryId: subcategoryId || null,
+          platform,
+        })
+        .returning();
+
+      res.json(video);
+    } catch (error) {
+      console.error('Error adding video:', error);
+      res.status(500).json({ 
+        message: "Failed to add video",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   app.get("/api/categories", async (_req, res) => {
     const result = await db.query.categories.findMany({
       with: {
@@ -148,6 +187,19 @@ export function registerRoutes(app: any): Server {
       },
     });
     res.json(result);
+  });
+
+  app.get("/api/categories/:categoryId/subcategories", async (req, res) => {
+    try {
+      const result = await db.query.subcategories.findMany({
+        where: eq(subcategories.categoryId, parseInt(req.params.categoryId)),
+        orderBy: [asc(subcategories.displayOrder), asc(subcategories.name)],
+      });
+      res.json(result);
+    } catch (error) {
+      console.error('Error fetching subcategories:', error);
+      res.status(500).json({ message: "Failed to fetch subcategories" });
+    }
   });
 
   app.get("/api/preferences", async (req, res) => {

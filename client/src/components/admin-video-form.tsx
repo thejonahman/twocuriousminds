@@ -61,12 +61,13 @@ export function AdminVideoForm() {
         });
 
         if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.message || "Failed to add video");
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to add video");
         }
 
         return response.json();
       } catch (error) {
+        console.error('Video submission error:', error);
         if (error instanceof Error) {
           throw error;
         }
@@ -147,9 +148,9 @@ export function AdminVideoForm() {
                 <FormItem>
                   <FormLabel>URL</FormLabel>
                   <FormControl>
-                    <Input 
-                      placeholder="Paste video URL" 
-                      {...field} 
+                    <Input
+                      placeholder="Paste video URL"
+                      {...field}
                       onChange={(e) => {
                         field.onChange(e);
                         detectPlatform(e.target.value);
@@ -194,7 +195,7 @@ export function AdminVideoForm() {
               name="subcategoryId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Subcategory (Optional)</FormLabel>
+                  <FormLabel>Subtopic (Optional)</FormLabel>
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
@@ -202,7 +203,7 @@ export function AdminVideoForm() {
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder={selectedCategoryId ? "Select subcategory" : "Select a category first"} />
+                        <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -245,8 +246,8 @@ export function AdminVideoForm() {
             />
           </CardContent>
           <CardFooter>
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full"
               disabled={addVideoMutation.isPending}
             >
