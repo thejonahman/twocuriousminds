@@ -114,8 +114,8 @@ export default function Auth() {
             </div>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button 
-              type="submit" 
+            <Button
+              type="submit"
               className="w-full"
               disabled={loginMutation.isPending || registerMutation.isPending}
             >
@@ -138,9 +138,9 @@ export default function Auth() {
         </form>
       </Card>
       <div className="space-y-4">
-        <h2 className="text-3xl font-bold">TheCuriousMind</h2>
+        <h2 className="text-3xl font-bold">Two Curious Minds</h2>
         <p className="text-muted-foreground">
-          Your personal learning companion that helps you discover educational content 
+          Your personal learning companion that helps you discover educational content
           across multiple platforms, tailored to your interests and learning style.
         </p>
         <div className="space-y-2">
