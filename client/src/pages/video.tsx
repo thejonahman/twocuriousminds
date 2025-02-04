@@ -4,6 +4,7 @@ import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DelphiBubble } from "@/components/delphi-bubble";
+import { ThumbnailSuggestions } from "@/components/thumbnail-suggestions";
 
 export default function Video() {
   const { id } = useParams();
@@ -82,6 +83,7 @@ export default function Video() {
             <h1 className="text-2xl font-bold">{video.title}</h1>
             <p className="text-muted-foreground">{video.description}</p>
           </div>
+          <ThumbnailSuggestions videoId={video.id} />
           <DelphiBubble videoId={video.id} />
         </div>
         <div className="lg:sticky lg:top-4">

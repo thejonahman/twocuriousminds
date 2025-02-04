@@ -7,6 +7,7 @@ import fetch from "node-fetch";
 import * as fs from 'fs';
 import * as path from 'path';
 import { analyzeImage, findBestImageForVideo } from './lib/imageAnalysis';
+import { suggestThumbnails } from './lib/thumbnailAI';
 
 async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
   try {
@@ -292,6 +293,35 @@ export function registerRoutes(app: any): Server {
       console.error('Error in recommendations:', error);
       res.status(500).json({ 
         message: "Failed to get recommendations",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.post("/api/videos/:id/suggest-thumbnails", async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.id);
+
+      // Get video details
+      const video = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId),
+      });
+
+      if (!video) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      // Get AI-powered thumbnail suggestions
+      const suggestions = await suggestThumbnails(
+        video.title,
+        video.description || ''
+      );
+
+      res.json(suggestions);
+    } catch (error) {
+      console.error('Error suggesting thumbnails:', error);
+      res.status(500).json({ 
+        message: "Failed to generate thumbnail suggestions",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
