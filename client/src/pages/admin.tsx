@@ -4,6 +4,7 @@ import { VideoGrid } from "@/components/video-grid";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
+import { useEffect } from "react";
 
 interface User {
   id: number;
@@ -42,6 +43,13 @@ export function AdminPage(): JSX.Element {
     queryKey: ["/api/videos"],
     enabled: !!user?.isAdmin,
   });
+
+  // Scroll to top when videos are loaded/updated
+  useEffect(() => {
+    if (videos) {
+      window.scrollTo(0, 0);
+    }
+  }, [videos]);
 
   if (isLoading) {
     return <div>Loading...</div>;

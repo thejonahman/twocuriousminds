@@ -10,8 +10,6 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from 'react';
-import { FileUpload } from "lucide-react";
-
 
 // Form validation schema
 const videoSchema = z.object({
@@ -105,25 +103,23 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       }
     },
     onSuccess: () => {
-      // Scroll to top first
-      window.scrollTo(0, 0);
-
-      // Then update UI state
+      // First update UI state
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
 
-      // Show toast
+      // Then close dialog if needed
+      if (onClose) {
+        onClose();
+      }
+
+      // Finally show toast and scroll to top
       setTimeout(() => {
+        window.scrollTo(0, 0);
         toast({
           title: "Success",
           description: "Video updated successfully",
         });
-
-        // Finally close dialog if needed
-        if (onClose) {
-          onClose();
-        }
-      }, 100);
+      }, 200); // Increased delay to ensure dialog closes first
     },
     onError: (error: Error) => {
       toast({
