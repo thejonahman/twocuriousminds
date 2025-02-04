@@ -21,7 +21,7 @@ const PostgresSessionStore = connectPg(session);
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  const buf = (await scryptAsync(password, salt, 32)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
 
@@ -34,9 +34,15 @@ async function comparePasswords(supplied: string, stored: string) {
     }
 
     const [hashedPassword, salt] = stored.split(".");
-    const hashedBuf = Buffer.from(hashedPassword, "hex");
-    const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-    return timingSafeEqual(hashedBuf, suppliedBuf);
+    const buf = (await scryptAsync(supplied, salt, 32)) as Buffer;
+    const storedBuf = Buffer.from(hashedPassword, "hex");
+
+    if (buf.length !== storedBuf.length) {
+      console.error(`Buffer length mismatch: ${buf.length} vs ${storedBuf.length}`);
+      return false;
+    }
+
+    return timingSafeEqual(buf, storedBuf);
   } catch (error) {
     console.error("Password comparison error:", error);
     return false;
@@ -71,18 +77,24 @@ export function setupAuth(app: Express) {
   passport.use(
     new LocalStrategy(async (username, password, done) => {
       try {
+        console.log(`Attempting login for user: ${username}`);
         const [user] = await getUserByUsername(username);
+
         if (!user) {
+          console.log(`User not found: ${username}`);
           return done(null, false);
         }
 
         const isValid = await comparePasswords(password, user.password);
+        console.log(`Password validation result: ${isValid}`);
+
         if (!isValid) {
           return done(null, false);
         }
 
         return done(null, user);
       } catch (error) {
+        console.error("Login error:", error);
         return done(error);
       }
     }),
@@ -116,11 +128,12 @@ export function setupAuth(app: Express) {
     }
 
     try {
+      const hashedPassword = await hashPassword(result.data.password);
       const [user] = await db
         .insert(users)
         .values({
           ...result.data,
-          password: await hashPassword(result.data.password),
+          password: hashedPassword,
         })
         .returning();
 

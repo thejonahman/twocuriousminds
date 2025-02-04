@@ -13,13 +13,16 @@ async function hashPassword(password: string) {
 }
 
 async function resetAdminPassword() {
-  const salt = randomBytes(16).toString("hex");
-  const buf = await scryptAsync("admin123", salt, 32) as Buffer;
-  const hashedPassword = `${buf.toString("hex")}.${salt}`;
-  
+  const hashedPassword = await hashPassword("admin123");
+
   await db.update(users)
     .set({ password: hashedPassword })
     .where(eq(users.username, "admin"));
+
+  console.log("Admin password updated successfully");
+  console.log("You can now login with:");
+  console.log("Username: admin");
+  console.log("Password: admin123");
 }
 
 resetAdminPassword().catch(console.error);
