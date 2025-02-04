@@ -5,6 +5,7 @@ import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DelphiBubble } from "@/components/delphi-bubble";
 import { Separator } from "@/components/ui/separator";
+import { useEffect } from "react";
 
 export default function Video() {
   const { id } = useParams();
@@ -28,6 +29,11 @@ export default function Video() {
   }>({
     queryKey: [`/api/videos/${id}`],
   });
+
+  // Scroll to top when component mounts
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   const handleBack = () => {
     if (video?.category) {
