@@ -12,16 +12,22 @@ import { EditVideoForm } from "./edit-video-form";
 interface Video {
   id: number;
   title: string;
+  url: string;
   thumbnailUrl: string | null;
   platform: string;
   watched: boolean;
-  subcategory: {
+  description: string;
+  category: {
+    id: number;
     name: string;
+  };
+  subcategory: {
+    id: number;
+    name: string;
+    displayOrder?: number;
   } | null;
-  description?: string;
   categoryId: number;
   subcategoryId?: number;
-  url: string;
 }
 
 interface VideoGridProps {
@@ -32,6 +38,7 @@ interface VideoGridProps {
 export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -112,7 +119,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                 )}
               </div>
               {showEditButton && (
-                <Dialog>
+                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                   <DialogTrigger asChild>
                     <Button 
                       variant="ghost" 
@@ -120,6 +127,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                       onClick={(e) => {
                         e.preventDefault();
                         setSelectedVideo(video);
+                        setDialogOpen(true);
                       }}
                     >
                       <Pencil className="h-4 w-4" />
@@ -130,7 +138,13 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                       <DialogTitle>Edit Video</DialogTitle>
                     </DialogHeader>
                     {selectedVideo && (
-                      <EditVideoForm video={selectedVideo} />
+                      <EditVideoForm 
+                        video={selectedVideo} 
+                        onClose={() => {
+                          setDialogOpen(false);
+                          setSelectedVideo(null);
+                        }}
+                      />
                     )}
                   </DialogContent>
                 </Dialog>

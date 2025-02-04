@@ -42,9 +42,10 @@ interface Video {
 
 interface EditVideoFormProps {
   video: Video;
+  onClose?: () => void;
 }
 
-export function EditVideoForm({ video }: EditVideoFormProps) {
+export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const queryClient = useQueryClient();
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -100,6 +101,9 @@ export function EditVideoForm({ video }: EditVideoFormProps) {
         title: "Success",
         description: "Video updated successfully",
       });
+      if (onClose) {
+        onClose();
+      }
     },
     onError: (error: Error) => {
       toast({
