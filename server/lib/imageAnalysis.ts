@@ -11,7 +11,7 @@ export async function analyzeImage(imagePath: string): Promise<string> {
     const base64Image = imageBuffer.toString('base64');
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: "gpt-4-vision-preview",
       messages: [
         {
           role: "user",
@@ -29,7 +29,7 @@ export async function analyzeImage(imagePath: string): Promise<string> {
       max_tokens: 50
     });
 
-    return response.choices[0].message.content.toLowerCase().trim();
+    return response.choices[0].message.content?.toLowerCase().trim() || '';
   } catch (error) {
     console.error('Error analyzing image:', error);
     return '';
@@ -43,7 +43,10 @@ export async function findBestImageForVideo(
   try {
     // Find the video details
     const video = videos.find(v => v.id === videoId);
-    if (!video) return null;
+    if (!video) {
+      console.error('Video not found:', videoId);
+      return null;
+    }
 
     // Get all images from the assets directory
     const files = fs.readdirSync(assetsDir).filter(file => 
@@ -62,11 +65,15 @@ export async function findBestImageForVideo(
       video.title.toLowerCase().includes(key.toLowerCase())
     )?.[1] || [];
 
+    console.log('Analyzing images for video:', video.title);
+    console.log('Relevant keywords:', relevantKeywords);
+
     // Analyze each image and find the best match
     const imageAnalyses = await Promise.all(
       files.map(async file => {
         const fullPath = path.join(assetsDir, file);
         const imageTheme = await analyzeImage(fullPath);
+        console.log('Analyzed image:', file, 'Theme:', imageTheme);
         return {
           file,
           theme: imageTheme,
@@ -77,13 +84,14 @@ export async function findBestImageForVideo(
 
     // Sort by score and get the best match
     const bestMatch = imageAnalyses.sort((a, b) => b.score - a.score)[0];
+    console.log('Best match:', bestMatch);
 
     if (bestMatch && bestMatch.score > 0) {
       return `/attached_assets/${bestMatch.file}`;
     }
 
     // If no good match found, return default business image
-    return "/attached_assets/thumbnail_business.jpg";
+    return "/attached_assets/photo-1522056615691-da7b8106c665.jpeg";
   } catch (error) {
     console.error('Error finding best image:', error);
     return null;

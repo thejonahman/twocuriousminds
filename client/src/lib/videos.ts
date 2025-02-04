@@ -10,13 +10,13 @@ export const videos: Video[] = [
     id: "1",
     title: "Rent the runway - good or bad business",
     category: "Startups",
-    thumbnailUrl: "/attached_assets/photo-1522056615691-da7b8106c665.jpeg", // Fashion/business themed image
+    thumbnailUrl: "/attached_assets/photo-1522056615691-da7b8106c665.jpeg", // Fashion/retail themed image
   },
   {
     id: "2",
     title: "Grocery store competitive tactic",
     category: "General",
-    thumbnailUrl: "/attached_assets/photo-1579113800032-c38bd7635818.jpeg", // Retail/store themed image
+    thumbnailUrl: "/attached_assets/photo-1513673054901-2b5f51551112.jpeg", // Retail/store themed image
   },
   {
     id: "3", 
