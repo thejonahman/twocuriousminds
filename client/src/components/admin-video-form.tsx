@@ -13,6 +13,7 @@ import { apiRequest } from "@/lib/queryClient";
 // Form validation schema
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
   url: z.string().url("Must be a valid URL")
     .refine((url) => {
       return (
@@ -35,6 +36,7 @@ export function AdminVideoForm() {
     resolver: zodResolver(videoSchema),
     defaultValues: {
       platform: "youtube",
+      description: "",
     },
   });
 
@@ -51,12 +53,25 @@ export function AdminVideoForm() {
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("POST", "/api/videos", data);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to add video");
+      try {
+        const response = await apiRequest("POST", "/api/videos", {
+          ...data,
+          categoryId: parseInt(data.categoryId),
+          subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : undefined,
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || "Failed to add video");
+        }
+
+        return response.json();
+      } catch (error) {
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error("Failed to add video");
       }
-      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -66,7 +81,7 @@ export function AdminVideoForm() {
         description: "Video added successfully",
       });
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message,
@@ -105,6 +120,20 @@ export function AdminVideoForm() {
                   <FormLabel>Title</FormLabel>
                   <FormControl>
                     <Input placeholder="Enter video title" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="description"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Description (Optional)</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Enter video description" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -169,10 +198,11 @@ export function AdminVideoForm() {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
+                    disabled={!selectedCategoryId}
                   >
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select subcategory" />
+                        <SelectValue placeholder={selectedCategoryId ? "Select subcategory" : "Select a category first"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
