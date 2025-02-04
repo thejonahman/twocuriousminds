@@ -79,11 +79,11 @@ export function AdminVideoForm() {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       form.reset();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
       toast({
         title: "Success",
         description: "Video added successfully",
       });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     },
     onError: (error: Error) => {
       toast({
