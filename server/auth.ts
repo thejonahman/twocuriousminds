@@ -21,15 +21,20 @@ const PostgresSessionStore = connectPg(session);
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
+  const buf = (await scryptAsync(password, salt, 32)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
 
 async function comparePasswords(supplied: string, stored: string) {
-  const [hashed, salt] = stored.split(".");
-  const hashedBuf = Buffer.from(hashed, "hex");
-  const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
-  return timingSafeEqual(hashedBuf, suppliedBuf);
+  try {
+    const [hashedPassword, salt] = stored.split(".");
+    const hashedBuf = Buffer.from(hashedPassword, "hex");
+    const suppliedBuf = (await scryptAsync(supplied, salt, 32)) as Buffer;
+    return timingSafeEqual(hashedBuf, suppliedBuf);
+  } catch (error) {
+    console.error("Password comparison error:", error);
+    return false;
+  }
 }
 
 async function getUserByUsername(username: string) {
@@ -43,6 +48,10 @@ export function setupAuth(app: Express) {
     resave: false,
     saveUninitialized: false,
     store,
+    cookie: {
+      secure: app.get("env") === "production",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    },
   };
 
   if (app.get("env") === "production") {
@@ -55,24 +64,37 @@ export function setupAuth(app: Express) {
 
   passport.use(
     new LocalStrategy(async (username, password, done) => {
-      const [user] = await getUserByUsername(username);
-      if (!user || !(await comparePasswords(password, user.password))) {
-        return done(null, false);
-      } else {
+      try {
+        const [user] = await getUserByUsername(username);
+        if (!user) {
+          return done(null, false);
+        }
+
+        const isValid = await comparePasswords(password, user.password);
+        if (!isValid) {
+          return done(null, false);
+        }
+
         return done(null, user);
+      } catch (error) {
+        return done(error);
       }
     }),
   );
 
   passport.serializeUser((user, done) => done(null, user.id));
-  passport.deserializeUser(async (id: number, done) => {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.id, id))
-      .limit(1);
 
-    done(null, user);
+  passport.deserializeUser(async (id: number, done) => {
+    try {
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+      done(null, user);
+    } catch (error) {
+      done(error);
+    }
   });
 
   app.post("/api/register", async (req, res, next) => {
@@ -87,18 +109,22 @@ export function setupAuth(app: Express) {
       return res.status(400).send("Username already exists");
     }
 
-    const [user] = await db
-      .insert(users)
-      .values({
-        ...result.data,
-        password: await hashPassword(result.data.password),
-      })
-      .returning();
+    try {
+      const [user] = await db
+        .insert(users)
+        .values({
+          ...result.data,
+          password: await hashPassword(result.data.password),
+        })
+        .returning();
 
-    req.login(user, (err) => {
-      if (err) return next(err);
-      res.status(201).json(user);
-    });
+      req.login(user, (err) => {
+        if (err) return next(err);
+        res.status(201).json(user);
+      });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/login", passport.authenticate("local"), (req, res) => {
