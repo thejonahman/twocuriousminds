@@ -109,10 +109,10 @@ export default function Home() {
     <div className="space-y-8">
       <div className="space-y-4 text-center max-w-3xl mx-auto">
         <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
-          Ski Technique Library
+          Ready to see yourself clearly?
         </h1>
         <p className="text-muted-foreground text-lg">
-          Browse through expert ski instruction videos and tutorials
+          Browse through the best handpicked videos
         </p>
       </div>
 
@@ -121,7 +121,7 @@ export default function Home() {
         <Input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search by technique, difficulty level, or terrain..."
+          placeholder="Search videos by title, topic, or category..."
           className="pl-11 py-6 text-lg bg-background/50 border-2 border-muted/30 hover:border-primary/30 focus:border-primary/50 transition-all duration-300 shadow-lg hover:shadow-xl rounded-2xl"
         />
         {searchQuery && (
@@ -140,7 +140,7 @@ export default function Home() {
             <h2 className="text-2xl font-semibold flex items-center gap-2">
               Search Results
               <Badge variant="secondary" className="ml-2">
-                {filteredVideos?.length} tutorials
+                {filteredVideos?.length} videos
               </Badge>
             </h2>
           </div>
@@ -192,7 +192,7 @@ export default function Home() {
                               {subcategory.videos.length}
                             </Badge>
                           </button>
-                      ))}
+                        ))}
                     </div>
                   </div>
                 </aside>
@@ -219,7 +219,7 @@ export default function Home() {
                         </div>
                         <VideoGrid videos={subcategory.videos} />
                       </div>
-                  ))}
+                    ))}
                 </div>
               </div>
             </TabsContent>
