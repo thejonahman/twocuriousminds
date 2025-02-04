@@ -34,7 +34,6 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
   };
 
   const handleThumbnailError = (videoId: number) => {
-    console.error(`Failed to load thumbnail for video ${videoId}`);
     setFailedThumbnails(prev => {
       const newSet = new Set(prev);
       newSet.add(videoId);
@@ -58,7 +57,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                 </div>
                 {video.thumbnailUrl && !failedThumbnails.has(video.id) && (
                   <img
-                    src={video.thumbnailUrl.startsWith('/') ? video.thumbnailUrl : `/${video.thumbnailUrl}`}
+                    src={video.thumbnailUrl}
                     alt={video.title}
                     className="absolute inset-0 w-full h-full object-cover bg-white dark:bg-gray-900"
                     loading="lazy"
