@@ -42,16 +42,16 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
       {videos.map((video) => (
         <Link key={video.id} href={`/video/${video.id}`}>
-          <Card className="overflow-hidden hover:shadow-lg transition-shadow group">
+          <Card className="overflow-hidden bg-card hover:shadow-lg transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-0.5">
             <AspectRatio ratio={16 / 9}>
-              <div className="w-full h-full bg-muted relative group-hover:brightness-90 transition-all">
+              <div className="w-full h-full bg-muted/50 relative group">
                 <div 
                   className={`absolute inset-0 flex items-center justify-center ${
                     video.thumbnailUrl && !failedThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
-                  }`}
+                  } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
                 >
                   {getPlatformIcon(video.platform)}
                 </div>
@@ -59,15 +59,16 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}
-                    className="absolute inset-0 w-full h-full object-cover bg-white dark:bg-gray-900"
+                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"
                     onError={() => handleThumbnailError(video.id)}
                   />
                 )}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent h-1/2 transition-opacity opacity-0 group-hover:opacity-100" />
                 <div className="absolute top-2 right-2 z-10">
                   <Badge 
                     variant={video.watched ? "secondary" : "outline"}
-                    className="flex items-center gap-1 bg-background/80 backdrop-blur-sm"
+                    className="flex items-center gap-1.5 bg-background/95 backdrop-blur-sm shadow-sm"
                   >
                     {video.watched ? (
                       <>
@@ -85,8 +86,8 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
               </div>
             </AspectRatio>
             <CardContent className="p-4">
-              <div className="space-y-2">
-                <div className="flex gap-2">
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap gap-2">
                   <Badge variant="secondary" className="capitalize">
                     {video.platform}
                   </Badge>
@@ -96,7 +97,7 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                     </Badge>
                   )}
                 </div>
-                <h3 className="font-semibold leading-none tracking-tight line-clamp-2">
+                <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
                   {video.title}
                 </h3>
               </div>

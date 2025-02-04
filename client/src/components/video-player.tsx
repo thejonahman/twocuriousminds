@@ -41,7 +41,6 @@ export function VideoPlayer({ video }: { video: Video }) {
   };
 
   const embedUrl = getEmbedUrl(video.url, video.platform);
-  console.log('Platform:', video.platform, 'URL:', video.url, 'Embed URL:', embedUrl);
 
   const getAspectRatio = () => {
     switch (video.platform.toLowerCase()) {
@@ -61,30 +60,30 @@ export function VideoPlayer({ video }: { video: Video }) {
           variant="outline"
           size="sm"
           onClick={() => setIsFullWidth(!isFullWidth)}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 shadow-sm hover:shadow"
         >
           {isFullWidth ? (
             <>
               <Minimize2 className="h-4 w-4" />
-              <span>Compact View</span>
+              <span className="hidden sm:inline">Compact View</span>
             </>
           ) : (
             <>
               <Maximize2 className="h-4 w-4" />
-              <span>Full Width</span>
+              <span className="hidden sm:inline">Full Width</span>
             </>
           )}
         </Button>
       </div>
       <div className="flex justify-center w-full">
         <Card 
-          className={`overflow-hidden ${
+          className={`overflow-hidden shadow-lg ${
             isFullWidth 
               ? 'w-full' 
               : video.platform.toLowerCase() === 'tiktok'
-                ? 'w-[325px]'
+                ? 'w-full max-w-[400px] sm:w-[325px]'
                 : video.platform.toLowerCase() === 'instagram'
-                  ? 'w-[400px]' // Instagram recommended width
+                  ? 'w-full max-w-[500px] sm:w-[400px]'
                   : 'w-full max-w-[800px]'
           }`}
         >
@@ -95,6 +94,7 @@ export function VideoPlayer({ video }: { video: Video }) {
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
+              title="Video player"
             />
           </AspectRatio>
         </Card>

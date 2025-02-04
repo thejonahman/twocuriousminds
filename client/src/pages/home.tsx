@@ -3,7 +3,6 @@ import { VideoGrid } from "@/components/video-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Search, X } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -29,7 +28,6 @@ interface Video {
 }
 
 export default function Home() {
-  // Initialize all hooks first
   const [searchQuery, setSearchQuery] = useState("");
   const search = useSearch();
   const params = new URLSearchParams(search);
@@ -52,12 +50,15 @@ export default function Home() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-1/3" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Skeleton className="h-[300px]" />
-          <Skeleton className="h-[300px]" />
-          <Skeleton className="h-[300px]" />
+      <div className="space-y-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 w-2/3 bg-muted rounded-lg" />
+          <div className="h-4 w-1/2 bg-muted rounded-lg" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="aspect-video bg-muted rounded-xl" />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -73,7 +74,7 @@ export default function Home() {
     return searchTerms.every(term => searchableText.includes(term));
   });
 
-  // Group videos by category and subcategory (only when not searching)
+  // Group videos by category and subcategory
   const videosByCategory = !searchQuery ? filteredVideos?.reduce((acc, video) => {
     const categoryId = video.category.id;
     if (!acc[categoryId]) {
@@ -105,13 +106,13 @@ export default function Home() {
   ) : [];
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Ready to see yourself clearly?
+    <div className="space-y-8">
+      <div className="space-y-4">
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
+          Ski Technique Library
         </h1>
-        <p className="text-muted-foreground">
-          Browse through the best handpicked videos
+        <p className="text-muted-foreground text-lg">
+          Browse through expert ski instruction videos and tutorials
         </p>
       </div>
 
@@ -120,13 +121,13 @@ export default function Home() {
         <Input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search videos by title, topic, or category..."
-          className="pl-9 pr-9"
+          placeholder="Search by technique, difficulty level, or terrain..."
+          className="pl-9 pr-9 h-12 text-base shadow-sm"
         />
         {searchQuery && (
           <button
             onClick={() => setSearchQuery("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -134,13 +135,13 @@ export default function Home() {
       </div>
 
       {searchQuery ? (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
               Search Results
-              <span className="ml-2 text-muted-foreground">
-                ({filteredVideos?.length} videos)
-              </span>
+              <Badge variant="secondary" className="ml-2">
+                {filteredVideos?.length} tutorials
+              </Badge>
             </h2>
           </div>
           <VideoGrid videos={filteredVideos || []} />
@@ -148,62 +149,64 @@ export default function Home() {
       ) : (
         <Tabs 
           defaultValue={initialCategoryId || sortedCategories[0]?.[0]} 
-          className="space-y-4"
+          className="space-y-6"
         >
-          <TabsList className="h-auto flex-wrap">
+          <TabsList className="h-auto flex-wrap p-1 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             {sortedCategories.map(([id, category]) => (
-              <TabsTrigger key={id} value={id} className="text-base py-2">
+              <TabsTrigger 
+                key={id} 
+                value={id} 
+                className="text-base py-2.5 px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+              >
                 {category.name}
               </TabsTrigger>
             ))}
           </TabsList>
 
           {sortedCategories.map(([id, category]) => (
-            <TabsContent key={id} value={id}>
-              <div className="grid grid-cols-1 md:grid-cols-[200px,1fr] gap-6">
-                <aside className="md:border-r pr-4">
-                  <h2 className="font-semibold text-lg mb-2">Subcategories</h2>
-                  <div className="space-y-1">
-                    {Object.entries(category.subcategories)
-                      .sort(([,a], [,b]) => {
-                        // First try to sort by displayOrder if available
-                        if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
-                          return a.displayOrder - b.displayOrder;
-                        }
-                        // Fall back to name-based sorting
-                        return a.name.localeCompare(b.name);
-                      })
-                      .map(([subId, subcategory]) => (
-                        <button
-                          key={subId}
-                          onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
-                          className="w-full text-left px-3 py-2 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
-                        >
-                          <span>{subcategory.name}</span>
-                          <Badge variant="outline" className="group-hover:bg-primary group-hover:text-primary-foreground">
-                            {subcategory.videos.length}
-                          </Badge>
-                        </button>
-                    ))}
+            <TabsContent key={id} value={id} className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-[240px,1fr] gap-8">
+                <aside className="lg:border-r lg:pr-6">
+                  <div className="lg:sticky lg:top-6 space-y-4">
+                    <h2 className="font-semibold text-lg">Skill Areas</h2>
+                    <div className="space-y-1">
+                      {Object.entries(category.subcategories)
+                        .sort(([,a], [,b]) => {
+                          if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
+                            return a.displayOrder - b.displayOrder;
+                          }
+                          return a.name.localeCompare(b.name);
+                        })
+                        .map(([subId, subcategory]) => (
+                          <button
+                            key={subId}
+                            onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
+                            className="w-full text-left px-4 py-2.5 rounded-lg hover:bg-accent transition-colors flex items-center justify-between group"
+                          >
+                            <span className="text-sm">{subcategory.name}</span>
+                            <Badge variant="outline" className="group-hover:bg-primary/10">
+                              {subcategory.videos.length}
+                            </Badge>
+                          </button>
+                      ))}
+                    </div>
                   </div>
                 </aside>
 
-                <div className="space-y-8">
+                <div className="space-y-10">
                   {Object.entries(category.subcategories)
                     .sort(([,a], [,b]) => {
-                      // First try to sort by displayOrder if available
                       if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
                         return a.displayOrder - b.displayOrder;
                       }
-                      // Fall back to name-based sorting
                       return a.name.localeCompare(b.name);
                     })
                     .map(([subId, subcategory]) => (
-                      <div key={subId} id={`subcategory-${subId}`}>
-                        <div className="flex items-center gap-2 mb-4">
+                      <div key={subId} id={`subcategory-${subId}`} className="scroll-mt-6">
+                        <div className="flex items-center gap-3 mb-6">
                           <h2 className="text-xl font-semibold">{subcategory.name}</h2>
                           <Badge variant="secondary">
-                            {subcategory.videos.length} videos
+                            {subcategory.videos.length} tutorials
                           </Badge>
                         </div>
                         <VideoGrid videos={subcategory.videos} />
