@@ -170,10 +170,10 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   });
 
   return (
-    <Card>
+    <Card className="max-h-[85vh] flex flex-col">
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <CardContent className="space-y-4">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
+          <CardContent className="space-y-4 overflow-y-auto flex-1">
             <FormField
               control={form.control}
               name="title"
@@ -312,8 +312,8 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
 
             <div className="space-y-2">
               <FormLabel>Custom Thumbnail</FormLabel>
-              <div className="flex items-center gap-4">
-                <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
                   {(thumbnailPreview || video.thumbnailUrl) && (
                     <img
                       src={thumbnailPreview || video.thumbnailUrl || ''}
@@ -337,7 +337,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
             </div>
 
           </CardContent>
-          <CardFooter>
+          <CardFooter className="border-t mt-auto">
             <Button
               type="submit"
               className="w-full"
