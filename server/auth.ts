@@ -21,15 +21,21 @@ const PostgresSessionStore = connectPg(session);
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 32)) as Buffer;
+  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
 }
 
 async function comparePasswords(supplied: string, stored: string) {
   try {
+    // Handle bcrypt passwords from existing database
+    if (stored.startsWith('$2b$')) {
+      // Return false for now as we'll update these passwords
+      return false;
+    }
+
     const [hashedPassword, salt] = stored.split(".");
     const hashedBuf = Buffer.from(hashedPassword, "hex");
-    const suppliedBuf = (await scryptAsync(supplied, salt, 32)) as Buffer;
+    const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
     return timingSafeEqual(hashedBuf, suppliedBuf);
   } catch (error) {
     console.error("Password comparison error:", error);
