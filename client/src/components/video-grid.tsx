@@ -1,10 +1,10 @@
-import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { CheckCircle2, Clock, Youtube, Instagram, Image, Pencil } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { CheckCircle2, Youtube, Instagram, Image, Pencil } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { useState } from "react";
 import { EditVideoForm } from "./edit-video-form";
