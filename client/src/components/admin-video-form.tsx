@@ -76,6 +76,7 @@ export function AdminVideoForm() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       form.reset();
       toast({
         title: "Success",
@@ -169,7 +170,11 @@ export function AdminVideoForm() {
                 <FormItem>
                   <FormLabel>Category</FormLabel>
                   <Select
-                    onValueChange={field.onChange}
+                    onValueChange={(value) => {
+                      field.onChange(value);
+                      // Reset subcategory when category changes
+                      form.setValue("subcategoryId", "");
+                    }}
                     value={field.value}
                   >
                     <FormControl>
