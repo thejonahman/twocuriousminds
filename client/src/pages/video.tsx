@@ -4,6 +4,7 @@ import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DelphiBubble } from "@/components/delphi-bubble";
+import { Separator } from "@/components/ui/separator";
 
 export default function Video() {
   const { id } = useParams();
@@ -29,7 +30,6 @@ export default function Video() {
   });
 
   const handleBack = () => {
-    // Navigate back with category and subcategory information
     if (video?.category) {
       setLocation(`/?category=${video.category.id}${video.subcategory ? `&subcategory=${video.subcategory.id}` : ''}`);
     } else {
@@ -75,21 +75,30 @@ export default function Video() {
           )}</span>
         </span>
       </button>
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-6">
-        <div className="space-y-6">
-          <VideoPlayer video={video} />
-          <div>
-            <h1 className="text-2xl font-bold">{video.title}</h1>
-            <p className="text-muted-foreground">{video.description}</p>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-8">
+        <div className="space-y-8">
+          <div className="rounded-xl border bg-card p-6 shadow-sm">
+            <VideoPlayer video={video} />
+            <div className="mt-6 space-y-4">
+              <h1 className="text-2xl font-bold">{video.title}</h1>
+              <p className="text-muted-foreground">{video.description}</p>
+            </div>
           </div>
           <DelphiBubble videoId={video.id} />
         </div>
-        <div className="lg:sticky lg:top-4">
-          <RecommendationSidebar 
-            currentVideoId={video.id}
-            categoryId={video.categoryId}
-            subcategoryId={video.subcategoryId}
-          />
+
+        <div className="lg:sticky lg:top-4 space-y-4">
+          <div className="rounded-xl border bg-accent/5 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold">Related Videos</h2>
+            </div>
+            <RecommendationSidebar 
+              currentVideoId={video.id}
+              categoryId={video.categoryId}
+              subcategoryId={video.subcategoryId}
+            />
+          </div>
         </div>
       </div>
     </div>
