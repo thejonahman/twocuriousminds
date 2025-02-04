@@ -23,13 +23,13 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
       case 'youtube':
-        return <Youtube className="h-8 w-8 text-red-500" />;
+        return <Youtube className="h-3 w-3 text-red-500" />;
       case 'tiktok':
-        return <SiTiktok className="h-8 w-8 text-black dark:text-white" />;
+        return <SiTiktok className="h-3 w-3 text-black dark:text-white" />;
       case 'instagram':
-        return <Instagram className="h-8 w-8 text-pink-500" />;
+        return <Instagram className="h-3 w-3 text-pink-500" />;
       default:
-        return <Image className="h-8 w-8 text-muted-foreground" />;
+        return <Image className="h-3 w-3 text-muted-foreground" />;
     }
   };
 
@@ -77,8 +77,8 @@ export function VideoGrid({ videos }: { videos: Video[] }) {
                       </>
                     ) : (
                       <>
-                        <Clock className="h-3 w-3" />
-                        <span>Watch Later</span>
+                        {getPlatformIcon(video.platform)}
+                        <span className="capitalize">{video.platform}</span>
                       </>
                     )}
                   </Badge>

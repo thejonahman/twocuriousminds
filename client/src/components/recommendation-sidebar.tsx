@@ -117,10 +117,10 @@ export function RecommendationSidebar({
   const firstRecommendation = recommendations[0];
 
   return (
-    <Card className="backdrop-blur-sm bg-background/95">
-      <CardHeader className="flex flex-row items-center justify-between">
+    <Card className="backdrop-blur-sm bg-secondary/5 border-primary/10 shadow-lg">
+      <CardHeader className="flex flex-row items-center justify-between bg-secondary/10 rounded-t-lg">
         <div>
-          <h3 className="text-lg font-semibold tracking-tight">Related Videos</h3>
+          <h3 className="text-lg font-semibold tracking-tight">Recommended For You</h3>
           {firstRecommendation && (
             <p className="text-sm text-muted-foreground">
               Based on {firstRecommendation.category.name}
@@ -139,7 +139,7 @@ export function RecommendationSidebar({
       </CardHeader>
       <CardContent className="space-y-4 p-4">
         {recommendations.map((video) => (
-          <div key={video.id} className="group relative space-y-2 rounded-lg transition-all duration-300 hover:bg-accent/50 p-2 -mx-2">
+          <div key={video.id} className="group relative space-y-2 rounded-lg transition-all duration-300 hover:bg-secondary/20 p-2 -mx-2">
             <Link 
               href={`/video/${video.id}`}
               className="block"

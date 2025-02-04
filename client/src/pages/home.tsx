@@ -151,18 +151,28 @@ export default function Home() {
           defaultValue={initialCategoryId || sortedCategories[0]?.[0]} 
           className="space-y-8"
         >
-          <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 backdrop-blur-lg bg-background/80 border-b">
-            <TabsList className="h-auto flex-wrap justify-start w-full p-1 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 rounded-xl">
-              {sortedCategories.map(([id, category]) => (
-                <TabsTrigger 
-                  key={id} 
-                  value={id} 
-                  className="text-base py-2.5 px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md rounded-lg transition-all duration-200"
-                >
-                  {category.name}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <div className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold bg-gradient-to-r from-primary/90 to-primary bg-clip-text text-transparent">
+                Explore Topics
+              </h2>
+              <p className="text-muted-foreground mt-2">
+                Select a topic to dive deeper into specific areas
+              </p>
+            </div>
+            <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 backdrop-blur-lg bg-background/80 border-b">
+              <TabsList className="h-auto flex-wrap justify-start w-full p-1 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 rounded-xl">
+                {sortedCategories.map(([id, category]) => (
+                  <TabsTrigger 
+                    key={id} 
+                    value={id} 
+                    className="text-base py-2.5 px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md rounded-lg transition-all duration-200"
+                  >
+                    {category.name}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
           </div>
 
           {sortedCategories.map(([id, category]) => (
@@ -171,7 +181,7 @@ export default function Home() {
                 <aside className="lg:border-r lg:pr-6">
                   <div className="lg:sticky lg:top-24 space-y-4">
                     <div className="pb-4 border-b">
-                      <h2 className="font-semibold text-xl text-foreground/90">Skill Areas</h2>
+                      <h2 className="font-semibold text-xl text-foreground/90">Subtopics</h2>
                     </div>
                     <div className="space-y-1">
                       {Object.entries(category.subcategories)
@@ -214,7 +224,7 @@ export default function Home() {
                         <div className="flex items-center gap-3 pb-4 border-b">
                           <h2 className="text-2xl font-semibold tracking-tight">{subcategory.name}</h2>
                           <Badge variant="secondary" className="bg-primary/10">
-                            {subcategory.videos.length} tutorials
+                            {subcategory.videos.length} videos
                           </Badge>
                         </div>
                         <VideoGrid videos={subcategory.videos} />
