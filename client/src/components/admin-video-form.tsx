@@ -98,11 +98,27 @@ export function AdminVideoForm() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
+        try {
+          const errorData = await response.json();
+          throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
+        } catch (parseError) {
+          // If we can't parse the error response as JSON
+          const textError = await response.text();
+          console.error('Raw error response:', textError);
+          throw new Error("Failed to generate thumbnail - server error");
+        }
       }
 
-      return response.json();
+      try {
+        const data = await response.json();
+        if (!data.imageUrl) {
+          throw new Error("Invalid response format - missing image URL");
+        }
+        return data;
+      } catch (parseError) {
+        console.error('Failed to parse success response:', parseError);
+        throw new Error("Invalid response from server");
+      }
     },
     onSuccess: (data) => {
       setThumbnailUrl(data.imageUrl);

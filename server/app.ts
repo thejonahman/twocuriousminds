@@ -5,6 +5,9 @@ import thumbnailRoutes from './routes/thumbnail';
 
 const app = express();
 
+// Ensure JSON body parsing is enabled
+app.use(express.json());
+
 // ... other middleware setup ...
 
 app.use('/api/thumbnails', thumbnailRoutes);

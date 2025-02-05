@@ -13,6 +13,9 @@ const thumbnailRequestSchema = z.object({
 });
 
 router.post('/generate', async (req, res) => {
+  // Ensure we always send JSON responses
+  res.setHeader('Content-Type', 'application/json');
+
   try {
     // Validate request body
     const validation = thumbnailRequestSchema.safeParse(req.body);
