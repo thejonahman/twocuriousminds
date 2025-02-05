@@ -68,26 +68,47 @@ export function AdminVideoForm() {
 
   const addTopicMutation = useMutation({
     mutationFn: async (data: NewTopicFormData) => {
+      console.log('Creating new topic/subtopic:', data); // Debug log
       const response = await apiRequest("POST", "/api/categories", {
         name: data.name,
-        parentCategoryId: data.parentCategoryId ? parseInt(data.parentCategoryId) : undefined,
+        parentId: data.parentCategoryId ? parseInt(data.parentCategoryId) : undefined,
       });
-      if (!response.ok) throw new Error("Failed to create topic");
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to create topic");
+      }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Invalidate both queries to ensure fresh data
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       if (selectedCategoryId) {
         queryClient.invalidateQueries({
           queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
         });
       }
-      toast({ title: "Success", description: "Topic added successfully" });
+
+      // Show success message
+      toast({
+        title: "Success",
+        description: `${data.isSubcategory ? "Subtopic" : "Topic"} added successfully`
+      });
+
+      // Reset form state
       setNewTopicDialogOpen(false);
       setNewSubtopicDialogOpen(false);
       setNewTopicName("");
       setNewSubtopicName("");
     },
+    onError: (error: Error) => {
+      console.error('Failed to create topic/subtopic:', error);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
   });
 
   const generateThumbnailMutation = useMutation({
@@ -241,7 +262,20 @@ export function AdminVideoForm() {
   };
 
   const handleAddSubtopic = () => {
-    if (!newSubtopicName.trim() || !selectedCategoryId) return;
+    if (!newSubtopicName.trim() || !selectedCategoryId) {
+      toast({
+        title: "Error",
+        description: "Please enter a subtopic name and select a parent topic",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    console.log('Adding subtopic:', {
+      name: newSubtopicName,
+      parentId: selectedCategoryId
+    });
+
     addTopicMutation.mutate({
       name: newSubtopicName,
       parentCategoryId: selectedCategoryId,

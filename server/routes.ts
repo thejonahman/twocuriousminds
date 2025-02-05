@@ -296,6 +296,58 @@ export function registerRoutes(app: any): Server {
     }
   });
 
+  app.post("/api/categories", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const { name, parentId } = req.body;
+
+      if (!name || name.trim().length === 0) {
+        return res.status(400).json({
+          message: "Category name is required"
+        });
+      }
+
+      // If parentId is provided, verify parent category exists
+      if (parentId) {
+        const parentCategory = await db.query.categories.findFirst({
+          where: eq(categories.id, parentId)
+        });
+
+        if (!parentCategory) {
+          return res.status(404).json({
+            message: "Parent category not found"
+          });
+        }
+      }
+
+      // Insert new category/subcategory
+      const [newCategory] = await db
+        .insert(parentId ? subcategories : categories)
+        .values({
+          name: name.trim(),
+          ...(parentId && { categoryId: parentId })
+        })
+        .returning();
+
+      // Return with metadata about the type
+      res.json({
+        ...newCategory,
+        isSubcategory: !!parentId
+      });
+
+    } catch (error) {
+      console.error('Error creating category:', error);
+      res.status(500).json({
+        message: "Failed to create category",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+
   app.get("/api/preferences", async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ message: "Not authenticated" });
