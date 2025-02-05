@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
 // Form validation schema
 const videoSchema = z.object({
@@ -51,6 +51,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const queryClient = useQueryClient();
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(video.thumbnailUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDetectingPlatform, setIsDetectingPlatform] = useState(false);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -90,19 +91,46 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     enabled: !!selectedCategoryId,
   });
 
+  // Debounced platform detection
+  const detectPlatform = useCallback((url: string) => {
+    setIsDetectingPlatform(true);
+    try {
+      let platform: "youtube" | "tiktok" | "instagram" = "youtube";
+
+      if (url.includes("youtube.com") || url.includes("youtu.be")) {
+        platform = "youtube";
+      } else if (url.includes("tiktok.com")) {
+        platform = "tiktok";
+      } else if (url.includes("instagram.com")) {
+        platform = "instagram";
+      }
+
+      form.setValue("platform", platform, {
+        shouldValidate: true,
+        shouldDirty: true,
+      });
+    } finally {
+      setIsDetectingPlatform(false);
+    }
+  }, [form]);
+
+  // Debounce URL changes
+  useEffect(() => {
+    const subscription = form.watch((value, { name }) => {
+      if (name === 'url' && value.url) {
+        const timer = setTimeout(() => {
+          detectPlatform(value.url as string);
+        }, 300);
+        return () => clearTimeout(timer);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form, detectPlatform]);
+
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
       try {
         setIsSubmitting(true);
-        const formData = new FormData();
-
-        // Add all fields to formData
-        Object.entries(data).forEach(([key, value]) => {
-          if (value !== undefined && value !== null) {
-            formData.append(key, value.toString());
-          }
-        });
-
         const response = await fetch(`/api/videos/${video.id}`, {
           method: 'PATCH',
           headers: {
@@ -126,10 +154,8 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       }
     },
     onSuccess: () => {
-      // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
 
-      // Show success message and close dialog
       toast({
         title: "Success",
         description: "Video updated successfully",
@@ -151,7 +177,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const handleThumbnailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      if (file.size > 5 * 1024 * 1024) {
         toast({
           title: "Error",
           description: "Image file size must be less than 5MB",
@@ -225,7 +251,11 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                 <FormItem>
                   <FormLabel>URL</FormLabel>
                   <FormControl>
-                    <Input placeholder="Video URL" {...field} />
+                    <Input 
+                      placeholder="Video URL" 
+                      {...field} 
+                      disabled={isDetectingPlatform}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -302,6 +332,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
+                    disabled={isDetectingPlatform}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -350,7 +381,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
             <Button
               type="submit"
               className="w-full"
-              disabled={isSubmitting || updateVideoMutation.isPending}
+              disabled={isSubmitting || updateVideoMutation.isPending || isDetectingPlatform}
             >
               {isSubmitting ? "Updating..." : "Update Video"}
             </Button>
