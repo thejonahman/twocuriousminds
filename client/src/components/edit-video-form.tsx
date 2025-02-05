@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 // Form validation schema
 const videoSchema = z.object({
@@ -54,32 +54,28 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const [isDetectingPlatform, setIsDetectingPlatform] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
 
+  // Memoize initial form values to prevent unnecessary re-renders
+  const defaultValues = useMemo(() => ({
+    title: video.title || '',
+    description: video.description || "",
+    url: video.url || '',
+    categoryId: video.categoryId ? String(video.categoryId) : '',
+    subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
+    platform: (video.platform || 'youtube') as "youtube" | "tiktok" | "instagram",
+  }), [video]);
+
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
-    defaultValues: {
-      title: video.title || '',
-      description: video.description || "",
-      url: video.url || '',
-      categoryId: video.categoryId ? String(video.categoryId) : '',
-      subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
-      platform: (video.platform || 'youtube') as "youtube" | "tiktok" | "instagram",
-    }
+    defaultValues,
   });
 
   // Reset form when video changes
   useEffect(() => {
     if (video) {
-      form.reset({
-        title: video.title,
-        description: video.description || "",
-        url: video.url,
-        categoryId: String(video.categoryId),
-        subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
-        platform: video.platform as "youtube" | "tiktok" | "instagram",
-      });
+      form.reset(defaultValues);
       setThumbnailUrl(video.thumbnailUrl || null);
     }
-  }, [video, form]);
+  }, [video, form, defaultValues]);
 
   const { data: categories, isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
@@ -149,7 +145,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
           throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
         } catch (parseError) {
           console.error('Failed to parse error response:', parseError);
-          console.error('Raw error response:', responseText);
           throw new Error("Failed to generate thumbnail - server error");
         }
       }
@@ -157,42 +152,37 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       try {
         const responseData = JSON.parse(responseText);
         console.log('Thumbnail generation response:', responseData);
-
-        if (!responseData?.success || !responseData?.imageUrl) {
-          throw new Error("Invalid response format - missing image URL");
-        }
         return responseData;
       } catch (parseError) {
         console.error('Failed to parse success response:', parseError);
-        console.error('Raw success response:', responseText);
         throw new Error("Invalid response from server");
       }
     },
     onSuccess: (data) => {
-      console.log('Thumbnail generated successfully:', data);
-      setThumbnailUrl(data.imageUrl);
-      setIsGeneratingThumbnail(false);
-      toast({
-        title: "Success",
-        description: "Thumbnail generated successfully",
-      });
+      if (data?.imageUrl) {
+        setThumbnailUrl(data.imageUrl);
+        toast({
+          title: "Success",
+          description: "Thumbnail generated successfully",
+        });
+      }
     },
     onError: (error: Error) => {
-      console.error('Thumbnail generation error:', error);
       toast({
         title: "Failed to generate thumbnail",
         description: error.message,
         variant: "destructive",
       });
-      setIsGeneratingThumbnail(false);
     },
+    onSettled: () => {
+      setIsGeneratingThumbnail(false);
+    }
   });
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
       try {
         setIsSubmitting(true);
-        // First update the video data
         const response = await fetch(`/api/videos/${video.id}`, {
           method: 'PATCH',
           headers: {
@@ -238,12 +228,10 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-
       toast({
         title: "Success",
         description: "Video updated successfully",
       });
-
       if (onClose) {
         onClose();
       }
@@ -255,6 +243,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
         variant: "destructive",
       });
     },
+    onSettled: () => {
+      setIsSubmitting(false);
+    }
   });
 
   const handleGenerateThumbnail = async () => {
@@ -297,9 +288,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     }
   };
 
-  const onSubmit = (data: VideoFormData) => {
+  const onSubmit = async (data: VideoFormData) => {
     try {
-      updateVideoMutation.mutate(data);
+      await updateVideoMutation.mutateAsync(data);
     } catch (error) {
       console.error('Form submission error:', error);
       toast({
@@ -311,7 +302,13 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   };
 
   if (isCategoriesLoading) {
-    return <div className="p-4">Loading categories...</div>;
+    return (
+      <Card className="p-6">
+        <div className="flex items-center justify-center">
+          <p>Loading...</p>
+        </div>
+      </Card>
+    );
   }
 
   return (
@@ -460,7 +457,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                   <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
                     <img
                       src={thumbnailUrl}
-                      alt="Generated thumbnail"
+                      alt="Video thumbnail"
                       className="w-full h-full object-cover"
                     />
                   </div>
