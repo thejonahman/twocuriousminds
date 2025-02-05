@@ -3,8 +3,9 @@ import thumbnailRoutes from './routes/thumbnail';
 
 const app = express();
 
-// Ensure JSON body parsing is enabled
-app.use(express.json());
+// Increase body parser size limits for large payloads (100MB)
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 // Set response type for all thumbnail routes to JSON
 app.use('/api/thumbnails', (req, res, next) => {
