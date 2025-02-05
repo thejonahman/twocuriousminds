@@ -1,11 +1,9 @@
 import { Router } from 'express';
-import OpenAI from 'openai';
 import { z } from 'zod';
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
-
-// Initialize OpenAI client
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const thumbnailRequestSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -13,9 +11,6 @@ const thumbnailRequestSchema = z.object({
 });
 
 router.post('/generate', async (req, res) => {
-  // Ensure we always send JSON responses
-  res.setHeader('Content-Type', 'application/json');
-
   try {
     console.log('Received thumbnail generation request:', req.body);
 
@@ -31,73 +26,52 @@ router.post('/generate', async (req, res) => {
 
     const { title, description } = validation.data;
 
-    if (!process.env.OPENAI_API_KEY) {
-      console.error('OpenAI API key is not configured');
-      return res.status(500).json({
-        error: 'OpenAI configuration error',
-        details: 'API key is not configured'
-      });
-    }
-
-    console.log('Generating thumbnail for:', { title, description });
-
-    const prompt = `Create a professional, high-quality thumbnail for a ski instruction video titled "${title}"${
-      description ? ` about ${description}` : ''
-    }. The image should be clean, modern, and feature skiing-related imagery. Show a scenic mountain landscape with dynamic skiing action, using high contrast and clear composition suitable for a video thumbnail.`;
-
-    console.log('Using prompt:', prompt);
-
+    // Get a suitable image from our assets
+    const imagesFolder = path.join(process.cwd(), 'attached_assets');
     let imageUrl: string;
 
     try {
-      const response = await openai.images.generate({
-        prompt,
-        n: 1,
-        size: "1024x1024",
-        model: "dall-e-3",
-        quality: "standard",
-        response_format: "url",
+      // Try to find a matching image
+      const fileName = await findBestImageForVideo(
+        title,
+        description || '',
+        imagesFolder
+      );
+
+      if (fileName) {
+        // If we found a matching image, read and convert it
+        const imagePath = path.join(imagesFolder, fileName);
+        const imageBuffer = fs.readFileSync(imagePath);
+        const extension = path.extname(fileName).substring(1);
+        imageUrl = `data:image/${extension};base64,${imageBuffer.toString('base64')}`;
+      } else {
+        // Generate a fallback SVG
+        imageUrl = 'data:image/svg+xml;base64,' + Buffer.from(`
+          <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100%" height="100%" fill="#2563eb"/>
+            <text x="640" y="360" font-family="Arial" font-size="64" fill="white" text-anchor="middle" dominant-baseline="middle">
+              ${title}
+            </text>
+          </svg>
+        `).toString('base64');
+      }
+
+      // Send successful response
+      return res.json({ 
+        success: true,
+        imageUrl 
       });
 
-      console.log('OpenAI API Response:', JSON.stringify(response, null, 2));
-
-      // Validate response structure
-      if (!response?.data?.[0]?.url || typeof response.data[0].url !== 'string') {
-        console.error('Invalid response structure from OpenAI:', response);
-        throw new Error('Invalid response structure from OpenAI API');
-      }
-
-      imageUrl = response.data[0].url;
-      console.log('Successfully generated thumbnail:', { imageUrl });
-
-    } catch (openaiError) {
-      console.error('OpenAI API error:', openaiError);
-      if (openaiError instanceof OpenAI.APIError) {
-        return res.status(openaiError.status || 500).json({
-          error: 'OpenAI API error',
-          details: openaiError.message,
-          code: openaiError.code
-        });
-      }
-      throw openaiError;
+    } catch (error) {
+      console.error('Error processing image:', error);
+      return res.status(500).json({
+        error: 'Failed to process image',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
-
-    // Send successful response
-    return res.status(200).json({ 
-      success: true,
-      imageUrl 
-    });
 
   } catch (error) {
     console.error('Thumbnail generation error:', error);
-
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({
-        error: 'Validation error',
-        details: error.issues
-      });
-    }
-
     return res.status(500).json({ 
       error: 'Failed to generate thumbnail',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -106,3 +80,15 @@ router.post('/generate', async (req, res) => {
 });
 
 export default router;
+
+// Placeholder for the image selection logic.  This needs to be implemented.
+async function findBestImageForVideo(title: string, description: string, imagesFolder: string): Promise<string | null> {
+  // Implement your image selection logic here.  This function should return the filename
+  // of the best matching image, or null if no suitable image is found.  Consider using
+  // string matching techniques to find images that best match the title and description.
+
+  // Example (replace with your actual logic):
+  const files = fs.readdirSync(imagesFolder);
+  const matchingFile = files.find(file => file.includes(title.toLowerCase()));
+  return matchingFile || null;
+}

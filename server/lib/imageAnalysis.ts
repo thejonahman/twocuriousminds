@@ -1,44 +1,10 @@
-import OpenAI from "openai";
 import fs from "fs";
 import path from "path";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-export async function analyzeImage(imagePath: string): Promise<string> {
-  try {
-    const imageBuffer = fs.readFileSync(imagePath);
-    const base64Image = imageBuffer.toString('base64');
-    
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: "What is the main subject or theme of this image? Respond with key themes like 'skiing', 'psychology', 'business', 'science', 'learning', etc. Only respond with the theme, no other text." },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/${path.extname(imagePath).slice(1)};base64,${base64Image}`
-              }
-            }
-          ],
-        },
-      ],
-      max_tokens: 50
-    });
-
-    return response.choices[0].message.content.toLowerCase().trim();
-  } catch (error) {
-    console.error('Error analyzing image:', error);
-    return '';
-  }
-}
-
+// Simple content-based image matching without OpenAI
 export async function findBestImageForVideo(
   title: string,
-  description: string, 
+  description: string,
   imagesFolder: string
 ): Promise<string | null> {
   try {
@@ -47,66 +13,63 @@ export async function findBestImageForVideo(
       /\.(jpg|jpeg|png|webp)$/i.test(file)
     );
 
-    // Analyze the title and description to determine the theme
-    const contentResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "user",
-          content: `What is the main theme of this content? Title: "${title}" Description: "${description}". Respond with only one word from: skiing, psychology, business, science, learning, lifestyle. Just the word, no other text.`
-        }
-      ],
-      max_tokens: 10
+    // Define keywords for different categories
+    const categoryKeywords = {
+      technique: ['turn', 'posture', 'position', 'stance', 'form', 'technique', 'ski', 'skiing'],
+      beginner: ['basic', 'beginner', 'start', 'learning', 'first', 'new'],
+      advanced: ['advanced', 'expert', 'professional', 'steep', 'difficult'],
+      equipment: ['gear', 'equipment', 'boot', 'ski', 'pole', 'binding'],
+      safety: ['safety', 'precaution', 'warning', 'careful', 'protect'],
+    };
+
+    // Convert content to lowercase for matching
+    const contentText = `${title} ${description}`.toLowerCase();
+
+    // Find matching category based on keywords
+    let bestCategory = 'general';
+    let maxMatches = 0;
+
+    Object.entries(categoryKeywords).forEach(([category, keywords]) => {
+      const matches = keywords.filter(keyword => 
+        contentText.includes(keyword.toLowerCase())
+      ).length;
+
+      if (matches > maxMatches) {
+        maxMatches = matches;
+        bestCategory = category;
+      }
     });
 
-    const contentTheme = contentResponse.choices[0].message.content.toLowerCase().trim();
+    // Map categories to specific image patterns
+    const categoryPatterns: Record<string, RegExp[]> = {
+      technique: [/turn/i, /posture/i, /ski.*technique/i],
+      beginner: [/basic/i, /begin/i, /learn/i],
+      advanced: [/steep/i, /advanced/i, /expert/i],
+      equipment: [/gear/i, /equipment/i, /boot/i],
+      safety: [/safety/i, /protect/i],
+      general: [/ski/i, /snow/i, /mountain/i],
+    };
 
-    // Analyze each image and find the best match
-    const imageAnalyses = await Promise.all(
-      files.map(async file => {
-        const fullPath = path.join(imagesFolder, file);
-        const imageTheme = await analyzeImage(fullPath);
-        return {
-          file,
-          theme: imageTheme,
-          score: calculateThemeMatch(contentTheme, imageTheme)
-        };
-      })
-    );
-
-    // Sort by score and get the best match
-    const bestMatch = imageAnalyses.sort((a, b) => b.score - a.score)[0];
-    if (bestMatch && bestMatch.score > 0) {
-      return bestMatch.file;
+    // Find first matching image based on category
+    const patterns = categoryPatterns[bestCategory] || categoryPatterns.general;
+    for (const pattern of patterns) {
+      const matchingFile = files.find(file => pattern.test(file));
+      if (matchingFile) {
+        return matchingFile;
+      }
     }
 
-    // If no good match found, return null
+    // Default to a general skiing image if no match found
+    const defaultImages = files.filter(file => /ski|snow|mountain/i.test(file));
+    if (defaultImages.length > 0) {
+      return defaultImages[Math.floor(Math.random() * defaultImages.length)];
+    }
+
+    // Fallback to generating an SVG with the title
     return null;
+
   } catch (error) {
     console.error('Error finding best image:', error);
     return null;
   }
-}
-
-function calculateThemeMatch(contentTheme: string, imageTheme: string): number {
-  if (contentTheme === imageTheme) return 1;
-  
-  // Define related themes that might partially match
-  const themeGroups = {
-    learning: ['education', 'study', 'knowledge', 'school', 'teaching'],
-    psychology: ['mind', 'brain', 'mental', 'thinking', 'cognitive'],
-    business: ['economics', 'finance', 'corporate', 'market', 'commercial'],
-    science: ['chemistry', 'physics', 'laboratory', 'experiment', 'research'],
-    skiing: ['snow', 'winter', 'mountain', 'slope', 'alpine']
-  };
-
-  // Check for partial matches within theme groups
-  for (const [key, related] of Object.entries(themeGroups)) {
-    if ((key === contentTheme && related.includes(imageTheme)) ||
-        (key === imageTheme && related.includes(contentTheme))) {
-      return 0.8;
-    }
-  }
-
-  return 0;
 }
