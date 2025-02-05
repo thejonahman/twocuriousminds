@@ -17,9 +17,12 @@ router.post('/generate', async (req, res) => {
   res.setHeader('Content-Type', 'application/json');
 
   try {
+    console.log('Received thumbnail generation request:', req.body);
+
     // Validate request body
     const validation = thumbnailRequestSchema.safeParse(req.body);
     if (!validation.success) {
+      console.error('Validation failed:', validation.error);
       return res.status(400).json({ 
         error: 'Invalid request data',
         details: validation.error.issues
@@ -40,40 +43,48 @@ router.post('/generate', async (req, res) => {
 
     const prompt = `Create a professional, high-quality thumbnail for a ski instruction video titled "${title}"${
       description ? ` about ${description}` : ''
-    }. The image should be clean, modern, and feature skiing-related imagery. Show a scenic mountain landscape with dynamic skiing action.`;
+    }. The image should be clean, modern, and feature skiing-related imagery. Show a scenic mountain landscape with dynamic skiing action, using high contrast and clear composition suitable for a video thumbnail.`;
 
-    const response = await openai.images.generate({
-      prompt,
-      n: 1,
-      size: "1024x1024",
-      model: "dall-e-3",
-      quality: "standard",
-      response_format: "url",
-    });
+    console.log('Using prompt:', prompt);
 
-    if (!response.data?.[0]?.url) {
-      console.error('Invalid response from OpenAI:', response);
-      return res.status(500).json({
-        error: 'Invalid response from image generation service',
-        details: 'No image URL in response'
+    try {
+      const response = await openai.images.generate({
+        prompt,
+        n: 1,
+        size: "1024x1024",
+        model: "dall-e-3",
+        quality: "standard",
+        response_format: "url",
       });
-    }
 
-    const imageUrl = response.data[0].url;
-    console.log('Successfully generated thumbnail:', { imageUrl });
-    res.json({ imageUrl });
+      console.log('OpenAI API Response:', JSON.stringify(response, null, 2));
+
+      if (!response.data?.[0]?.url) {
+        console.error('Invalid response structure from OpenAI:', response);
+        return res.status(500).json({
+          error: 'Invalid response from image generation service',
+          details: 'No image URL in response'
+        });
+      }
+
+      const imageUrl = response.data[0].url;
+      console.log('Successfully generated thumbnail:', { imageUrl });
+      return res.json({ imageUrl });
+
+    } catch (openaiError) {
+      console.error('OpenAI API error:', openaiError);
+      if (openaiError instanceof OpenAI.APIError) {
+        return res.status(openaiError.status || 500).json({
+          error: 'OpenAI API error',
+          details: openaiError.message,
+          code: openaiError.code
+        });
+      }
+      throw openaiError;
+    }
 
   } catch (error) {
     console.error('Thumbnail generation error:', error);
-
-    // Handle different types of errors
-    if (error instanceof OpenAI.APIError) {
-      return res.status(error.status || 500).json({
-        error: 'OpenAI API error',
-        details: error.message,
-        code: error.code
-      });
-    }
 
     if (error instanceof z.ZodError) {
       return res.status(400).json({
@@ -82,7 +93,7 @@ router.post('/generate', async (req, res) => {
       });
     }
 
-    res.status(500).json({ 
+    return res.status(500).json({ 
       error: 'Failed to generate thumbnail',
       details: error instanceof Error ? error.message : 'Unknown error'
     });

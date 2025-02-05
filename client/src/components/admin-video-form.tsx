@@ -92,6 +92,8 @@ export function AdminVideoForm() {
 
   const generateThumbnailMutation = useMutation({
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
+      console.log('Sending thumbnail generation request:', { title, description });
+
       const response = await apiRequest("POST", "/api/thumbnails/generate", {
         title,
         description,
@@ -102,25 +104,29 @@ export function AdminVideoForm() {
           const errorData = await response.json();
           throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
         } catch (parseError) {
-          // If we can't parse the error response as JSON
+          console.error('Failed to parse error response:', parseError);
           const textError = await response.text();
           console.error('Raw error response:', textError);
           throw new Error("Failed to generate thumbnail - server error");
         }
       }
 
+      let responseData;
       try {
-        const data = await response.json();
-        if (!data.imageUrl) {
+        responseData = await response.json();
+        console.log('Thumbnail generation response:', responseData);
+
+        if (!responseData?.imageUrl) {
           throw new Error("Invalid response format - missing image URL");
         }
-        return data;
+        return responseData;
       } catch (parseError) {
         console.error('Failed to parse success response:', parseError);
         throw new Error("Invalid response from server");
       }
     },
     onSuccess: (data) => {
+      console.log('Thumbnail generated successfully:', data);
       setThumbnailUrl(data.imageUrl);
       setIsGeneratingThumbnail(false);
       toast({
@@ -213,7 +219,7 @@ export function AdminVideoForm() {
     }
 
     setIsGeneratingThumbnail(true);
-    generateThumbnailMutation.mutate({ 
+    generateThumbnailMutation.mutate({
       title: title.trim(),
       description: description?.trim()
     });
