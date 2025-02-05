@@ -80,37 +80,40 @@ export function AdminVideoForm() {
       }
       return response.json();
     },
-    onSuccess: (data) => {
-      // Update form with new selection
-      if (data.isSubcategory) {
-        console.log('Setting new subtopic:', data.id);
-        form.setValue("subcategoryId", String(data.id));
-      } else {
-        console.log('Setting new topic:', data.id);
-        form.setValue("categoryId", String(data.id));
-        // Clear subcategory when changing main category
-        form.setValue("subcategoryId", "");
-      }
-
-      // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+    onSuccess: async (data) => {
+      // First invalidate queries to refresh data
+      await queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       if (selectedCategoryId) {
-        queryClient.invalidateQueries({
+        await queryClient.invalidateQueries({
           queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
         });
       }
 
-      // Show success message
-      toast({
-        title: "Success",
-        description: `${data.isSubcategory ? "Subtopic" : "Topic"} added and selected`
-      });
+      // Wait for a tick to ensure the queries have refetched
+      setTimeout(() => {
+        // Update form with new selection
+        if (data.isSubcategory) {
+          console.log('Setting new subtopic:', data.id);
+          form.setValue("subcategoryId", String(data.id));
+        } else {
+          console.log('Setting new topic:', data.id);
+          form.setValue("categoryId", String(data.id));
+          // Clear subcategory when changing main category
+          form.setValue("subcategoryId", "");
+        }
 
-      // Reset form state
-      setNewTopicDialogOpen(false);
-      setNewSubtopicDialogOpen(false);
-      setNewTopicName("");
-      setNewSubtopicName("");
+        // Show success message
+        toast({
+          title: "Success",
+          description: `${data.isSubcategory ? "Subtopic" : "Topic"} added and selected`
+        });
+
+        // Reset form state
+        setNewTopicDialogOpen(false);
+        setNewSubtopicDialogOpen(false);
+        setNewTopicName("");
+        setNewSubtopicName("");
+      }, 100);
     },
     onError: (error: Error) => {
       console.error('Failed to create topic/subtopic:', error);
