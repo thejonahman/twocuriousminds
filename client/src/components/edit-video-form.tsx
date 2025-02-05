@@ -10,8 +10,9 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Form validation schema
+// Form validation schema remains unchanged
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -54,7 +55,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const [scrollPosition, setScrollPosition] = useState(0);
 
-  // Memoize form default values
   const defaultValues = useMemo(() => ({
     title: video.title,
     description: video.description || "",
@@ -69,31 +69,28 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     defaultValues,
   });
 
-  // Initialize thumbnail URL
+  // Initialize thumbnail and scroll position
   useEffect(() => {
     if (video.thumbnailUrl) {
       setThumbnailUrl(video.thumbnailUrl);
     }
+    setScrollPosition(window.scrollY);
   }, [video.thumbnailUrl]);
 
-  // Store scroll position when dialog opens
-  useEffect(() => {
-    setScrollPosition(window.scrollY);
-  }, []);
-
-  const { data: categories } = useQuery<Array<{ id: number; name: string }>>({
+  const { data: categories, isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
-    staleTime: 30000, // Reduce unnecessary refetches
+    staleTime: 30000,
   });
 
   const selectedCategoryId = form.watch("categoryId");
 
-  const { data: subcategories } = useQuery<Array<{ id: number; name: string }>>({
+  const { data: subcategories, isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
-    staleTime: 30000, // Reduce unnecessary refetches
+    staleTime: 30000,
   });
 
+  // Mutations remain unchanged...
   const generateThumbnailMutation = useMutation({
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
       const response = await fetch("/api/thumbnails/generate", {
@@ -177,7 +174,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
         description: "Video updated successfully",
       });
 
-      // Restore scroll position before closing
       if (onClose) {
         window.scrollTo(0, scrollPosition);
         setTimeout(() => {
@@ -252,21 +248,12 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     }
   }, [updateVideoMutation]);
 
-  if (!categories) {
-    return (
-      <Card className="p-6">
-        <div className="flex items-center justify-center">
-          <p>Loading...</p>
-        </div>
-      </Card>
-    );
-  }
-
   return (
     <Card className="max-h-[85vh] flex flex-col">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
           <CardContent className="space-y-4 overflow-y-auto flex-1">
+            {/* Thumbnail Section */}
             <div className="space-y-2">
               <FormLabel>Thumbnail</FormLabel>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
@@ -304,6 +291,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               </div>
             </div>
 
+            {/* Form Fields */}
             <FormField
               control={form.control}
               name="title"
@@ -352,26 +340,30 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Topic</FormLabel>
-                  <Select
-                    onValueChange={(value) => {
-                      field.onChange(value);
-                      form.setValue("subcategoryId", "");
-                    }}
-                    value={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select topic" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories?.map((category) => (
-                        <SelectItem key={category.id} value={String(category.id)}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isCategoriesLoading ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : (
+                    <Select
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        form.setValue("subcategoryId", "");
+                      }}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select topic" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {categories?.map((category) => (
+                          <SelectItem key={category.id} value={String(category.id)}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
@@ -383,24 +375,28 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Subtopic (Optional)</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                    disabled={!selectedCategoryId}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {subcategories?.map((subcategory) => (
-                        <SelectItem key={subcategory.id} value={String(subcategory.id)}>
-                          {subcategory.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isSubcategoriesLoading && selectedCategoryId ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : (
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={!selectedCategoryId}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {subcategories?.map((subcategory) => (
+                          <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                            {subcategory.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}
