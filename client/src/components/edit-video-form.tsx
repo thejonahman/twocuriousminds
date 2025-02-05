@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 // Form validation schema
 const videoSchema = z.object({
@@ -52,8 +52,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
+  const [scrollPosition, setScrollPosition] = useState(0);
 
-  // Memoize the default values to prevent unnecessary re-renders
+  // Memoize form default values
   const defaultValues = useMemo(() => ({
     title: video.title,
     description: video.description || "",
@@ -68,15 +69,21 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     defaultValues,
   });
 
-  // Set initial thumbnail URL
+  // Initialize thumbnail URL
   useEffect(() => {
     if (video.thumbnailUrl) {
       setThumbnailUrl(video.thumbnailUrl);
     }
   }, [video.thumbnailUrl]);
 
+  // Store scroll position when dialog opens
+  useEffect(() => {
+    setScrollPosition(window.scrollY);
+  }, []);
+
   const { data: categories } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
+    staleTime: 30000, // Reduce unnecessary refetches
   });
 
   const selectedCategoryId = form.watch("categoryId");
@@ -84,6 +91,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const { data: subcategories } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
+    staleTime: 30000, // Reduce unnecessary refetches
   });
 
   const generateThumbnailMutation = useMutation({
@@ -168,8 +176,13 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
         title: "Success",
         description: "Video updated successfully",
       });
+
+      // Restore scroll position before closing
       if (onClose) {
-        onClose();
+        window.scrollTo(0, scrollPosition);
+        setTimeout(() => {
+          onClose();
+        }, 100);
       }
     },
     onError: (error: Error) => {
@@ -184,7 +197,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     }
   });
 
-  const handleGenerateThumbnail = async () => {
+  const handleGenerateThumbnail = useCallback(async () => {
     const title = form.getValues("title");
     const description = form.getValues("description");
 
@@ -202,9 +215,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       title: title.trim(),
       description: description?.trim()
     });
-  };
+  }, [form, generateThumbnailMutation]);
 
-  const handleThumbnailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleThumbnailChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
@@ -222,9 +235,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       };
       reader.readAsDataURL(file);
     }
-  };
+  }, []);
 
-  const onSubmit = async (data: VideoFormData) => {
+  const onSubmit = useCallback(async (data: VideoFormData) => {
     try {
       setIsSubmitting(true);
       await updateVideoMutation.mutateAsync(data);
@@ -237,7 +250,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       });
       setIsSubmitting(false);
     }
-  };
+  }, [updateVideoMutation]);
 
   if (!categories) {
     return (
