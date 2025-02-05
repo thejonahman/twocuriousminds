@@ -96,17 +96,27 @@ export function AdminVideoForm() {
         title,
         description,
       });
-      if (!response.ok) throw new Error("Failed to generate thumbnail");
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
+      }
+
       return response.json();
     },
     onSuccess: (data) => {
       setThumbnailUrl(data.imageUrl);
       setIsGeneratingThumbnail(false);
-    },
-    onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to generate thumbnail",
+        title: "Success",
+        description: "Thumbnail generated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      console.error('Thumbnail generation error:', error);
+      toast({
+        title: "Failed to generate thumbnail",
+        description: error.message,
         variant: "destructive",
       });
       setIsGeneratingThumbnail(false);
@@ -176,16 +186,21 @@ export function AdminVideoForm() {
   const handleGenerateThumbnail = async () => {
     const title = form.getValues("title");
     const description = form.getValues("description");
-    if (!title) {
+
+    if (!title || title.trim().length === 0) {
       toast({
-        title: "Error",
-        description: "Please enter a title first",
+        title: "Missing title",
+        description: "Please enter a video title before generating a thumbnail",
         variant: "destructive",
       });
       return;
     }
+
     setIsGeneratingThumbnail(true);
-    generateThumbnailMutation.mutate({ title, description });
+    generateThumbnailMutation.mutate({ 
+      title: title.trim(),
+      description: description?.trim()
+    });
   };
 
   const onSubmit = (data: VideoFormData) => {
