@@ -9,7 +9,7 @@ export async function findBestImageForVideo(
 ): Promise<string | null> {
   try {
     // Get all images from the folder
-    const files = fs.readdirSync(imagesFolder).filter(file => 
+    const files = fs.readdirSync(imagesFolder).filter(file =>
       /\.(jpg|jpeg|png|webp)$/i.test(file)
     );
 
@@ -17,52 +17,44 @@ export async function findBestImageForVideo(
 
     // Enhanced categories with weighted keywords
     const categories = {
-      technique: {
+      science: {
         weight: 1.0,
         keywords: [
-          'turn', 'posture', 'position', 'stance', 'form', 'technique', 
-          'ski', 'skiing', 'carve', 'edge', 'parallel', 'movement',
-          'balance', 'control', 'lean', 'weight', 'shift'
+          'science', 'physics', 'chemistry', 'biology', 'experiment',
+          'air', 'density', 'pressure', 'temperature', 'gas',
+          'molecule', 'particle', 'atmosphere', 'research', 'study'
         ]
       },
-      beginner: {
+      education: {
         weight: 0.9,
         keywords: [
-          'basic', 'beginner', 'start', 'learning', 'first', 'new',
-          'introduction', 'fundamental', 'easy', 'simple', 'initial',
-          'starting', 'novice', 'practice'
+          'learn', 'teach', 'education', 'school', 'classroom',
+          'lecture', 'lesson', 'study', 'concept', 'understand',
+          'explain', 'demonstrate', 'example', 'theory'
         ]
       },
-      advanced: {
+      sports: {
         weight: 0.8,
         keywords: [
-          'advanced', 'expert', 'professional', 'steep', 'difficult',
-          'challenging', 'mogul', 'powder', 'off-piste', 'jump',
-          'trick', 'speed', 'race', 'competition'
+          'sport', 'exercise', 'training', 'fitness', 'practice',
+          'technique', 'skill', 'movement', 'performance', 'athletic',
+          'competition', 'game', 'match', 'player'
         ]
       },
-      equipment: {
+      technology: {
+        weight: 0.8,
+        keywords: [
+          'technology', 'digital', 'computer', 'software', 'hardware',
+          'device', 'system', 'network', 'data', 'programming',
+          'app', 'application', 'internet', 'electronic'
+        ]
+      },
+      nature: {
         weight: 0.7,
         keywords: [
-          'gear', 'equipment', 'boot', 'ski', 'pole', 'binding',
-          'helmet', 'goggle', 'jacket', 'pants', 'glove', 'wax',
-          'maintenance', 'setup', 'adjust'
-        ]
-      },
-      safety: {
-        weight: 1.0,
-        keywords: [
-          'safety', 'precaution', 'warning', 'careful', 'protect',
-          'avalanche', 'rescue', 'emergency', 'caution', 'risk',
-          'injury', 'prevention', 'secure', 'check'
-        ]
-      },
-      environment: {
-        weight: 0.6,
-        keywords: [
-          'mountain', 'snow', 'weather', 'condition', 'terrain',
-          'slope', 'trail', 'peak', 'valley', 'resort', 'alpine',
-          'glacier', 'powder', 'groomed'
+          'nature', 'environment', 'climate', 'weather', 'earth',
+          'sky', 'cloud', 'wind', 'storm', 'temperature',
+          'season', 'atmospheric', 'outdoor', 'natural'
         ]
       }
     };
@@ -70,6 +62,20 @@ export async function findBestImageForVideo(
     // Convert content to lowercase for matching
     const contentText = `${title} ${description}`.toLowerCase();
     console.log('Content text for matching:', contentText);
+
+    // First try exact word matches from filename
+    const words = contentText.split(/\s+/);
+    for (const word of words) {
+      if (word.length > 3) { // Skip short words
+        const exactMatch = files.find(file =>
+          file.toLowerCase().includes(word.toLowerCase())
+        );
+        if (exactMatch) {
+          console.log('Found exact word match:', exactMatch, 'for word:', word);
+          return exactMatch;
+        }
+      }
+    }
 
     // Calculate category scores
     const categoryScores = Object.entries(categories).map(([category, info]) => {
@@ -89,7 +95,7 @@ export async function findBestImageForVideo(
     });
 
     // Get best matching category
-    const bestCategory = categoryScores.reduce((best, current) => 
+    const bestCategory = categoryScores.reduce((best, current) =>
       current.score > best.score ? current : best
     );
 
@@ -100,13 +106,9 @@ export async function findBestImageForVideo(
       // Exact category name match
       new RegExp(`${bestCategory.category}`, 'i'),
       // Keywords from the category
-      ...categories[bestCategory.category].keywords.map(keyword => 
+      ...categories[bestCategory.category].keywords.map(keyword =>
         new RegExp(keyword, 'i')
-      ),
-      // Compound patterns
-      new RegExp(`${bestCategory.category}.*?(${
-        categories[bestCategory.category].keywords.join('|')
-      })`, 'i')
+      )
     ];
 
     // Find matching image
@@ -118,12 +120,16 @@ export async function findBestImageForVideo(
       }
     }
 
-    // If no specific match, try environment/general images
-    const generalPatterns = [/ski/i, /snow/i, /mountain/i, /slope/i];
-    for (const pattern of generalPatterns) {
+    // If no match found, use generic patterns based on content
+    const genericPatterns = [
+      /background/i, /texture/i, /pattern/i,
+      /abstract/i, /general/i, /default/i
+    ];
+
+    for (const pattern of genericPatterns) {
       const matchingFile = files.find(file => pattern.test(file));
       if (matchingFile) {
-        console.log('Using general image:', matchingFile);
+        console.log('Using generic image:', matchingFile);
         return matchingFile;
       }
     }
