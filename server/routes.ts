@@ -165,7 +165,7 @@ export function registerRoutes(app: express.Application): Server {
     res.json(result);
   });
 
-  app.post("/api/videos", express.urlencoded({ extended: true }), async (req, res) => {
+  app.post("/api/videos", express.json(), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
@@ -173,7 +173,7 @@ export function registerRoutes(app: express.Application): Server {
 
       console.log('Received video data:', req.body);
 
-      const { title, description, url, categoryId, subcategoryId, platform, thumbnailUrl: customThumbnailUrl } = req.body;
+      const { title, description, url, categoryId, subcategoryId, platform, thumbnailPreview } = req.body;
 
       // Validate required fields with specific messages
       const missingFields = [];
@@ -190,8 +190,8 @@ export function registerRoutes(app: express.Application): Server {
         });
       }
 
-      // Get thumbnail URL if not provided
-      const thumbnailUrl = customThumbnailUrl || await getThumbnailUrl(url, platform, title, description);
+      // Get thumbnail URL if preview is not pending
+      const thumbnailUrl = thumbnailPreview ? null : await getThumbnailUrl(url, platform, title, description);
 
       // Insert new video
       const [video] = await db.insert(videos)
@@ -211,6 +211,40 @@ export function registerRoutes(app: express.Application): Server {
       console.error('Error adding video:', error);
       res.status(500).json({ 
         message: "Failed to add video",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Add new endpoint for thumbnail updates
+  app.post("/api/videos/:id/thumbnail", express.json({ limit: '50mb' }), async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const videoId = parseInt(req.params.id);
+      const { thumbnailUrl } = req.body;
+
+      if (!thumbnailUrl) {
+        return res.status(400).json({ message: "Thumbnail URL is required" });
+      }
+
+      const [updatedVideo] = await db
+        .update(videos)
+        .set({ thumbnailUrl })
+        .where(eq(videos.id, videoId))
+        .returning();
+
+      if (!updatedVideo) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      res.json(updatedVideo);
+    } catch (error) {
+      console.error('Error updating thumbnail:', error);
+      res.status(500).json({ 
+        message: "Failed to update thumbnail",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }

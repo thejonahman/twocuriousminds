@@ -66,57 +66,69 @@ export function AdminVideoForm() {
     enabled: !!selectedCategoryId,
   });
 
-  const addTopicMutation = useMutation({
-    mutationFn: async (data: NewTopicFormData) => {
-      console.log('Creating new topic/subtopic:', data);
-      const response = await apiRequest("POST", "/api/categories", {
-        name: data.name,
-        parentId: data.parentCategoryId ? parseInt(data.parentCategoryId) : undefined,
-      });
+  const addVideoMutation = useMutation({
+    mutationFn: async (data: VideoFormData) => {
+      try {
+        console.log('Submitting video data:', data);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to create topic");
-      }
-      return response.json();
-    },
-    onSuccess: async (data) => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
-      if (selectedCategoryId) {
-        await queryClient.invalidateQueries({
-          queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
+        // First, submit the basic video data without the thumbnail
+        const videoResponse = await fetch("/api/videos", {
+          method: "POST",
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ...data,
+            thumbnailPreview: thumbnailUrl ? true : false
+          }),
+          credentials: "include",
         });
-      }
 
-      setTimeout(() => {
-        if (data.isSubcategory) {
-          console.log('Setting new subtopic:', data.id);
-          form.setValue("subcategoryId", String(data.id));
-        } else {
-          console.log('Setting new topic:', data.id);
-          form.setValue("categoryId", String(data.id));
-          form.setValue("subcategoryId", "");
+        if (!videoResponse.ok) {
+          const errorData = await videoResponse.json();
+          throw new Error(errorData.details || errorData.message || "Failed to add video");
         }
 
-        toast({
-          title: "Success",
-          description: `${data.isSubcategory ? "Subtopic" : "Topic"} added and selected`
-        });
+        const videoData = await videoResponse.json();
 
-        setNewTopicDialogOpen(false);
-        setNewSubtopicDialogOpen(false);
-        setNewTopicName("");
-        setNewSubtopicName("");
-      }, 100);
+        // If we have a generated thumbnail, submit it separately
+        if (thumbnailUrl) {
+          const thumbnailResponse = await fetch(`/api/videos/${videoData.id}/thumbnail`, {
+            method: "POST",
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ thumbnailUrl }),
+            credentials: "include",
+          });
+
+          if (!thumbnailResponse.ok) {
+            console.error('Failed to upload thumbnail');
+          }
+        }
+
+        return videoData;
+      } catch (error) {
+        console.error('Video submission error:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      form.reset();
+      setThumbnailUrl(null);
+      toast({
+        title: "Success",
+        description: "Video added successfully",
+      });
     },
     onError: (error: Error) => {
-      console.error('Failed to create topic/subtopic:', error);
       toast({
         title: "Error",
         description: error.message,
-        variant: "destructive"
+        variant: "destructive",
       });
-    }
+    },
   });
 
   const generateThumbnailMutation = useMutation({
@@ -179,62 +191,57 @@ export function AdminVideoForm() {
     },
   });
 
-  const addVideoMutation = useMutation({
-    mutationFn: async (data: VideoFormData) => {
-      try {
-        const formData = new URLSearchParams();
+  const addTopicMutation = useMutation({
+    mutationFn: async (data: NewTopicFormData) => {
+      console.log('Creating new topic/subtopic:', data);
+      const response = await apiRequest("POST", "/api/categories", {
+        name: data.name,
+        parentId: data.parentCategoryId ? parseInt(data.parentCategoryId) : undefined,
+      });
 
-        formData.append('title', data.title);
-        formData.append('description', data.description || '');
-        formData.append('url', data.url);
-        formData.append('categoryId', data.categoryId);
-        if (data.subcategoryId) {
-          formData.append('subcategoryId', data.subcategoryId);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to create topic");
+      }
+      return response.json();
+    },
+    onSuccess: async (data) => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      if (selectedCategoryId) {
+        await queryClient.invalidateQueries({
+          queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
+        });
+      }
+
+      setTimeout(() => {
+        if (data.isSubcategory) {
+          console.log('Setting new subtopic:', data.id);
+          form.setValue("subcategoryId", String(data.id));
+        } else {
+          console.log('Setting new topic:', data.id);
+          form.setValue("categoryId", String(data.id));
+          form.setValue("subcategoryId", "");
         }
-        formData.append('platform', data.platform);
 
-        if (thumbnailUrl) {
-          formData.append('thumbnailUrl', thumbnailUrl);
-        }
-
-        const response = await fetch("/api/videos", {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: formData.toString(),
-          credentials: "include",
+        toast({
+          title: "Success",
+          description: `${data.isSubcategory ? "Subtopic" : "Topic"} added and selected`
         });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Video submission error:', errorData);
-          throw new Error(errorData.details || errorData.message || "Failed to add video");
-        }
-
-        return response.json();
-      } catch (error) {
-        console.error('Video submission error:', error);
-        throw error;
-      }
-    },
-    onSuccess: () => {
-      window.scrollTo(0, 0);
-      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-      form.reset();
-      setThumbnailUrl(null);
-      toast({
-        title: "Success",
-        description: "Video added successfully",
-      });
+        setNewTopicDialogOpen(false);
+        setNewSubtopicDialogOpen(false);
+        setNewTopicName("");
+        setNewSubtopicName("");
+      }, 100);
     },
     onError: (error: Error) => {
+      console.error('Failed to create topic/subtopic:', error);
       toast({
         title: "Error",
         description: error.message,
-        variant: "destructive",
+        variant: "destructive"
       });
-    },
+    }
   });
 
   const handleGenerateThumbnail = async () => {
