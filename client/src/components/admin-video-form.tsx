@@ -94,9 +94,12 @@ export function AdminVideoForm() {
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
       console.log('Sending thumbnail generation request:', { title, description });
 
-      const response = await apiRequest("POST", "/api/thumbnails/generate", {
-        title,
-        description,
+      const response = await fetch("/api/thumbnails/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title, description }),
       });
 
       if (!response.ok) {
@@ -116,12 +119,14 @@ export function AdminVideoForm() {
         responseData = await response.json();
         console.log('Thumbnail generation response:', responseData);
 
-        if (!responseData?.imageUrl) {
+        if (!responseData?.success || !responseData?.imageUrl) {
           throw new Error("Invalid response format - missing image URL");
         }
         return responseData;
       } catch (parseError) {
         console.error('Failed to parse success response:', parseError);
+        const textError = await response.text();
+        console.error('Raw success response:', textError);
         throw new Error("Invalid response from server");
       }
     },

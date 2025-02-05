@@ -47,6 +47,8 @@ router.post('/generate', async (req, res) => {
 
     console.log('Using prompt:', prompt);
 
+    let imageUrl: string;
+
     try {
       const response = await openai.images.generate({
         prompt,
@@ -59,17 +61,14 @@ router.post('/generate', async (req, res) => {
 
       console.log('OpenAI API Response:', JSON.stringify(response, null, 2));
 
-      if (!response.data?.[0]?.url) {
+      // Validate response structure
+      if (!response?.data?.[0]?.url || typeof response.data[0].url !== 'string') {
         console.error('Invalid response structure from OpenAI:', response);
-        return res.status(500).json({
-          error: 'Invalid response from image generation service',
-          details: 'No image URL in response'
-        });
+        throw new Error('Invalid response structure from OpenAI API');
       }
 
-      const imageUrl = response.data[0].url;
+      imageUrl = response.data[0].url;
       console.log('Successfully generated thumbnail:', { imageUrl });
-      return res.json({ imageUrl });
 
     } catch (openaiError) {
       console.error('OpenAI API error:', openaiError);
@@ -82,6 +81,12 @@ router.post('/generate', async (req, res) => {
       }
       throw openaiError;
     }
+
+    // Send successful response
+    return res.status(200).json({ 
+      success: true,
+      imageUrl 
+    });
 
   } catch (error) {
     console.error('Thumbnail generation error:', error);
