@@ -54,6 +54,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const hasSubmitted = useRef(false);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -67,6 +68,30 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
+  useEffect(() => {
+    if (hasSubmitted.current && !isSubmitting) {
+      const restoreScroll = () => {
+        try {
+          window.scrollTo({
+            top: scrollPosition,
+            behavior: "instant"
+          });
+
+          const timeoutId = setTimeout(() => {
+            if (onClose) {
+              onClose();
+            }
+          }, 50);
+
+          return () => clearTimeout(timeoutId);
+        } catch (error) {
+          console.error('Error restoring scroll position:', error);
+        }
+      };
+
+      restoreScroll();
+    }
+  }, [isSubmitting, scrollPosition, onClose]);
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
@@ -151,15 +176,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         title: "Success",
         description: "Video updated successfully",
       });
-
-      if (onClose) {
-        // Ensure scroll position is restored before closing
-        window.scrollTo({ top: scrollPosition, behavior: "instant" });
-        // Small delay to ensure scroll is applied before dialog closes
-        requestAnimationFrame(() => {
-          onClose();
-        });
-      }
+      hasSubmitted.current = true;
     },
     onError: (error: Error) => {
       toast({
@@ -233,7 +250,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full" ref={formRef}>
           <CardContent className="space-y-4 overflow-y-auto flex-1">
-            {/* Thumbnail Section */}
             <div className="space-y-2">
               <FormLabel>Thumbnail</FormLabel>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
@@ -279,7 +295,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
               </div>
             </div>
 
-            {/* Form Fields */}
             <div className="space-y-4">
               <FormField
                 control={form.control}

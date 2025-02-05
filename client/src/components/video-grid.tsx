@@ -43,7 +43,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [scrollPosition, setScrollPosition] = useState(0);
+  const scrollPositionRef = useRef(0);
   const queryClient = useQueryClient();
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -73,13 +73,12 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
 
   // Store scroll position when dialog opens
   const handleDialogOpen = useCallback((video: Video) => {
-    const currentScroll = window.scrollY;
-    setScrollPosition(currentScroll);
+    scrollPositionRef.current = window.scrollY;
     setSelectedVideo(video);
     setDialogOpen(true);
   }, []);
 
-  // Restore scroll position when dialog closes
+  // Handle dialog close
   const handleDialogClose = useCallback(() => {
     setDialogOpen(false);
     setSelectedVideo(null);
@@ -190,7 +189,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         <EditVideoForm 
                           video={selectedVideo} 
                           onClose={handleDialogClose}
-                          scrollPosition={scrollPosition}
+                          scrollPosition={scrollPositionRef.current}
                         />
                       )}
                     </DialogContent>
