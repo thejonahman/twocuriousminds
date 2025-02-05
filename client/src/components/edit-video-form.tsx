@@ -12,7 +12,6 @@ import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
 
-// Form validation schema remains unchanged
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -55,6 +54,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const [scrollPosition, setScrollPosition] = useState(0);
 
+  // Memoize form default values
   const defaultValues = useMemo(() => ({
     title: video.title,
     description: video.description || "",
@@ -69,7 +69,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     defaultValues,
   });
 
-  // Initialize thumbnail and scroll position
+  // Store initial values
   useEffect(() => {
     if (video.thumbnailUrl) {
       setThumbnailUrl(video.thumbnailUrl);
@@ -77,20 +77,21 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     setScrollPosition(window.scrollY);
   }, [video.thumbnailUrl]);
 
-  const { data: categories, isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
+  // Fetch categories with stale time to prevent unnecessary refetches
+  const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
     staleTime: 30000,
   });
 
   const selectedCategoryId = form.watch("categoryId");
 
-  const { data: subcategories, isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
+  // Fetch subcategories with stale time
+  const { data: subcategories = [], isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
     staleTime: 30000,
   });
 
-  // Mutations remain unchanged...
   const generateThumbnailMutation = useMutation({
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
       const response = await fetch("/api/thumbnails/generate", {
@@ -291,7 +292,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               </div>
             </div>
 
-            {/* Form Fields */}
+            {/* Title */}
             <FormField
               control={form.control}
               name="title"
@@ -306,6 +307,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               )}
             />
 
+            {/* Description */}
             <FormField
               control={form.control}
               name="description"
@@ -320,6 +322,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               )}
             />
 
+            {/* URL */}
             <FormField
               control={form.control}
               name="url"
@@ -334,6 +337,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               )}
             />
 
+            {/* Category */}
             <FormField
               control={form.control}
               name="categoryId"
@@ -369,6 +373,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               )}
             />
 
+            {/* Subcategory */}
             <FormField
               control={form.control}
               name="subcategoryId"
@@ -402,6 +407,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               )}
             />
 
+            {/* Platform */}
             <FormField
               control={form.control}
               name="platform"
