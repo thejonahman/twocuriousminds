@@ -78,8 +78,8 @@ export function AdminVideoForm() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       if (selectedCategoryId) {
-        queryClient.invalidateQueries({ 
-          queryKey: [`/api/categories/${selectedCategoryId}/subcategories`] 
+        queryClient.invalidateQueries({
+          queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
         });
       }
       toast({ title: "Success", description: "Topic added successfully" });
@@ -115,30 +115,44 @@ export function AdminVideoForm() {
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const formData = new FormData();
-      Object.entries(data).forEach(([key, value]) => {
-        if (value !== undefined) {
-          formData.append(key, value.toString());
+      try {
+        const formData = new FormData();
+        // Convert IDs to numbers
+        formData.append('categoryId', String(parseInt(data.categoryId)));
+        if (data.subcategoryId) {
+          formData.append('subcategoryId', String(parseInt(data.subcategoryId)));
         }
-      });
 
-      // Add generated thumbnail if available
-      if (thumbnailUrl) {
-        formData.append('thumbnailUrl', thumbnailUrl);
+        // Add all other fields
+        formData.append('title', data.title);
+        formData.append('description', data.description || '');
+        formData.append('url', data.url);
+        formData.append('platform', data.platform);
+
+        // Add the generated thumbnail URL if available
+        if (thumbnailUrl) {
+          formData.append('thumbnailUrl', thumbnailUrl);
+        }
+
+        const response = await fetch("/api/videos", {
+          method: "POST",
+          body: formData,
+          credentials: "include",
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to add video");
+        }
+
+        return response.json();
+      } catch (error) {
+        console.error('Video submission error:', error);
+        if (error instanceof Error) {
+          throw error;
+        }
+        throw new Error("Failed to add video");
       }
-
-      const response = await fetch("/api/videos", {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to add video");
-      }
-
-      return response.json();
     },
     onSuccess: () => {
       window.scrollTo(0, 0);
@@ -360,7 +374,7 @@ export function AdminVideoForm() {
 
               <Dialog open={newSubtopicDialogOpen} onOpenChange={setNewSubtopicDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button 
+                  <Button
                     type="button"
                     variant="outline"
                     size="icon"
