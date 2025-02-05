@@ -68,7 +68,7 @@ export function AdminVideoForm() {
 
   const addTopicMutation = useMutation({
     mutationFn: async (data: NewTopicFormData) => {
-      console.log('Creating new topic/subtopic:', data); // Debug log
+      console.log('Creating new topic/subtopic:', data);
       const response = await apiRequest("POST", "/api/categories", {
         name: data.name,
         parentId: data.parentCategoryId ? parseInt(data.parentCategoryId) : undefined,
@@ -81,7 +81,18 @@ export function AdminVideoForm() {
       return response.json();
     },
     onSuccess: (data) => {
-      // Invalidate both queries to ensure fresh data
+      // Update form with new selection
+      if (data.isSubcategory) {
+        console.log('Setting new subtopic:', data.id);
+        form.setValue("subcategoryId", String(data.id));
+      } else {
+        console.log('Setting new topic:', data.id);
+        form.setValue("categoryId", String(data.id));
+        // Clear subcategory when changing main category
+        form.setValue("subcategoryId", "");
+      }
+
+      // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       if (selectedCategoryId) {
         queryClient.invalidateQueries({
@@ -92,7 +103,7 @@ export function AdminVideoForm() {
       // Show success message
       toast({
         title: "Success",
-        description: `${data.isSubcategory ? "Subtopic" : "Topic"} added successfully`
+        description: `${data.isSubcategory ? "Subtopic" : "Topic"} added and selected`
       });
 
       // Reset form state
@@ -257,7 +268,14 @@ export function AdminVideoForm() {
   };
 
   const handleAddTopic = () => {
-    if (!newTopicName.trim()) return;
+    if (!newTopicName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a topic name",
+        variant: "destructive"
+      });
+      return;
+    }
     addTopicMutation.mutate({ name: newTopicName });
   };
 
