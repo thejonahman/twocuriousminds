@@ -190,7 +190,10 @@ export function AdminVideoForm() {
     mutationFn: async (data: VideoFormData) => {
       try {
         const formData = new FormData();
-        // Convert IDs to numbers
+        // Log the data being sent
+        console.log('Submitting video data:', data);
+
+        // Convert IDs to numbers and add to formData
         formData.append('categoryId', String(parseInt(data.categoryId)));
         if (data.subcategoryId) {
           formData.append('subcategoryId', String(parseInt(data.subcategoryId)));
@@ -215,6 +218,7 @@ export function AdminVideoForm() {
 
         if (!response.ok) {
           const errorData = await response.json();
+          console.error('Video submission error:', errorData);
           throw new Error(errorData.message || "Failed to add video");
         }
 

@@ -173,9 +173,18 @@ export function registerRoutes(app: any): Server {
 
       const { title, description, url, categoryId, subcategoryId, platform } = req.body;
 
-      // Validate required fields
-      if (!title || !url || !categoryId || !platform) {
-        return res.status(400).json({ message: "Missing required fields" });
+      // Validate required fields with specific messages
+      const missingFields = [];
+      if (!title) missingFields.push('title');
+      if (!url) missingFields.push('url');
+      if (!categoryId) missingFields.push('category');
+      if (!platform) missingFields.push('platform');
+
+      if (missingFields.length > 0) {
+        return res.status(400).json({ 
+          message: "Missing required fields", 
+          details: `Missing: ${missingFields.join(', ')}`
+        });
       }
 
       // Get thumbnail URL
@@ -188,8 +197,8 @@ export function registerRoutes(app: any): Server {
           description,
           url,
           thumbnailUrl,
-          categoryId,
-          subcategoryId: subcategoryId || null,
+          categoryId: parseInt(categoryId),
+          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
           platform,
         })
         .returning();
