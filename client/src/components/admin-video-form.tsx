@@ -102,21 +102,23 @@ export function AdminVideoForm() {
         body: JSON.stringify({ title, description }),
       });
 
+      // Read the response text first
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+
       if (!response.ok) {
         try {
-          const errorData = await response.json();
+          const errorData = JSON.parse(responseText);
           throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
         } catch (parseError) {
           console.error('Failed to parse error response:', parseError);
-          const textError = await response.text();
-          console.error('Raw error response:', textError);
+          console.error('Raw error response:', responseText);
           throw new Error("Failed to generate thumbnail - server error");
         }
       }
 
-      let responseData;
       try {
-        responseData = await response.json();
+        const responseData = JSON.parse(responseText);
         console.log('Thumbnail generation response:', responseData);
 
         if (!responseData?.success || !responseData?.imageUrl) {
@@ -125,8 +127,7 @@ export function AdminVideoForm() {
         return responseData;
       } catch (parseError) {
         console.error('Failed to parse success response:', parseError);
-        const textError = await response.text();
-        console.error('Raw success response:', textError);
+        console.error('Raw success response:', responseText);
         throw new Error("Invalid response from server");
       }
     },
