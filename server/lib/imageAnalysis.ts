@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-// Simple content-based image matching without OpenAI
+// Content-based image matching with improved categorization
 export async function findBestImageForVideo(
   title: string,
   description: string,
@@ -13,59 +13,123 @@ export async function findBestImageForVideo(
       /\.(jpg|jpeg|png|webp)$/i.test(file)
     );
 
-    // Define keywords for different categories
-    const categoryKeywords = {
-      technique: ['turn', 'posture', 'position', 'stance', 'form', 'technique', 'ski', 'skiing'],
-      beginner: ['basic', 'beginner', 'start', 'learning', 'first', 'new'],
-      advanced: ['advanced', 'expert', 'professional', 'steep', 'difficult'],
-      equipment: ['gear', 'equipment', 'boot', 'ski', 'pole', 'binding'],
-      safety: ['safety', 'precaution', 'warning', 'careful', 'protect'],
+    console.log('Analyzing content:', { title, description });
+
+    // Enhanced categories with weighted keywords
+    const categories = {
+      technique: {
+        weight: 1.0,
+        keywords: [
+          'turn', 'posture', 'position', 'stance', 'form', 'technique', 
+          'ski', 'skiing', 'carve', 'edge', 'parallel', 'movement',
+          'balance', 'control', 'lean', 'weight', 'shift'
+        ]
+      },
+      beginner: {
+        weight: 0.9,
+        keywords: [
+          'basic', 'beginner', 'start', 'learning', 'first', 'new',
+          'introduction', 'fundamental', 'easy', 'simple', 'initial',
+          'starting', 'novice', 'practice'
+        ]
+      },
+      advanced: {
+        weight: 0.8,
+        keywords: [
+          'advanced', 'expert', 'professional', 'steep', 'difficult',
+          'challenging', 'mogul', 'powder', 'off-piste', 'jump',
+          'trick', 'speed', 'race', 'competition'
+        ]
+      },
+      equipment: {
+        weight: 0.7,
+        keywords: [
+          'gear', 'equipment', 'boot', 'ski', 'pole', 'binding',
+          'helmet', 'goggle', 'jacket', 'pants', 'glove', 'wax',
+          'maintenance', 'setup', 'adjust'
+        ]
+      },
+      safety: {
+        weight: 1.0,
+        keywords: [
+          'safety', 'precaution', 'warning', 'careful', 'protect',
+          'avalanche', 'rescue', 'emergency', 'caution', 'risk',
+          'injury', 'prevention', 'secure', 'check'
+        ]
+      },
+      environment: {
+        weight: 0.6,
+        keywords: [
+          'mountain', 'snow', 'weather', 'condition', 'terrain',
+          'slope', 'trail', 'peak', 'valley', 'resort', 'alpine',
+          'glacier', 'powder', 'groomed'
+        ]
+      }
     };
 
     // Convert content to lowercase for matching
     const contentText = `${title} ${description}`.toLowerCase();
+    console.log('Content text for matching:', contentText);
 
-    // Find matching category based on keywords
-    let bestCategory = 'general';
-    let maxMatches = 0;
+    // Calculate category scores
+    const categoryScores = Object.entries(categories).map(([category, info]) => {
+      const matchingKeywords = info.keywords.filter(keyword => {
+        const regex = new RegExp(`\\b${keyword}\\b`, 'i');
+        return regex.test(contentText);
+      });
 
-    Object.entries(categoryKeywords).forEach(([category, keywords]) => {
-      const matches = keywords.filter(keyword => 
-        contentText.includes(keyword.toLowerCase())
-      ).length;
+      const score = (matchingKeywords.length / info.keywords.length) * info.weight;
 
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        bestCategory = category;
-      }
+      console.log(`Category "${category}" score:`, {
+        matchingKeywords,
+        score
+      });
+
+      return { category, score };
     });
 
-    // Map categories to specific image patterns
-    const categoryPatterns: Record<string, RegExp[]> = {
-      technique: [/turn/i, /posture/i, /ski.*technique/i],
-      beginner: [/basic/i, /begin/i, /learn/i],
-      advanced: [/steep/i, /advanced/i, /expert/i],
-      equipment: [/gear/i, /equipment/i, /boot/i],
-      safety: [/safety/i, /protect/i],
-      general: [/ski/i, /snow/i, /mountain/i],
-    };
+    // Get best matching category
+    const bestCategory = categoryScores.reduce((best, current) => 
+      current.score > best.score ? current : best
+    );
 
-    // Find first matching image based on category
-    const patterns = categoryPatterns[bestCategory] || categoryPatterns.general;
+    console.log('Best matching category:', bestCategory);
+
+    // Build regex patterns for the best category
+    const patterns = [
+      // Exact category name match
+      new RegExp(`${bestCategory.category}`, 'i'),
+      // Keywords from the category
+      ...categories[bestCategory.category].keywords.map(keyword => 
+        new RegExp(keyword, 'i')
+      ),
+      // Compound patterns
+      new RegExp(`${bestCategory.category}.*?(${
+        categories[bestCategory.category].keywords.join('|')
+      })`, 'i')
+    ];
+
+    // Find matching image
     for (const pattern of patterns) {
       const matchingFile = files.find(file => pattern.test(file));
       if (matchingFile) {
+        console.log('Found matching file:', matchingFile, 'using pattern:', pattern);
         return matchingFile;
       }
     }
 
-    // Default to a general skiing image if no match found
-    const defaultImages = files.filter(file => /ski|snow|mountain/i.test(file));
-    if (defaultImages.length > 0) {
-      return defaultImages[Math.floor(Math.random() * defaultImages.length)];
+    // If no specific match, try environment/general images
+    const generalPatterns = [/ski/i, /snow/i, /mountain/i, /slope/i];
+    for (const pattern of generalPatterns) {
+      const matchingFile = files.find(file => pattern.test(file));
+      if (matchingFile) {
+        console.log('Using general image:', matchingFile);
+        return matchingFile;
+      }
     }
 
-    // Fallback to generating an SVG with the title
+    // Return null if no match found
+    console.log('No matching image found, will use SVG fallback');
     return null;
 
   } catch (error) {
