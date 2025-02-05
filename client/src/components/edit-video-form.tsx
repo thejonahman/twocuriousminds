@@ -49,9 +49,10 @@ interface EditVideoFormProps {
 
 export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const queryClient = useQueryClient();
-  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(video.thumbnailUrl || null);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDetectingPlatform, setIsDetectingPlatform] = useState(false);
+  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -76,7 +77,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
         subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
         platform: video.platform as "youtube" | "tiktok" | "instagram",
       });
-      setThumbnailPreview(video.thumbnailUrl || null);
+      setThumbnailUrl(video.thumbnailUrl || null);
     }
   }, [video, form]);
 
@@ -127,16 +128,80 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     return () => subscription.unsubscribe();
   }, [form, detectPlatform]);
 
+  const generateThumbnailMutation = useMutation({
+    mutationFn: async ({ title, description }: { title: string; description?: string }) => {
+      console.log('Sending thumbnail generation request:', { title, description });
+
+      const response = await fetch("/api/thumbnails/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title, description }),
+      });
+
+      const responseText = await response.text();
+      console.log('Raw response:', responseText);
+
+      if (!response.ok) {
+        try {
+          const errorData = JSON.parse(responseText);
+          throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
+        } catch (parseError) {
+          console.error('Failed to parse error response:', parseError);
+          console.error('Raw error response:', responseText);
+          throw new Error("Failed to generate thumbnail - server error");
+        }
+      }
+
+      try {
+        const responseData = JSON.parse(responseText);
+        console.log('Thumbnail generation response:', responseData);
+
+        if (!responseData?.success || !responseData?.imageUrl) {
+          throw new Error("Invalid response format - missing image URL");
+        }
+        return responseData;
+      } catch (parseError) {
+        console.error('Failed to parse success response:', parseError);
+        console.error('Raw success response:', responseText);
+        throw new Error("Invalid response from server");
+      }
+    },
+    onSuccess: (data) => {
+      console.log('Thumbnail generated successfully:', data);
+      setThumbnailUrl(data.imageUrl);
+      setIsGeneratingThumbnail(false);
+      toast({
+        title: "Success",
+        description: "Thumbnail generated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      console.error('Thumbnail generation error:', error);
+      toast({
+        title: "Failed to generate thumbnail",
+        description: error.message,
+        variant: "destructive",
+      });
+      setIsGeneratingThumbnail(false);
+    },
+  });
+
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
       try {
         setIsSubmitting(true);
+        // First update the video data
         const response = await fetch(`/api/videos/${video.id}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify({
+            ...data,
+            thumbnailPreview: thumbnailUrl ? true : false
+          }),
           credentials: 'include',
         });
 
@@ -145,7 +210,25 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
           throw new Error(errorData.message || "Failed to update video");
         }
 
-        return response.json();
+        const videoData = await response.json();
+
+        // If we have a new thumbnail, update it separately
+        if (thumbnailUrl && thumbnailUrl !== video.thumbnailUrl) {
+          const thumbnailResponse = await fetch(`/api/videos/${video.id}/thumbnail`, {
+            method: "POST",
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ thumbnailUrl }),
+            credentials: "include",
+          });
+
+          if (!thumbnailResponse.ok) {
+            console.error('Failed to update thumbnail');
+          }
+        }
+
+        return videoData;
       } catch (error) {
         console.error('Video update error:', error);
         throw error;
@@ -174,6 +257,26 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     },
   });
 
+  const handleGenerateThumbnail = async () => {
+    const title = form.getValues("title");
+    const description = form.getValues("description");
+
+    if (!title || title.trim().length === 0) {
+      toast({
+        title: "Missing title",
+        description: "Please enter a video title before generating a thumbnail",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGeneratingThumbnail(true);
+    generateThumbnailMutation.mutate({
+      title: title.trim(),
+      description: description?.trim()
+    });
+  };
+
   const handleThumbnailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -188,7 +291,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
 
       const reader = new FileReader();
       reader.onloadend = () => {
-        setThumbnailPreview(reader.result as string);
+        setThumbnailUrl(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -351,27 +454,38 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
             />
 
             <div className="space-y-2">
-              <FormLabel>Custom Thumbnail</FormLabel>
+              <FormLabel>Thumbnail</FormLabel>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                  {thumbnailPreview && (
+                {thumbnailUrl && (
+                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
                     <img
-                      src={thumbnailPreview}
-                      alt="Thumbnail preview"
+                      src={thumbnailUrl}
+                      alt="Generated thumbnail"
                       className="w-full h-full object-cover"
                     />
-                  )}
-                </div>
-                <div className="flex-1">
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleThumbnailChange}
-                    className="cursor-pointer"
-                  />
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Upload a custom thumbnail image (optional)
-                  </p>
+                  </div>
+                )}
+                <div className="flex flex-col gap-2 w-full">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleGenerateThumbnail}
+                    disabled={isGeneratingThumbnail}
+                    className="w-full sm:w-auto"
+                  >
+                    {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
+                  </Button>
+                  <div className="flex-1">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleThumbnailChange}
+                      className="cursor-pointer"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Or upload a custom thumbnail image (optional)
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -381,7 +495,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
             <Button
               type="submit"
               className="w-full"
-              disabled={isSubmitting || updateVideoMutation.isPending || isDetectingPlatform}
+              disabled={isSubmitting || updateVideoMutation.isPending || isDetectingPlatform || isGeneratingThumbnail}
             >
               {isSubmitting ? "Updating..." : "Update Video"}
             </Button>
