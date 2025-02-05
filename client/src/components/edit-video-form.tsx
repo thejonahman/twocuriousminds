@@ -239,7 +239,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     onError: (error: Error) => {
       toast({
         title: "Error",
-        description: error.message,
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
         variant: "destructive",
       });
     },
