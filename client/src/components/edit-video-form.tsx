@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 
 // Form validation schema
 const videoSchema = z.object({
@@ -54,7 +54,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const [isDetectingPlatform, setIsDetectingPlatform] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
 
-  // Memoize initial form values
   const defaultValues = useMemo(() => ({
     title: video.title || '',
     description: video.description || "",
@@ -90,8 +89,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
 
   const generateThumbnailMutation = useMutation({
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
-      console.log('Sending thumbnail generation request:', { title, description });
-
       const response = await fetch("/api/thumbnails/generate", {
         method: "POST",
         headers: {
@@ -100,27 +97,12 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
         body: JSON.stringify({ title, description }),
       });
 
-      const responseText = await response.text();
-      console.log('Raw response:', responseText);
-
       if (!response.ok) {
-        try {
-          const errorData = JSON.parse(responseText);
-          throw new Error(errorData.details || errorData.error || "Failed to generate thumbnail");
-        } catch (parseError) {
-          console.error('Failed to parse error response:', parseError);
-          throw new Error("Failed to generate thumbnail - server error");
-        }
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.message || "Failed to generate thumbnail");
       }
 
-      try {
-        const responseData = JSON.parse(responseText);
-        console.log('Thumbnail generation response:', responseData);
-        return responseData;
-      } catch (parseError) {
-        console.error('Failed to parse success response:', parseError);
-        throw new Error("Invalid response from server");
-      }
+      return await response.json();
     },
     onSuccess: (data) => {
       if (data?.imageUrl) {
@@ -142,6 +124,46 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       setIsGeneratingThumbnail(false);
     }
   });
+
+  const handleGenerateThumbnail = async () => {
+    const title = form.getValues("title");
+    const description = form.getValues("description");
+
+    if (!title || title.trim().length === 0) {
+      toast({
+        title: "Missing title",
+        description: "Please enter a video title before generating a thumbnail",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsGeneratingThumbnail(true);
+    generateThumbnailMutation.mutate({
+      title: title.trim(),
+      description: description?.trim()
+    });
+  };
+
+  const handleThumbnailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Error",
+          description: "Image file size must be less than 5MB",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setThumbnailUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
@@ -209,46 +231,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       setIsSubmitting(false);
     }
   });
-
-  const handleGenerateThumbnail = async () => {
-    const title = form.getValues("title");
-    const description = form.getValues("description");
-
-    if (!title || title.trim().length === 0) {
-      toast({
-        title: "Missing title",
-        description: "Please enter a video title before generating a thumbnail",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsGeneratingThumbnail(true);
-    generateThumbnailMutation.mutate({
-      title: title.trim(),
-      description: description?.trim()
-    });
-  };
-
-  const handleThumbnailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Error",
-          description: "Image file size must be less than 5MB",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setThumbnailUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
 
   const onSubmit = async (data: VideoFormData) => {
     try {
@@ -450,7 +432,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
             />
           </CardContent>
 
-          <CardFooter>
+          <CardFooter className="border-t mt-auto">
             <Button
               type="submit"
               className="w-full"
