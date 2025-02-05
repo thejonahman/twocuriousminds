@@ -7,7 +7,9 @@ import fetch from "node-fetch";
 import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
-import { analyzeImage, findBestImageForVideo } from './lib/imageAnalysis';
+import { findBestImageForVideo } from './lib/imageAnalysis';
+import express from 'express';
+import thumbnailRoutes from './routes/thumbnail';
 
 // Configure multer for handling file uploads
 const storage = multer.memoryStorage();
@@ -75,7 +77,11 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
 }
 
 export function registerRoutes(app: any): Server {
+  // Setup auth first
   setupAuth(app);
+
+  // Register thumbnail routes before other routes to ensure proper handling
+  app.use('/api/thumbnails', thumbnailRoutes);
 
   app.get("/api/videos", async (req, res) => {
     try {
