@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 // Form validation schema
 const videoSchema = z.object({
@@ -26,8 +26,7 @@ const videoSchema = z.object({
     }, "Must be a YouTube, TikTok, or Instagram URL"),
   categoryId: z.string().min(1, "Category is required"),
   subcategoryId: z.string().optional(),
-  platform: z.enum(["youtube", "tiktok", "instagram"]),
-  customThumbnail: z.any().optional(), // Will be a File object
+  platform: z.enum(["youtube", "tiktok", "instagram"])
 });
 
 type VideoFormData = z.infer<typeof videoSchema>;
@@ -40,7 +39,7 @@ interface Video {
   categoryId: number;
   subcategoryId?: number;
   platform: string;
-  thumbnailUrl?: string; // Added for thumbnail preview
+  thumbnailUrl?: string;
 }
 
 interface EditVideoFormProps {
@@ -50,41 +49,66 @@ interface EditVideoFormProps {
 
 export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const queryClient = useQueryClient();
-  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
+  const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(video.thumbnailUrl || null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
     defaultValues: {
-      title: video.title,
+      title: video.title || '',
       description: video.description || "",
-      url: video.url,
-      categoryId: String(video.categoryId),
+      url: video.url || '',
+      categoryId: video.categoryId ? String(video.categoryId) : '',
       subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
-      platform: video.platform as "youtube" | "tiktok" | "instagram",
-    },
+      platform: (video.platform || 'youtube') as "youtube" | "tiktok" | "instagram",
+    }
+  });
+
+  // Reset form when video changes
+  useEffect(() => {
+    if (video) {
+      form.reset({
+        title: video.title,
+        description: video.description || "",
+        url: video.url,
+        categoryId: String(video.categoryId),
+        subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
+        platform: video.platform as "youtube" | "tiktok" | "instagram",
+      });
+      setThumbnailPreview(video.thumbnailUrl || null);
+    }
+  }, [video, form]);
+
+  const { data: categories, isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
+    queryKey: ["/api/categories"],
+  });
+
+  const selectedCategoryId = form.watch("categoryId");
+
+  const { data: subcategories, isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
+    queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
+    enabled: !!selectedCategoryId,
   });
 
   const updateVideoMutation = useMutation({
-    mutationFn: async (data: VideoFormData & { customThumbnail?: File }) => {
+    mutationFn: async (data: VideoFormData) => {
       try {
+        setIsSubmitting(true);
         const formData = new FormData();
+
+        // Add all fields to formData
         Object.entries(data).forEach(([key, value]) => {
-          if (key === 'customThumbnail' && value instanceof File) {
-            formData.append('thumbnail', value);
-          } else if (value !== undefined) {
+          if (value !== undefined && value !== null) {
             formData.append(key, value.toString());
           }
         });
 
-        // Convert IDs to numbers
-        formData.set('categoryId', String(parseInt(data.categoryId)));
-        if (data.subcategoryId) {
-          formData.set('subcategoryId', String(parseInt(data.subcategoryId)));
-        }
-
         const response = await fetch(`/api/videos/${video.id}`, {
           method: 'PATCH',
-          body: formData,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(data),
           credentials: 'include',
         });
 
@@ -96,29 +120,24 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
         return response.json();
       } catch (error) {
         console.error('Video update error:', error);
-        if (error instanceof Error) {
-          throw error;
-        }
-        throw new Error("Failed to update video");
+        throw error;
+      } finally {
+        setIsSubmitting(false);
       }
     },
     onSuccess: () => {
-      // First update UI state
+      // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
 
-      // Then close dialog if needed
+      // Show success message and close dialog
+      toast({
+        title: "Success",
+        description: "Video updated successfully",
+      });
+
       if (onClose) {
         onClose();
       }
-
-      // Finally show toast
-      setTimeout(() => {
-        toast({
-          title: "Success",
-          description: "Video updated successfully",
-        });
-      }, 100);
     },
     onError: (error: Error) => {
       toast({
@@ -132,41 +151,39 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const handleThumbnailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      // Preview the selected image
+      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+        toast({
+          title: "Error",
+          description: "Image file size must be less than 5MB",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = () => {
         setThumbnailPreview(reader.result as string);
       };
       reader.readAsDataURL(file);
-      form.setValue('customThumbnail', file);
     }
   };
 
-  const detectPlatform = (url: string) => {
-    if (url.includes("youtube.com") || url.includes("youtu.be")) {
-      form.setValue("platform", "youtube");
-    } else if (url.includes("tiktok.com")) {
-      form.setValue("platform", "tiktok");
-    } else if (url.includes("instagram.com")) {
-      form.setValue("platform", "instagram");
+  const onSubmit = (data: VideoFormData) => {
+    try {
+      updateVideoMutation.mutate(data);
+    } catch (error) {
+      console.error('Form submission error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
     }
   };
 
-  const onSubmit = (data: VideoFormData & { customThumbnail?: File }) => {
-    updateVideoMutation.mutate(data);
-  };
-
-  const { data: categories } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: ["/api/categories"],
-  });
-
-  const selectedCategoryId = form.watch("categoryId");
-
-  // Fetch subcategories when a category is selected
-  const { data: subcategories } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
-    enabled: !!selectedCategoryId,
-  });
+  if (isCategoriesLoading) {
+    return <div className="p-4">Loading categories...</div>;
+  }
 
   return (
     <Card className="max-h-[85vh] flex flex-col">
@@ -208,14 +225,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                 <FormItem>
                   <FormLabel>URL</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder="Paste video URL"
-                      {...field}
-                      onChange={(e) => {
-                        field.onChange(e);
-                        detectPlatform(e.target.value);
-                      }}
-                    />
+                    <Input placeholder="Video URL" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -231,10 +241,10 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                   <Select
                     onValueChange={(value) => {
                       field.onChange(value);
-                      // Reset subcategory when category changes
                       form.setValue("subcategoryId", "");
                     }}
                     value={field.value}
+                    disabled={isCategoriesLoading}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -263,7 +273,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                   <Select
                     onValueChange={field.onChange}
                     value={field.value}
-                    disabled={!selectedCategoryId}
+                    disabled={!selectedCategoryId || isSubcategoriesLoading}
                   >
                     <FormControl>
                       <SelectTrigger>
@@ -313,9 +323,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               <FormLabel>Custom Thumbnail</FormLabel>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                  {(thumbnailPreview || video.thumbnailUrl) && (
+                  {thumbnailPreview && (
                     <img
-                      src={thumbnailPreview || video.thumbnailUrl || ''}
+                      src={thumbnailPreview}
                       alt="Thumbnail preview"
                       className="w-full h-full object-cover"
                     />
@@ -334,15 +344,15 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                 </div>
               </div>
             </div>
-
           </CardContent>
+
           <CardFooter className="border-t mt-auto">
             <Button
               type="submit"
               className="w-full"
-              disabled={updateVideoMutation.isPending}
+              disabled={isSubmitting || updateVideoMutation.isPending}
             >
-              {updateVideoMutation.isPending ? "Updating..." : "Update Video"}
+              {isSubmitting ? "Updating..." : "Update Video"}
             </Button>
           </CardFooter>
         </form>
