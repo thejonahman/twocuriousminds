@@ -7,7 +7,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -45,6 +45,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [scrollPosition, setScrollPosition] = useState(0);
   const queryClient = useQueryClient();
+  const gridRef = useRef<HTMLDivElement>(null);
 
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
@@ -71,20 +72,24 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   });
 
   // Store scroll position when dialog opens
-  useEffect(() => {
-    if (dialogOpen) {
-      setScrollPosition(window.scrollY);
-    }
-  }, [dialogOpen]);
+  const handleDialogOpen = useCallback((video: Video) => {
+    setScrollPosition(window.scrollY);
+    setSelectedVideo(video);
+    setDialogOpen(true);
+  }, []);
 
   // Restore scroll position when dialog closes
-  useEffect(() => {
-    if (!dialogOpen && scrollPosition > 0) {
-      setTimeout(() => {
-        window.scrollTo(0, scrollPosition);
-      }, 100);
-    }
-  }, [dialogOpen, scrollPosition]);
+  const handleDialogClose = useCallback(() => {
+    setDialogOpen(false);
+    setSelectedVideo(null);
+    // Wait for React to finish updating and dialog to close
+    setTimeout(() => {
+      window.scrollTo({
+        top: scrollPosition,
+        behavior: "instant"
+      });
+    }, 100);
+  }, [scrollPosition]);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -112,7 +117,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" ref={gridRef}>
       {videos.map((video) => (
         <Card key={video.id} className="overflow-hidden bg-card hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-1 border-accent/20">
           <Link href={`/video/${video.id}`}>
@@ -177,8 +182,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         size="icon"
                         onClick={(e) => {
                           e.preventDefault();
-                          setSelectedVideo(video);
-                          setDialogOpen(true);
+                          handleDialogOpen(video);
                         }}
                       >
                         <Pencil className="h-4 w-4" />
@@ -191,10 +195,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                       {selectedVideo && (
                         <EditVideoForm 
                           video={selectedVideo} 
-                          onClose={() => {
-                            setDialogOpen(false);
-                            setSelectedVideo(null);
-                          }}
+                          onClose={handleDialogClose}
                         />
                       )}
                     </DialogContent>
