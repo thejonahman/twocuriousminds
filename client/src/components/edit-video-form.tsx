@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Skeleton } from "@/components/ui/skeleton";
 
 const videoSchema = z.object({
@@ -49,35 +49,28 @@ interface EditVideoFormProps {
 
 export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const queryClient = useQueryClient();
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const [scrollPosition, setScrollPosition] = useState(0);
-
-  // Memoize form default values
-  const defaultValues = useMemo(() => ({
-    title: video.title,
-    description: video.description || "",
-    url: video.url,
-    categoryId: String(video.categoryId),
-    subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
-    platform: video.platform as "youtube" | "tiktok" | "instagram",
-  }), [video]);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
-    defaultValues,
+    defaultValues: {
+      title: video.title,
+      description: video.description || "",
+      url: video.url,
+      categoryId: String(video.categoryId),
+      subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
+      platform: video.platform as "youtube" | "tiktok" | "instagram",
+    }
   });
 
-  // Store initial values
   useEffect(() => {
-    if (video.thumbnailUrl) {
-      setThumbnailUrl(video.thumbnailUrl);
-    }
     setScrollPosition(window.scrollY);
-  }, [video.thumbnailUrl]);
+  }, []);
 
-  // Fetch categories with stale time to prevent unnecessary refetches
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
     staleTime: 30000,
@@ -85,7 +78,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
 
   const selectedCategoryId = form.watch("categoryId");
 
-  // Fetch subcategories with stale time
   const { data: subcategories = [], isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
@@ -132,16 +124,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const response = await fetch(`/api/videos/${video.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...data,
-          thumbnailPreview: thumbnailUrl ? true : false
-        }),
-        credentials: 'include',
+      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, {
+        ...data,
+        thumbnailPreview: thumbnailUrl ? true : false
       });
 
       if (!response.ok) {
@@ -152,13 +137,8 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       const videoData = await response.json();
 
       if (thumbnailUrl && thumbnailUrl !== video.thumbnailUrl) {
-        const thumbnailResponse = await fetch(`/api/videos/${video.id}/thumbnail`, {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ thumbnailUrl }),
-          credentials: "include",
+        const thumbnailResponse = await apiRequest("POST", `/api/videos/${video.id}/thumbnail`, {
+          thumbnailUrl
         });
 
         if (!thumbnailResponse.ok) {
@@ -252,7 +232,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   return (
     <Card className="max-h-[85vh] flex flex-col">
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full" ref={formRef}>
           <CardContent className="space-y-4 overflow-y-auto flex-1">
             {/* Thumbnail Section */}
             <div className="space-y-2">
@@ -268,21 +248,29 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                   </div>
                 )}
                 <div className="flex flex-col gap-2 w-full">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={handleGenerateThumbnail}
-                    disabled={isGeneratingThumbnail}
-                    className="w-full sm:w-auto"
-                  >
-                    {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
-                  </Button>
+                  <div className="relative">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={handleGenerateThumbnail}
+                      disabled={isGeneratingThumbnail}
+                      className="w-full sm:w-auto"
+                    >
+                      {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
+                    </Button>
+                    {isGeneratingThumbnail && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+                        <Skeleton className="h-9 w-32" />
+                      </div>
+                    )}
+                  </div>
                   <div className="flex-1">
                     <Input
                       type="file"
                       accept="image/*"
                       onChange={handleThumbnailChange}
                       className="cursor-pointer"
+                      disabled={isGeneratingThumbnail}
                     />
                     <p className="text-sm text-muted-foreground mt-1">
                       Or upload a custom thumbnail image (optional)
@@ -292,147 +280,144 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
               </div>
             </div>
 
-            {/* Title */}
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Title</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter video title" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {/* Form Fields */}
+            <div className="space-y-4">
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Title</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter video title" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* Description */}
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description (Optional)</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter video description" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description (Optional)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter video description" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* URL */}
-            <FormField
-              control={form.control}
-              name="url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>URL</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Video URL" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="url"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>URL</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Video URL" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* Category */}
-            <FormField
-              control={form.control}
-              name="categoryId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Topic</FormLabel>
-                  {isCategoriesLoading ? (
-                    <Skeleton className="h-10 w-full" />
-                  ) : (
-                    <Select
-                      onValueChange={(value) => {
-                        field.onChange(value);
-                        form.setValue("subcategoryId", "");
-                      }}
-                      value={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select topic" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {categories?.map((category) => (
-                          <SelectItem key={category.id} value={String(category.id)}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Topic</FormLabel>
+                    {isCategoriesLoading ? (
+                      <Skeleton className="h-10 w-full" />
+                    ) : (
+                      <Select
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          form.setValue("subcategoryId", "");
+                        }}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select topic" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {categories?.map((category) => (
+                            <SelectItem key={category.id} value={String(category.id)}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            {/* Subcategory */}
-            <FormField
-              control={form.control}
-              name="subcategoryId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Subtopic (Optional)</FormLabel>
-                  {isSubcategoriesLoading && selectedCategoryId ? (
-                    <Skeleton className="h-10 w-full" />
-                  ) : (
+              <FormField
+                control={form.control}
+                name="subcategoryId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Subtopic (Optional)</FormLabel>
+                    {isSubcategoriesLoading && selectedCategoryId ? (
+                      <Skeleton className="h-10 w-full" />
+                    ) : (
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={!selectedCategoryId}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {subcategories?.map((subcategory) => (
+                            <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                              {subcategory.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="platform"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Platform</FormLabel>
                     <Select
                       onValueChange={field.onChange}
                       value={field.value}
-                      disabled={!selectedCategoryId}
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
+                          <SelectValue placeholder="Select platform" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {subcategories?.map((subcategory) => (
-                          <SelectItem key={subcategory.id} value={String(subcategory.id)}>
-                            {subcategory.name}
-                          </SelectItem>
-                        ))}
+                        <SelectItem value="youtube">YouTube</SelectItem>
+                        <SelectItem value="tiktok">TikTok</SelectItem>
+                        <SelectItem value="instagram">Instagram</SelectItem>
                       </SelectContent>
                     </Select>
-                  )}
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Platform */}
-            <FormField
-              control={form.control}
-              name="platform"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Platform</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select platform" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="youtube">YouTube</SelectItem>
-                      <SelectItem value="tiktok">TikTok</SelectItem>
-                      <SelectItem value="instagram">Instagram</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
           </CardContent>
 
           <CardFooter className="border-t mt-auto">
