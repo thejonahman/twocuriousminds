@@ -73,7 +73,8 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
 
   // Store scroll position when dialog opens
   const handleDialogOpen = useCallback((video: Video) => {
-    setScrollPosition(window.scrollY);
+    const currentScroll = window.scrollY;
+    setScrollPosition(currentScroll);
     setSelectedVideo(video);
     setDialogOpen(true);
   }, []);
@@ -82,14 +83,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const handleDialogClose = useCallback(() => {
     setDialogOpen(false);
     setSelectedVideo(null);
-    // Wait for React to finish updating and dialog to close
-    setTimeout(() => {
-      window.scrollTo({
-        top: scrollPosition,
-        behavior: "instant"
-      });
-    }, 100);
-  }, [scrollPosition]);
+  }, []);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -196,6 +190,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         <EditVideoForm 
                           video={selectedVideo} 
                           onClose={handleDialogClose}
+                          scrollPosition={scrollPosition}
                         />
                       )}
                     </DialogContent>

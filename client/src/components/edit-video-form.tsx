@@ -45,14 +45,14 @@ interface Video {
 interface EditVideoFormProps {
   video: Video;
   onClose?: () => void;
+  scrollPosition: number;
 }
 
-export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
+export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormProps) {
   const queryClient = useQueryClient();
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
-  const [scrollPosition, setScrollPosition] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
 
   const form = useForm<VideoFormData>({
@@ -67,9 +67,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     }
   });
 
-  useEffect(() => {
-    setScrollPosition(window.scrollY);
-  }, []);
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
@@ -156,10 +153,12 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       });
 
       if (onClose) {
-        window.scrollTo(0, scrollPosition);
-        setTimeout(() => {
+        // Ensure scroll position is restored before closing
+        window.scrollTo({ top: scrollPosition, behavior: "instant" });
+        // Small delay to ensure scroll is applied before dialog closes
+        requestAnimationFrame(() => {
           onClose();
-        }, 100);
+        });
       }
     },
     onError: (error: Error) => {
