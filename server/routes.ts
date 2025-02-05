@@ -76,7 +76,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
   }
 }
 
-export function registerRoutes(app: any): Server {
+export function registerRoutes(app: express.Application): Server {
   // Setup auth first
   setupAuth(app);
 
@@ -165,13 +165,15 @@ export function registerRoutes(app: any): Server {
     res.json(result);
   });
 
-  app.post("/api/videos", async (req, res) => {
+  app.post("/api/videos", express.urlencoded({ extended: true }), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
-      const { title, description, url, categoryId, subcategoryId, platform } = req.body;
+      console.log('Received video data:', req.body);
+
+      const { title, description, url, categoryId, subcategoryId, platform, thumbnailUrl: customThumbnailUrl } = req.body;
 
       // Validate required fields with specific messages
       const missingFields = [];
@@ -181,20 +183,21 @@ export function registerRoutes(app: any): Server {
       if (!platform) missingFields.push('platform');
 
       if (missingFields.length > 0) {
+        console.log('Missing fields:', missingFields);
         return res.status(400).json({ 
           message: "Missing required fields", 
           details: `Missing: ${missingFields.join(', ')}`
         });
       }
 
-      // Get thumbnail URL
-      const thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
+      // Get thumbnail URL if not provided
+      const thumbnailUrl = customThumbnailUrl || await getThumbnailUrl(url, platform, title, description);
 
       // Insert new video
       const [video] = await db.insert(videos)
         .values({
           title,
-          description,
+          description: description || '',
           url,
           thumbnailUrl,
           categoryId: parseInt(categoryId),

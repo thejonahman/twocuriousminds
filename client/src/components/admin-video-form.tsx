@@ -81,7 +81,6 @@ export function AdminVideoForm() {
       return response.json();
     },
     onSuccess: async (data) => {
-      // First invalidate queries to refresh data
       await queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       if (selectedCategoryId) {
         await queryClient.invalidateQueries({
@@ -89,26 +88,21 @@ export function AdminVideoForm() {
         });
       }
 
-      // Wait for a tick to ensure the queries have refetched
       setTimeout(() => {
-        // Update form with new selection
         if (data.isSubcategory) {
           console.log('Setting new subtopic:', data.id);
           form.setValue("subcategoryId", String(data.id));
         } else {
           console.log('Setting new topic:', data.id);
           form.setValue("categoryId", String(data.id));
-          // Clear subcategory when changing main category
           form.setValue("subcategoryId", "");
         }
 
-        // Show success message
         toast({
           title: "Success",
           description: `${data.isSubcategory ? "Subtopic" : "Topic"} added and selected`
         });
 
-        // Reset form state
         setNewTopicDialogOpen(false);
         setNewSubtopicDialogOpen(false);
         setNewTopicName("");
@@ -137,7 +131,6 @@ export function AdminVideoForm() {
         body: JSON.stringify({ title, description }),
       });
 
-      // Read the response text first
       const responseText = await response.text();
       console.log('Raw response:', responseText);
 
@@ -189,46 +182,40 @@ export function AdminVideoForm() {
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
       try {
-        const formData = new FormData();
-        // Log the data being sent
-        console.log('Submitting video data:', data);
+        const formData = new URLSearchParams();
 
-        // Convert IDs to numbers and add to formData
-        formData.append('categoryId', String(parseInt(data.categoryId)));
-        if (data.subcategoryId) {
-          formData.append('subcategoryId', String(parseInt(data.subcategoryId)));
-        }
-
-        // Add all other fields
         formData.append('title', data.title);
         formData.append('description', data.description || '');
         formData.append('url', data.url);
+        formData.append('categoryId', data.categoryId);
+        if (data.subcategoryId) {
+          formData.append('subcategoryId', data.subcategoryId);
+        }
         formData.append('platform', data.platform);
 
-        // Add the generated thumbnail URL if available
         if (thumbnailUrl) {
           formData.append('thumbnailUrl', thumbnailUrl);
         }
 
         const response = await fetch("/api/videos", {
           method: "POST",
-          body: formData,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: formData.toString(),
           credentials: "include",
         });
 
         if (!response.ok) {
           const errorData = await response.json();
           console.error('Video submission error:', errorData);
-          throw new Error(errorData.message || "Failed to add video");
+          throw new Error(errorData.details || errorData.message || "Failed to add video");
         }
 
         return response.json();
       } catch (error) {
         console.error('Video submission error:', error);
-        if (error instanceof Error) {
-          throw error;
-        }
-        throw new Error("Failed to add video");
+        throw error;
       }
     },
     onSuccess: () => {
@@ -271,7 +258,17 @@ export function AdminVideoForm() {
   };
 
   const onSubmit = (data: VideoFormData) => {
-    addVideoMutation.mutate(data);
+    try {
+      console.log('Submitting video data:', data);
+      addVideoMutation.mutate(data);
+    } catch (error) {
+      console.error('Error in form submission:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleAddTopic = () => {
