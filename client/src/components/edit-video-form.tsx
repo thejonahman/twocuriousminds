@@ -54,7 +54,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
   const [isDetectingPlatform, setIsDetectingPlatform] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
 
-  // Memoize initial form values to prevent unnecessary re-renders
+  // Memoize initial form values
   const defaultValues = useMemo(() => ({
     title: video.title || '',
     description: video.description || "",
@@ -87,42 +87,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
   });
-
-  // Debounced platform detection
-  const detectPlatform = useCallback((url: string) => {
-    setIsDetectingPlatform(true);
-    try {
-      let platform: "youtube" | "tiktok" | "instagram" = "youtube";
-
-      if (url.includes("youtube.com") || url.includes("youtu.be")) {
-        platform = "youtube";
-      } else if (url.includes("tiktok.com")) {
-        platform = "tiktok";
-      } else if (url.includes("instagram.com")) {
-        platform = "instagram";
-      }
-
-      form.setValue("platform", platform, {
-        shouldValidate: true,
-        shouldDirty: true,
-      });
-    } finally {
-      setIsDetectingPlatform(false);
-    }
-  }, [form]);
-
-  // Debounce URL changes
-  useEffect(() => {
-    const subscription = form.watch((value, { name }) => {
-      if (name === 'url' && value.url) {
-        const timer = setTimeout(() => {
-          detectPlatform(value.url as string);
-        }, 300);
-        return () => clearTimeout(timer);
-      }
-    });
-    return () => subscription.unsubscribe();
-  }, [form, detectPlatform]);
 
   const generateThumbnailMutation = useMutation({
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
@@ -214,7 +178,7 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
           });
 
           if (!thumbnailResponse.ok) {
-            console.error('Failed to update thumbnail');
+            console.error('Failed to upload thumbnail');
           }
         }
 
@@ -222,8 +186,6 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       } catch (error) {
         console.error('Video update error:', error);
         throw error;
-      } finally {
-        setIsSubmitting(false);
       }
     },
     onSuccess: () => {
@@ -316,6 +278,43 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
           <CardContent className="space-y-4 overflow-y-auto flex-1">
+            <div className="space-y-2">
+              <FormLabel>Thumbnail</FormLabel>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                {thumbnailUrl && (
+                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
+                    <img
+                      src={thumbnailUrl}
+                      alt="Video thumbnail"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                )}
+                <div className="flex flex-col gap-2 w-full">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleGenerateThumbnail}
+                    disabled={isGeneratingThumbnail}
+                    className="w-full sm:w-auto"
+                  >
+                    {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
+                  </Button>
+                  <div className="flex-1">
+                    <Input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleThumbnailChange}
+                      className="cursor-pointer"
+                    />
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Or upload a custom thumbnail image (optional)
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <FormField
               control={form.control}
               name="title"
@@ -449,46 +448,9 @@ export function EditVideoForm({ video, onClose }: EditVideoFormProps) {
                 </FormItem>
               )}
             />
-
-            <div className="space-y-2">
-              <FormLabel>Thumbnail</FormLabel>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                {thumbnailUrl && (
-                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                    <img
-                      src={thumbnailUrl}
-                      alt="Video thumbnail"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                )}
-                <div className="flex flex-col gap-2 w-full">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={handleGenerateThumbnail}
-                    disabled={isGeneratingThumbnail}
-                    className="w-full sm:w-auto"
-                  >
-                    {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
-                  </Button>
-                  <div className="flex-1">
-                    <Input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleThumbnailChange}
-                      className="cursor-pointer"
-                    />
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Or upload a custom thumbnail image (optional)
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
           </CardContent>
 
-          <CardFooter className="border-t mt-auto">
+          <CardFooter>
             <Button
               type="submit"
               className="w-full"
