@@ -158,16 +158,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
       const videoData = await response.json();
 
-      if (thumbnailUrl && thumbnailUrl !== video.thumbnailUrl) {
-        const thumbnailResponse = await apiRequest("POST", `/api/videos/${video.id}/thumbnail`, {
-          thumbnailUrl
-        });
-
-        if (!thumbnailResponse.ok) {
-          console.error('Failed to upload thumbnail');
-        }
-      }
-
       return videoData;
     },
     onSuccess: () => {
@@ -210,7 +200,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     });
   }, [form, generateThumbnailMutation]);
 
-  const handleThumbnailChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleThumbnailChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
@@ -222,13 +212,34 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         return;
       }
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setThumbnailUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      const formData = new FormData();
+      formData.append('thumbnail', file);
+
+      try {
+        const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
+          method: 'PATCH',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to upload thumbnail');
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setThumbnailUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+      } catch (error) {
+        console.error('Thumbnail upload error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to upload thumbnail",
+          variant: "destructive",
+        });
+      }
     }
-  }, []);
+  }, [video.id]);
 
   const onSubmit = useCallback(async (data: VideoFormData) => {
     try {
