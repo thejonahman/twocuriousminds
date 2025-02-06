@@ -7,16 +7,16 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogCancel, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle, 
-  AlertDialogTrigger 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
@@ -243,8 +243,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ 
-        queryKey: [`/api/categories/${form.getValues("categoryId")}/subcategories`] 
+      queryClient.invalidateQueries({
+        queryKey: [`/api/categories/${form.getValues("categoryId")}/subcategories`]
       });
       toast({
         title: "Success",
@@ -701,8 +701,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                           Are you sure you want to hide this subtopic? Hidden items can be restored later by an administrator.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogFooter className="flex justify-end space-x-2">
+                        <AlertDialogCancel className="mr-2">Cancel</AlertDialogCancel>
                         <AlertDialogAction
                           onClick={handleHideSubtopic}
                           className="bg-muted hover:bg-muted/90"
