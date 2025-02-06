@@ -6,12 +6,13 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Plus } from 'lucide-react';
 
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -53,13 +54,14 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const queryClient = useQueryClient();
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
-  const [filePreview, setFilePreview] = useState<string | null>(null);
   const [deleteTopicDialogOpen, setDeleteTopicDialogOpen] = useState(false);
   const [deleteSubtopicDialogOpen, setDeleteSubtopicDialogOpen] = useState(false);
+  const [newTopicDialogOpen, setNewTopicDialogOpen] = useState(false);
+  const [newSubtopicDialogOpen, setNewSubtopicDialogOpen] = useState(false);
+  const [newTopicName, setNewTopicName] = useState("");
+  const [newSubtopicName, setNewSubtopicName] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
   const hasSubmitted = useRef(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -72,12 +74,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       platform: video.platform as "youtube" | "tiktok" | "instagram",
     }
   });
-
-  useEffect(() => {
-    if (filePreview) {
-      setThumbnailUrl(filePreview);
-    }
-  }, [filePreview]);
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
@@ -121,18 +117,61 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
-  const updateVideoMutation = useMutation({
-    mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, {
-        ...data,
-        thumbnailPreview: thumbnailUrl ? true : false
+  const addTopicMutation = useMutation({
+    mutationFn: async (data: { name: string; isSubcategory?: boolean; parentId?: number }) => {
+      const response = await apiRequest("POST", "/api/categories", {
+        name: data.name,
+        parentId: data.parentId,
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update video");
+        throw new Error(errorData.message || "Failed to create category");
       }
 
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      if (selectedCategoryId) {
+        queryClient.invalidateQueries({
+          queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
+        });
+      }
+
+      if (data.isSubcategory) {
+        form.setValue("subcategoryId", String(data.id));
+      } else {
+        form.setValue("categoryId", String(data.id));
+        form.setValue("subcategoryId", "");
+      }
+
+      toast({
+        title: "Success",
+        description: `${data.isSubcategory ? "Subtopic" : "Topic"} added successfully`
+      });
+
+      setNewTopicDialogOpen(false);
+      setNewSubtopicDialogOpen(false);
+      setNewTopicName("");
+      setNewSubtopicName("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
+  const updateVideoMutation = useMutation({
+    mutationFn: async (data: VideoFormData) => {
+      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, data);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to update video");
+      }
       return response.json();
     },
     onSuccess: () => {
@@ -167,6 +206,48 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     if (subcategoryId) {
       deleteCategoryMutation.mutate(subcategoryId);
     }
+  };
+
+  const handleAddTopic = () => {
+    if (!newTopicName || newTopicName.trim().length === 0) {
+      toast({
+        title: "Error",
+        description: "Topic name is required",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    addTopicMutation.mutate({
+      name: newTopicName.trim(),
+      isSubcategory: false
+    });
+  };
+
+  const handleAddSubtopic = () => {
+    if (!newSubtopicName || newSubtopicName.trim().length === 0) {
+      toast({
+        title: "Error",
+        description: "Subtopic name is required",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (!selectedCategoryId) {
+      toast({
+        title: "Error",
+        description: "Please select a topic first",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    addTopicMutation.mutate({
+      name: newSubtopicName.trim(),
+      isSubcategory: true,
+      parentId: parseInt(selectedCategoryId)
+    });
   };
 
   const onSubmit = useCallback(async (data: VideoFormData) => {
@@ -277,6 +358,36 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                     </Select>
                   )}
 
+                  <Dialog open={newTopicDialogOpen} onOpenChange={setNewTopicDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" variant="outline" size="icon">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle>Add New Topic</DialogTitle>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-4">
+                        <FormItem>
+                          <FormLabel>Topic Name</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Enter topic name"
+                              value={newTopicName}
+                              onChange={(e) => setNewTopicName(e.target.value)}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      </div>
+                      <DialogFooter>
+                        <Button type="button" onClick={handleAddTopic}>
+                          Add Topic
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+
                   <AlertDialog open={deleteTopicDialogOpen} onOpenChange={setDeleteTopicDialogOpen}>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -342,6 +453,41 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </SelectContent>
                     </Select>
                   )}
+
+                  <Dialog open={newSubtopicDialogOpen} onOpenChange={setNewSubtopicDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        disabled={!selectedCategoryId}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle>Add New Subtopic</DialogTitle>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-4">
+                        <FormItem>
+                          <FormLabel>Subtopic Name</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="Enter subtopic name"
+                              value={newSubtopicName}
+                              onChange={(e) => setNewSubtopicName(e.target.value)}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      </div>
+                      <DialogFooter>
+                        <Button type="button" onClick={handleAddSubtopic}>
+                          Add Subtopic
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
 
                   <AlertDialog open={deleteSubtopicDialogOpen} onOpenChange={setDeleteSubtopicDialogOpen}>
                     <AlertDialogTrigger asChild>
