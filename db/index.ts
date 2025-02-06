@@ -1,11 +1,6 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
+import { Pool } from 'pg';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "./schema";
-
-// Configure neon to use websockets and proper security settings
-neonConfig.webSocketConstructor = ws;
-neonConfig.useSecureWebSocket = true;
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -13,12 +8,11 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Configure the connection pool with optimized settings for Neon
+// Configure the connection pool with optimized settings
 export const pool = new Pool({ 
   connectionString: process.env.DATABASE_URL,
-  ssl: true,
-  idleTimeoutMillis: 30000,
   max: 10,
+  idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
 });
 
