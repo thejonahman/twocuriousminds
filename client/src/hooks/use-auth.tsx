@@ -7,6 +7,7 @@ interface User {
   id: string;
   username: string;
   email: string;
+  isAdmin: boolean;
 }
 
 interface AuthContextType {
@@ -41,7 +42,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ["/api/user"],
     retry: false,
     staleTime: 30000,
-    initialData: null,
   });
 
   const loginMutation = useMutation({
