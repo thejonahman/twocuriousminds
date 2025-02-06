@@ -651,15 +651,6 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const subcategoryId = parseInt(req.params.id);
-      const categoryId = parseInt(req.params.categoryId);
-
-      // Validate subcategory ID
-      if (isNaN(subcategoryId)) {
-        return res.status(400).json({
-          message: "Invalid subcategory ID",
-          details: "Subcategory ID must be a valid number"
-        });
-      }
 
       // First verify the subcategory exists
       const existingSubcategory = await db.query.subcategories.findFirst({
@@ -667,12 +658,14 @@ export function registerRoutes(app: express.Application): Server {
       });
 
       if (!existingSubcategory) {
-        console.log('Subcategory not found:', subcategoryId);
         return res.status(404).json({
           message: "Subcategory not found",
           details: "The specified subcategory does not exist"
         });
       }
+
+      // Get the category ID from the existing subcategory
+      const categoryId = existingSubcategory.categoryId;
 
       // Get or create the "Not specified" subcategory for this category
       let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
@@ -698,7 +691,6 @@ export function registerRoutes(app: express.Application): Server {
         .set({ subcategoryId: notSpecifiedSubcategory.id })
         .where(eq(videos.subcategoryId, subcategoryId));
 
-
       // Delete the subcategory
       const [deletedSubcategory] = await db
         .delete(subcategories)
@@ -706,14 +698,12 @@ export function registerRoutes(app: express.Application): Server {
         .returning();
 
       if (!deletedSubcategory) {
-        console.error('Failed to delete subcategory after verification:', subcategoryId);
         return res.status(500).json({
           message: "Failed to delete subcategory",
           details: "The subcategory was found but could not be deleted"
         });
       }
 
-      console.log('Successfully deleted subcategory:', deletedSubcategory);
       res.json(deletedSubcategory);
     } catch (error) {
       console.error('Error in subcategory deletion:', error);
