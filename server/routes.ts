@@ -606,46 +606,38 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  app.delete("/api/categories/:categoryId/subcategories/:id", async (req, res) => {
+  app.delete("/api/subcategories/:id", async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
-      const categoryId = parseInt(req.params.categoryId);
       const subcategoryId = parseInt(req.params.id);
+      console.log('Attempting to delete subcategory:', subcategoryId);
 
-      console.log('Deleting subcategory:', { categoryId, subcategoryId });
-
-      // Validate parameters
-      if (isNaN(categoryId) || isNaN(subcategoryId)) {
+      // Validate subcategory ID
+      if (isNaN(subcategoryId)) {
         return res.status(400).json({
-          message: "Invalid parameters",
-          details: "Category ID and subcategory ID must be valid numbers"
+          message: "Invalid subcategory ID",
+          details: "Subcategory ID must be a valid number"
         });
       }
 
-      // First update all videos that use this subcategory to have no subcategory
-      const updateResult = await db.update(videos)
+      // First update all videos that use this subcategory
+      await db.update(videos)
         .set({ subcategoryId: null })
         .where(eq(videos.subcategoryId, subcategoryId));
 
-      console.log('Updated videos:', updateResult);
-
-      // Delete the subcategory
+      // Then delete the subcategory
       const [deletedSubcategory] = await db
         .delete(subcategories)
-        .where(and(
-          eq(subcategories.id, subcategoryId),
-          eq(subcategories.categoryId, categoryId)
-        ))
+        .where(eq(subcategories.id, subcategoryId))
         .returning();
 
       if (!deletedSubcategory) {
-        console.log('No subcategory found to delete:', { subcategoryId, categoryId });
         return res.status(404).json({
           message: "Subcategory not found",
-          details: "The specified subcategory was not found in this category"
+          details: "The specified subcategory does not exist"
         });
       }
 
