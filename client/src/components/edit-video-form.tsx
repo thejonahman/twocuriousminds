@@ -222,9 +222,33 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         return;
       }
 
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        toast({
+          title: "Error",
+          description: "Please upload an image file",
+          variant: "destructive",
+        });
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = () => {
-        setThumbnailUrl(reader.result as string);
+        const result = reader.result;
+        if (typeof result === 'string') {
+          setThumbnailUrl(result);
+          toast({
+            title: "Success",
+            description: "Thumbnail uploaded successfully",
+          });
+        }
+      };
+      reader.onerror = () => {
+        toast({
+          title: "Error",
+          description: "Failed to read image file",
+          variant: "destructive",
+        });
       };
       reader.readAsDataURL(file);
     }
@@ -288,7 +312,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       disabled={isGeneratingThumbnail}
                     />
                     <p className="text-sm text-muted-foreground mt-1">
-                      Or upload a custom thumbnail image (optional)
+                      Upload PNG, JPG or WebP (max 5MB)
                     </p>
                   </div>
                 </div>

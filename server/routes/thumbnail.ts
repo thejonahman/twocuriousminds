@@ -45,12 +45,23 @@ router.post('/generate', async (req, res) => {
       });
     }
 
-    // Find matching image
-    const fileName = await findBestImageForVideo(
+    // Find matching image with timeout
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Image search timed out')), 5000);
+    });
+
+    const imageSearchPromise = findBestImageForVideo(
       title,
       description || '',
       imagesFolder
     );
+
+    const fileName = await Promise.race([imageSearchPromise, timeoutPromise])
+      .catch(error => {
+        console.error('Image search failed or timed out:', error);
+        return null;
+      });
+
     console.log('Found matching file:', fileName);
 
     let imageUrl: string;
@@ -71,13 +82,17 @@ router.post('/generate', async (req, res) => {
         });
       }
     } else {
-      // Generate fallback SVG
+      // Generate fallback SVG with sanitized title
       console.log('No matching image found, generating SVG fallback');
+      const sanitizedTitle = title
+        .replace(/[<>]/g, '')
+        .substring(0, 50);
+
       const svgContent = `
         <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
           <rect width="100%" height="100%" fill="#2563eb"/>
           <text x="640" y="360" font-family="Arial" font-size="64" fill="white" text-anchor="middle" dominant-baseline="middle">
-            ${title}
+            ${sanitizedTitle}
           </text>
         </svg>
       `;
@@ -93,8 +108,6 @@ router.post('/generate', async (req, res) => {
 
   } catch (error) {
     console.error('Unhandled error in thumbnail generation:', error);
-    // Ensure we're still sending JSON even in case of errors
-    res.setHeader('Content-Type', 'application/json');
     return res.status(500).json({ 
       success: false,
       error: 'Thumbnail generation failed',
