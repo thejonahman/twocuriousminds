@@ -447,6 +447,7 @@ export function registerRoutes(app: express.Application): Server {
   });
 
 
+
   app.get("/api/categories", async (_req, res) => {
     const result = await db.query.categories.findMany({
       with: {
@@ -534,7 +535,6 @@ export function registerRoutes(app: express.Application): Server {
       });
     }
   });
-
 
 
   app.get("/api/preferences", async (req, res) => {
