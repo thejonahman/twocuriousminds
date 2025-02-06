@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { findBestImageMatch } from './aiImageAnalysis';
 
 export async function findBestImageForVideo(
   title: string,
@@ -7,6 +8,19 @@ export async function findBestImageForVideo(
   imagesFolder: string
 ): Promise<string | null> {
   try {
+    console.log('Starting image search for:', { title, description });
+
+    // Try AI-powered matching first
+    try {
+      const aiMatch = await findBestImageMatch(title, description, imagesFolder);
+      if (aiMatch) {
+        console.log('Found AI-powered match:', aiMatch);
+        return aiMatch;
+      }
+    } catch (aiError) {
+      console.error('AI matching failed, falling back to basic matching:', aiError);
+    }
+
     // Get all images from the folder
     const files = fs.readdirSync(imagesFolder).filter(file =>
       /\.(jpg|jpeg|png|webp)$/i.test(file)
@@ -16,8 +30,6 @@ export async function findBestImageForVideo(
       console.log('No image files found in folder');
       return null;
     }
-
-    console.log('Analyzing content:', { title, description });
 
     // Convert content to lowercase for matching
     const contentText = `${title} ${description}`.toLowerCase();
@@ -55,18 +67,6 @@ export async function findBestImageForVideo(
       }
     }
 
-    // Try to find any relevant image by checking common words
-    const relevantWords = contentText.split(/\s+/).filter(word => word.length > 3);
-    for (const word of relevantWords) {
-      const matchingFile = files.find(file => 
-        file.toLowerCase().includes(word)
-      );
-      if (matchingFile) {
-        console.log('Found relevant word match:', matchingFile);
-        return matchingFile;
-      }
-    }
-
     // If no specific match found, try to find default thumbnail
     const defaultFile = files.find(file => file.includes('thumbnail_default.'));
     if (defaultFile) {
@@ -74,7 +74,7 @@ export async function findBestImageForVideo(
       return defaultFile;
     }
 
-    // As a last resort, use any available image
+    // As a last resort, use first available image
     console.log('Using first available image:', files[0]);
     return files[0];
 

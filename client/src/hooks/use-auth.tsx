@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 interface User {
-  id: number;
+  id: string;
   username: string;
   email: string;
 }
@@ -37,9 +37,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     data: user,
     error,
     isLoading,
-  } = useQuery<User | null>({
+  } = useQuery<User>({
     queryKey: ["/api/user"],
     retry: false,
+    staleTime: 30000,
+    initialData: null,
   });
 
   const loginMutation = useMutation({
@@ -108,9 +110,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        user,
+        user: user || null,
         isLoading,
-        error,
+        error: error as Error | null,
         loginMutation,
         logoutMutation,
         registerMutation,
