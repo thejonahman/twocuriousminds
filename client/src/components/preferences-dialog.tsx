@@ -38,8 +38,10 @@ export function PreferencesDialog() {
 
   const { data: serverPreferences, isLoading } = useQuery<PreferencesData>({
     queryKey: ["/api/preferences"],
-    onSuccess: (data) => {
-      setLocalPreferences(data || DEFAULT_PREFERENCES);
+    onSettled: (data) => {
+      if (data) {
+        setLocalPreferences(data);
+      }
     },
   });
 
@@ -52,6 +54,10 @@ export function PreferencesDialog() {
   const mutation = useMutation({
     mutationFn: async (data: PreferencesData) => {
       const res = await apiRequest("POST", "/api/preferences", data);
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error || 'Failed to save preferences');
+      }
       return res.json();
     },
     onSuccess: () => {
