@@ -617,36 +617,15 @@ export function registerRoutes(app: express.Application): Server {
 
       console.log('Deleting subcategory:', { categoryId, subcategoryId });
 
-      // First verify the category exists
-      const category = await db.query.categories.findFirst({
-        where: eq(categories.id, categoryId),
-      });
-
-      if (!category) {
-        console.log('Category not found:', categoryId);
-        return res.status(404).json({ 
-          message: "Category not found",
-          details: `Category with ID ${categoryId} does not exist`
+      // Validate parameters
+      if (isNaN(categoryId) || isNaN(subcategoryId)) {
+        return res.status(400).json({
+          message: "Invalid parameters",
+          details: "Category ID and subcategory ID must be valid numbers"
         });
       }
 
-      // Then verify the subcategory exists and belongs to the category
-      const subcategory = await db.query.subcategories.findFirst({
-        where: and(
-          eq(subcategories.id, subcategoryId),
-          eq(subcategories.categoryId, categoryId)
-        ),
-      });
-
-      if (!subcategory) {
-        console.log('Subcategory not found or does not belong to category:', { subcategoryId, categoryId });
-        return res.status(404).json({ 
-          message: "Subcategory not found",
-          details: "The specified subcategory was not found in this category"
-        });
-      }
-
-      // Update videos to remove this subcategory
+      // First update all videos that use this subcategory to have no subcategory
       const updateResult = await db.update(videos)
         .set({ subcategoryId: null })
         .where(eq(videos.subcategoryId, subcategoryId));
@@ -656,11 +635,18 @@ export function registerRoutes(app: express.Application): Server {
       // Delete the subcategory
       const [deletedSubcategory] = await db
         .delete(subcategories)
-        .where(eq(subcategories.id, subcategoryId))
+        .where(and(
+          eq(subcategories.id, subcategoryId),
+          eq(subcategories.categoryId, categoryId)
+        ))
         .returning();
 
       if (!deletedSubcategory) {
-        throw new Error('Failed to delete subcategory');
+        console.log('No subcategory found to delete:', { subcategoryId, categoryId });
+        return res.status(404).json({
+          message: "Subcategory not found",
+          details: "The specified subcategory was not found in this category"
+        });
       }
 
       console.log('Successfully deleted subcategory:', deletedSubcategory);
