@@ -1,21 +1,16 @@
 import { createServer, type Server } from "http";
 import express from 'express';
 import { db } from "@db";
-import { videos, categories, userPreferences, subcategories } from "@db/schema";
-import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
+import { videos } from "@db/schema";
+import { eq } from "drizzle-orm";
 import { setupAuth } from "./auth";
-import fetch from "node-fetch";
-import * as fs from 'fs';
-import * as path from 'path';
 import multer from 'multer';
 
-// Configure multer for handling file uploads with more generous limits
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit for files
-    fieldSize: 2 * 1024 * 1024 // 2MB for non-file fields
+    fileSize: 5 * 1024 * 1024, // 5MB limit for files
   },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
@@ -30,185 +25,13 @@ const upload = multer({
 const handleMulterError = (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (err instanceof multer.MulterError) {
     console.error('Multer error:', err);
-    console.error('Request body size:', JSON.stringify(req.body).length);
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({
-        message: "File is too large. Maximum size is 10MB.",
-        error: err.message
-      });
-    }
-    return res.status(400).json({
+    return res.status(413).json({
       message: "Error uploading file",
       error: err.message
     });
   }
   next(err);
 };
-
-// Add DEBUG middleware to log request sizes
-const app = express();
-app.use((req, res, next) => {
-  console.log('Request content length:', req.headers['content-length']);
-  next();
-});
-
-async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
-  try {
-    switch (platform.toLowerCase()) {
-      case 'youtube': {
-        const videoId = url.split('v=')[1]?.split('&')[0];
-        if (!videoId) {
-          console.error('Could not extract YouTube video ID from:', url);
-          return null;
-        }
-        // Try multiple resolutions in order of preference
-        const resolutions = ['maxresdefault', 'sddefault', 'hqdefault', 'default'];
-        for (const resolution of resolutions) {
-          const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/${resolution}.jpg`;
-          try {
-            const response = await fetch(thumbnailUrl);
-            if (response.ok) {
-              return thumbnailUrl;
-            }
-          } catch (error) {
-            console.warn(`Failed to fetch ${resolution} thumbnail for YouTube video ${videoId}`);
-          }
-        }
-        return null;
-      }
-      case 'tiktok':
-      case 'instagram': {
-        console.log('Analyzing content:', { title, description });
-        const contentText = `${title || ''} ${description || ''}`.toLowerCase();
-
-        // Enhanced categories with more specific keywords and context
-        const categories = {
-          beginner_technique: {
-            keywords: ['beginner', 'start', 'learn', 'first time', 'basic', 'fundamental', 'introduction', 'getting started'],
-            weight: 1.2,
-            color: '#4F46E5'
-          },
-          advanced_technique: {
-            keywords: ['advanced', 'expert', 'professional', 'racing', 'competition', 'performance', 'skill'],
-            weight: 1.1,
-            color: '#7C3AED'
-          },
-          powder_skiing: {
-            keywords: ['powder', 'deep snow', 'backcountry', 'off-piste', 'fresh snow', 'powder day'],
-            weight: 1.0,
-            color: '#2563EB'
-          },
-          safety_instruction: {
-            keywords: ['safety', 'protection', 'avalanche', 'rescue', 'emergency', 'precaution', 'risk'],
-            weight: 1.3,
-            color: '#DC2626'
-          },
-          equipment_guide: {
-            keywords: ['gear', 'equipment', 'ski', 'boot', 'binding', 'pole', 'setup', 'maintenance'],
-            weight: 0.9,
-            color: '#059669'
-          }
-        };
-
-        // Calculate match scores with context awareness
-        const scores = Object.entries(categories).map(([category, { keywords, weight, color }]) => {
-          const titleMatches = keywords.filter(keyword =>
-            title?.toLowerCase().includes(keyword)
-          ).length * 2; // Title matches count double
-
-          const descriptionMatches = keywords.filter(keyword =>
-            description?.toLowerCase().includes(keyword)
-          ).length;
-
-          const score = ((titleMatches + descriptionMatches) / (keywords.length * 3)) * weight;
-          console.log(`Category "${category}" score:`, { titleMatches, descriptionMatches, weight, score });
-
-          return { category, score, color };
-        });
-
-        // Find best matching category
-        const bestMatch = scores.reduce((prev, current) =>
-          current.score > prev.score ? current : prev
-        );
-        console.log('Best matching category:', bestMatch);
-
-        // Try to find a matching image
-        const imagesFolder = path.join(process.cwd(), 'attached_assets');
-        const files = fs.readdirSync(imagesFolder);
-
-        // Enhanced image matching with multiple strategies
-        const matchStrategies = [
-          // Strategy 1: Direct keyword match from title
-          () => files.find(file => {
-            const fileNameLower = file.toLowerCase();
-            return title?.toLowerCase().split(' ').some(word =>
-              word.length > 3 && fileNameLower.includes(word)
-            );
-          }),
-          // Strategy 2: Category-based match
-          () => files.find(file => {
-            const pattern = bestMatch.score > 0.3 ?
-              new RegExp(bestMatch.category.replace('_', ''), 'i') :
-              null;
-            return pattern?.test(file);
-          }),
-          // Strategy 3: Generic ski-related match
-          () => files.find(file => /ski|snow|winter/i.test(file))
-        ];
-
-        let matchedFile = null;
-        for (const strategy of matchStrategies) {
-          matchedFile = strategy();
-          if (matchedFile) break;
-        }
-
-        if (matchedFile) {
-          const imagePath = path.join(imagesFolder, matchedFile);
-          const imageBuffer = fs.readFileSync(imagePath);
-          const extension = path.extname(matchedFile).substring(1);
-          return `data:image/${extension};base64,${imageBuffer.toString('base64')}`;
-        }
-
-        // Generate an enhanced SVG thumbnail
-        const gradientColor = bestMatch.color || '#4F46E5';
-        const secondaryColor = bestMatch.color === '#DC2626' ? '#991B1B' : '#7C3AED';
-
-        return 'data:image/svg+xml;base64,' + Buffer.from(`
-          <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:${gradientColor};stop-opacity:1" />
-                <stop offset="100%" style="stop-color:${secondaryColor};stop-opacity:1" />
-              </linearGradient>
-              <filter id="shadow">
-                <feDropShadow dx="0" dy="4" stdDeviation="4" flood-opacity="0.25"/>
-              </filter>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#bg)"/>
-            <rect x="40" y="40" width="1200" height="640" fill="rgba(255,255,255,0.1)" rx="20"/>
-            <text x="640" y="280" font-family="Arial" font-size="56" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">
-              ${title || 'Video Content'}
-            </text>
-            <text x="640" y="380" font-family="Arial" font-size="36" fill="rgba(255,255,255,0.9)" text-anchor="middle" dominant-baseline="middle">
-              ${bestMatch.category.split('_').map(word =>
-                word.charAt(0).toUpperCase() + word.slice(1)
-              ).join(' ')}
-            </text>
-            <text x="640" y="440" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
-              ${platform.charAt(0).toUpperCase() + platform.slice(1)}
-            </text>
-          </svg>
-        `).toString('base64');
-      }
-      default:
-        console.error('Unsupported platform:', platform);
-        return null;
-    }
-  } catch (error) {
-    console.error('Error in getThumbnailUrl:', error);
-    return null;
-  }
-}
 
 export function registerRoutes(app: express.Application): Server {
   // Setup auth first
@@ -217,11 +40,7 @@ export function registerRoutes(app: express.Application): Server {
   // Add multer error handling middleware
   app.use(handleMulterError);
 
-  // Configure express for larger payloads, but not as large as the multipart data
-  app.use(express.json({ limit: '2mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
-
-  // Handle file uploads first - this needs to be before the JSON parser
+  // Handle file uploads first - BEFORE any JSON parsing middleware
   app.patch("/api/videos/:id/thumbnail", upload.single('thumbnail'), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
@@ -229,10 +48,10 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const videoId = parseInt(req.params.id);
-      console.log('Thumbnail update request:', {
+      console.log('Processing thumbnail upload:', {
         fileSize: req.file?.size,
-        bodySize: JSON.stringify(req.body).length,
-        contentLength: req.headers['content-length']
+        contentLength: req.headers['content-length'],
+        contentType: req.headers['content-type']
       });
 
       if (!req.file) {
@@ -264,6 +83,10 @@ export function registerRoutes(app: express.Application): Server {
       });
     }
   });
+
+  // NOW add JSON parsing middleware for other routes
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // Regular PATCH endpoint for updating other video fields
   app.patch("/api/videos/:id", async (req, res) => {
@@ -530,7 +353,6 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-
   app.get("/api/preferences", async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ message: "Not authenticated" });
@@ -706,3 +528,167 @@ export function registerRoutes(app: express.Application): Server {
 
   return createServer(app);
 }
+
+async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
+  try {
+    switch (platform.toLowerCase()) {
+      case 'youtube': {
+        const videoId = url.split('v=')[1]?.split('&')[0];
+        if (!videoId) {
+          console.error('Could not extract YouTube video ID from:', url);
+          return null;
+        }
+        // Try multiple resolutions in order of preference
+        const resolutions = ['maxresdefault', 'sddefault', 'hqdefault', 'default'];
+        for (const resolution of resolutions) {
+          const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/${resolution}.jpg`;
+          try {
+            const response = await fetch(thumbnailUrl);
+            if (response.ok) {
+              return thumbnailUrl;
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch ${resolution} thumbnail for YouTube video ${videoId}`);
+          }
+        }
+        return null;
+      }
+      case 'tiktok':
+      case 'instagram': {
+        console.log('Analyzing content:', { title, description });
+        const contentText = `${title || ''} ${description || ''}`.toLowerCase();
+
+        // Enhanced categories with more specific keywords and context
+        const categories = {
+          beginner_technique: {
+            keywords: ['beginner', 'start', 'learn', 'first time', 'basic', 'fundamental', 'introduction', 'getting started'],
+            weight: 1.2,
+            color: '#4F46E5'
+          },
+          advanced_technique: {
+            keywords: ['advanced', 'expert', 'professional', 'racing', 'competition', 'performance', 'skill'],
+            weight: 1.1,
+            color: '#7C3AED'
+          },
+          powder_skiing: {
+            keywords: ['powder', 'deep snow', 'backcountry', 'off-piste', 'fresh snow', 'powder day'],
+            weight: 1.0,
+            color: '#2563EB'
+          },
+          safety_instruction: {
+            keywords: ['safety', 'protection', 'avalanche', 'rescue', 'emergency', 'precaution', 'risk'],
+            weight: 1.3,
+            color: '#DC2626'
+          },
+          equipment_guide: {
+            keywords: ['gear', 'equipment', 'ski', 'boot', 'binding', 'pole', 'setup', 'maintenance'],
+            weight: 0.9,
+            color: '#059669'
+          }
+        };
+
+        // Calculate match scores with context awareness
+        const scores = Object.entries(categories).map(([category, { keywords, weight, color }]) => {
+          const titleMatches = keywords.filter(keyword =>
+            title?.toLowerCase().includes(keyword)
+          ).length * 2; // Title matches count double
+
+          const descriptionMatches = keywords.filter(keyword =>
+            description?.toLowerCase().includes(keyword)
+          ).length;
+
+          const score = ((titleMatches + descriptionMatches) / (keywords.length * 3)) * weight;
+          console.log(`Category "${category}" score:`, { titleMatches, descriptionMatches, weight, score });
+
+          return { category, score, color };
+        });
+
+        // Find best matching category
+        const bestMatch = scores.reduce((prev, current) =>
+          current.score > prev.score ? current : prev
+        );
+        console.log('Best matching category:', bestMatch);
+
+        // Try to find a matching image
+        const imagesFolder = path.join(process.cwd(), 'attached_assets');
+        const files = fs.readdirSync(imagesFolder);
+
+        // Enhanced image matching with multiple strategies
+        const matchStrategies = [
+          // Strategy 1: Direct keyword match from title
+          () => files.find(file => {
+            const fileNameLower = file.toLowerCase();
+            return title?.toLowerCase().split(' ').some(word =>
+              word.length > 3 && fileNameLower.includes(word)
+            );
+          }),
+          // Strategy 2: Category-based match
+          () => files.find(file => {
+            const pattern = bestMatch.score > 0.3 ?
+              new RegExp(bestMatch.category.replace('_', ''), 'i') :
+              null;
+            return pattern?.test(file);
+          }),
+          // Strategy 3: Generic ski-related match
+          () => files.find(file => /ski|snow|winter/i.test(file))
+        ];
+
+        let matchedFile = null;
+        for (const strategy of matchStrategies) {
+          matchedFile = strategy();
+          if (matchedFile) break;
+        }
+
+        if (matchedFile) {
+          const imagePath = path.join(imagesFolder, matchedFile);
+          const imageBuffer = fs.readFileSync(imagePath);
+          const extension = path.extname(matchedFile).substring(1);
+          return `data:image/${extension};base64,${imageBuffer.toString('base64')}`;
+        }
+
+        // Generate an enhanced SVG thumbnail
+        const gradientColor = bestMatch.color || '#4F46E5';
+        const secondaryColor = bestMatch.color === '#DC2626' ? '#991B1B' : '#7C3AED';
+
+        return 'data:image/svg+xml;base64,' + Buffer.from(`
+          <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:${gradientColor};stop-opacity:1" />
+                <stop offset="100%" style="stop-color:${secondaryColor};stop-opacity:1" />
+              </linearGradient>
+              <filter id="shadow">
+                <feDropShadow dx="0" dy="4" stdDeviation="4" flood-opacity="0.25"/>
+              </filter>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#bg)"/>
+            <rect x="40" y="40" width="1200" height="640" fill="rgba(255,255,255,0.1)" rx="20"/>
+            <text x="640" y="280" font-family="Arial" font-size="56" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">
+              ${title || 'Video Content'}
+            </text>
+            <text x="640" y="380" font-family="Arial" font-size="36" fill="rgba(255,255,255,0.9)" text-anchor="middle" dominant-baseline="middle">
+              ${bestMatch.category.split('_').map(word =>
+                word.charAt(0).toUpperCase() + word.slice(1)
+              ).join(' ')}
+            </text>
+            <text x="640" y="440" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
+              ${platform.charAt(0).toUpperCase() + platform.slice(1)}
+            </text>
+          </svg>
+        `).toString('base64');
+      }
+      default:
+        console.error('Unsupported platform:', platform);
+        return null;
+    }
+  } catch (error) {
+    console.error('Error in getThumbnailUrl:', error);
+    return null;
+  }
+}
+
+import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
+import fetch from "node-fetch";
+import * as fs from 'fs';
+import * as path from 'path';
+import { categories, userPreferences, subcategories } from "@db/schema";
