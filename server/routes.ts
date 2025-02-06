@@ -581,7 +581,12 @@ export function registerRoutes(app: express.Application): Server {
 
       const categoryId = parseInt(req.params.id);
 
-      // Delete associated subcategories first
+      // First update all videos that use this category to have no category
+      await db.update(videos)
+        .set({ categoryId: null, subcategoryId: null })
+        .where(eq(videos.categoryId, categoryId));
+
+      // Delete associated subcategories
       await db.delete(subcategories)
         .where(eq(subcategories.categoryId, categoryId));
 
@@ -622,6 +627,12 @@ export function registerRoutes(app: express.Application): Server {
         return res.status(404).json({ message: "Subcategory not found" });
       }
 
+      // Update videos to remove this subcategory
+      await db.update(videos)
+        .set({ subcategoryId: null })
+        .where(eq(videos.subcategoryId, subcategoryId));
+
+      // Delete the subcategory
       const [deletedSubcategory] = await db
         .delete(subcategories)
         .where(eq(subcategories.id, subcategoryId))
