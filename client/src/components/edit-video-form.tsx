@@ -284,221 +284,223 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [isSubmitting, scrollPosition, onClose]);
 
   return (
-    <Card className="w-full max-w-2xl mx-auto">
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-[85vh]">
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <CardContent className="h-full space-y-4 overflow-y-auto pb-20">
-              <div className="space-y-2">
-                <FormLabel>Thumbnail</FormLabel>
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                    <div className="absolute inset-0">
-                      {thumbnailUrl ? (
-                        <div className={`w-full h-full ${isGeneratingThumbnail ? 'opacity-50' : 'opacity-100'}`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80">
+      <Card className="w-full max-w-2xl h-[85vh] flex flex-col">
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="h-full flex flex-col">
+            <div className="flex-1 overflow-hidden">
+              <div className="h-full overflow-y-auto px-6 py-6">
+                <div className="space-y-6">
+                  <div className="space-y-2">
+                    <FormLabel>Thumbnail</FormLabel>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                      <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
+                        {thumbnailUrl ? (
                           <img
                             src={thumbnailUrl}
                             alt="Video thumbnail"
-                            className="w-full h-full object-cover"
+                            className={`w-full h-full object-cover ${isGeneratingThumbnail ? 'opacity-50' : 'opacity-100'}`}
                           />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                            No thumbnail
+                          </div>
+                        )}
+                        {isGeneratingThumbnail && (
+                          <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
+                            <Skeleton className="h-full w-full" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2 w-full">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={handleGenerateThumbnail}
+                          disabled={isGeneratingThumbnail}
+                          className="w-full sm:w-auto"
+                        >
+                          {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
+                        </Button>
+                        <div className="flex-1">
+                          <Input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleThumbnailChange}
+                            className="cursor-pointer"
+                            disabled={isGeneratingThumbnail}
+                            ref={fileInputRef}
+                          />
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Or upload a custom thumbnail image (optional)
+                          </p>
                         </div>
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                          No thumbnail
-                        </div>
-                      )}
-                      {isGeneratingThumbnail && (
-                        <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
-                          <Skeleton className="h-full w-full" />
-                        </div>
-                      )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex flex-col gap-2 w-full">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={handleGenerateThumbnail}
-                      disabled={isGeneratingThumbnail}
-                      className="w-full sm:w-auto"
-                    >
-                      {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
-                    </Button>
-                    <div className="flex-1">
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleThumbnailChange}
-                        className="cursor-pointer"
-                        disabled={isGeneratingThumbnail}
-                        ref={fileInputRef}
-                      />
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Or upload a custom thumbnail image (optional)
-                      </p>
-                    </div>
+
+                  <div className="space-y-4">
+                    <FormField
+                      control={form.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Title</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Enter video title" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="description"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Description (Optional)</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Enter video description" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="url"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>URL</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Video URL" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="categoryId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Topic</FormLabel>
+                          {isCategoriesLoading ? (
+                            <Skeleton className="h-10 w-full" />
+                          ) : (
+                            <Select
+                              onValueChange={(value) => {
+                                field.onChange(value);
+                                form.setValue("subcategoryId", "");
+                              }}
+                              value={field.value}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select topic" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {categories?.map((category) => (
+                                  <SelectItem key={category.id} value={String(category.id)}>
+                                    {category.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="subcategoryId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Subtopic (Optional)</FormLabel>
+                          {isSubcategoriesLoading && selectedCategoryId ? (
+                            <Skeleton className="h-10 w-full" />
+                          ) : (
+                            <Select
+                              onValueChange={field.onChange}
+                              value={field.value}
+                              disabled={!selectedCategoryId}
+                            >
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {subcategories?.map((subcategory) => (
+                                  <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                                    {subcategory.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          )}
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={form.control}
+                      name="platform"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Platform</FormLabel>
+                          <Select
+                            onValueChange={field.onChange}
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select platform" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="youtube">YouTube</SelectItem>
+                              <SelectItem value="tiktok">TikTok</SelectItem>
+                              <SelectItem value="instagram">Instagram</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
                 </div>
               </div>
+            </div>
 
-              <div className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Title</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter video title" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+            <div className="shrink-0">
+              <CardFooter className="border-t bg-background p-4">
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
+                >
+                  <span className={isSubmitting ? 'opacity-0' : 'opacity-100'}>
+                    {isSubmitting ? "Updating..." : "Update Video"}
+                  </span>
+                  {isSubmitting && (
+                    <span className="absolute inset-0 flex items-center justify-center">
+                      Updating...
+                    </span>
                   )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Description (Optional)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Enter video description" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="url"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>URL</FormLabel>
-                      <FormControl>
-                        <Input placeholder="Video URL" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="categoryId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Topic</FormLabel>
-                      {isCategoriesLoading ? (
-                        <Skeleton className="h-10 w-full" />
-                      ) : (
-                        <Select
-                          onValueChange={(value) => {
-                            field.onChange(value);
-                            form.setValue("subcategoryId", "");
-                          }}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select topic" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {categories?.map((category) => (
-                              <SelectItem key={category.id} value={String(category.id)}>
-                                {category.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="subcategoryId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Subtopic (Optional)</FormLabel>
-                      {isSubcategoriesLoading && selectedCategoryId ? (
-                        <Skeleton className="h-10 w-full" />
-                      ) : (
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={!selectedCategoryId}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {subcategories?.map((subcategory) => (
-                              <SelectItem key={subcategory.id} value={String(subcategory.id)}>
-                                {subcategory.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="platform"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Platform</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select platform" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="youtube">YouTube</SelectItem>
-                          <SelectItem value="tiktok">TikTok</SelectItem>
-                          <SelectItem value="instagram">Instagram</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </CardContent>
-          </div>
-
-          <CardFooter className="border-t bg-background sticky bottom-0 z-50 p-4">
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
-            >
-              <span className={isSubmitting ? 'opacity-0' : 'opacity-100'}>
-                {isSubmitting ? "Updating..." : "Update Video"}
-              </span>
-              {isSubmitting && (
-                <span className="absolute inset-0 flex items-center justify-center">
-                  Updating...
-                </span>
-              )}
-            </Button>
-          </CardFooter>
-        </form>
-      </Form>
-    </Card>
+                </Button>
+              </CardFooter>
+            </div>
+          </form>
+        </Form>
+      </Card>
+    </div>
   );
 }
