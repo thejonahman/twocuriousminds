@@ -156,9 +156,6 @@ export default function Home() {
               <h2 className="text-2xl font-bold bg-gradient-to-r from-primary/90 to-primary bg-clip-text text-transparent">
                 Explore Topics
               </h2>
-              <p className="text-muted-foreground mt-2">
-                Select a topic to dive deeper into specific areas
-              </p>
             </div>
             <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 backdrop-blur-lg bg-background/80 border-b">
               <TabsList className="h-auto flex-wrap justify-start w-full p-1 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 rounded-xl">
