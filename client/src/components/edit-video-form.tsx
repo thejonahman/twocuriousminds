@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, Upload, RefreshCw } from 'lucide-react';
 
 interface Video {
   id: number;
@@ -59,11 +59,13 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
-
 export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormProps) {
   const queryClient = useQueryClient();
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
+  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [deleteTopicDialogOpen, setDeleteTopicDialogOpen] = useState(false);
   const [deleteSubtopicDialogOpen, setDeleteSubtopicDialogOpen] = useState(false);
   const [newTopicDialogOpen, setNewTopicDialogOpen] = useState(false);
@@ -84,6 +86,92 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       platform: video.platform as "youtube" | "tiktok" | "instagram",
     }
   });
+
+  const generateThumbnailMutation = useMutation({
+    mutationFn: async () => {
+      setIsGeneratingThumbnail(true);
+      const response = await apiRequest("POST", `/api/thumbnails/generate`, {
+        url: form.getValues("url"),
+        platform: form.getValues("platform"),
+        title: form.getValues("title"),
+        description: form.getValues("description"),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to generate thumbnail");
+      }
+
+      const data = await response.json();
+      return data.thumbnailUrl;
+    },
+    onSuccess: (thumbnailUrl) => {
+      setThumbnailUrl(thumbnailUrl);
+      toast({
+        title: "Success",
+        description: "Thumbnail generated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsGeneratingThumbnail(false);
+    }
+  });
+
+  const uploadThumbnailMutation = useMutation({
+    mutationFn: async (file: File) => {
+      setIsUploadingThumbnail(true);
+      const formData = new FormData();
+      formData.append('thumbnail', file);
+
+      const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
+        method: 'PATCH',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to upload thumbnail");
+      }
+
+      const data = await response.json();
+      return data.thumbnailUrl;
+    },
+    onSuccess: (thumbnailUrl) => {
+      setThumbnailUrl(thumbnailUrl);
+      toast({
+        title: "Success",
+        description: "Thumbnail uploaded successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsUploadingThumbnail(false);
+    }
+  });
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      uploadThumbnailMutation.mutate(file);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
@@ -293,20 +381,68 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" ref={formRef}>
+        {/* Thumbnail Section */}
         <div className="space-y-4">
           <FormField
             control={form.control}
             name="title"
             render={({ field }) => (
-              <FormItem>
-                <FormLabel>Title</FormLabel>
-                <FormControl>
-                  <Input {...field} placeholder="Enter video title" />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+                <FormItem>
+                  <FormLabel>Title</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="Enter video title" />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
           />
+          <FormItem>
+            <FormLabel>Thumbnail</FormLabel>
+            <div className="flex flex-col gap-4">
+              {thumbnailUrl ? (
+                <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
+                  <img
+                    src={thumbnailUrl}
+                    alt="Video thumbnail"
+                    className="h-full w-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="flex aspect-video w-full items-center justify-center rounded-lg border bg-muted">
+                  <span className="text-sm text-muted-foreground">No thumbnail</span>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => generateThumbnailMutation.mutate()}
+                  disabled={isGeneratingThumbnail}
+                  className="flex-1"
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isGeneratingThumbnail ? 'animate-spin' : ''}`} />
+                  {isGeneratingThumbnail ? 'Generating...' : 'Generate Thumbnail'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleUploadClick}
+                  disabled={isUploadingThumbnail}
+                  className="flex-1"
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {isUploadingThumbnail ? 'Uploading...' : 'Upload Custom'}
+                </Button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="hidden"
+                />
+              </div>
+            </div>
+          </FormItem>
 
           <FormField
             control={form.control}
