@@ -558,191 +558,108 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  app.delete("/api/videos/:id", async (req, res) => {
-    try {
-      if (!req.user?.isAdmin) {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-
-      const videoId = parseInt(req.params.id);
-      const [deletedVideo] = await db
-        .update(videos)
-        .set({ isDeleted: true })
-        .where(eq(videos.id, videoId))
-        .returning();
-
-      if (!deletedVideo) {
-        return res.status(404).json({ message: "Video not found" });
-      }
-
-      res.json(deletedVideo);
-    } catch (error) {
-      handleDatabaseError(error, res);
-    }
-  });
-
-  app.delete("/api/categories/:id", async (req, res) => {
+  app.patch("/api/categories/:id/visibility", async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
       const categoryId = parseInt(req.params.id);
+      const { isHidden } = req.body;
 
-      // Find or create "Not specified" category
-      let notSpecifiedCategory = await db.query.categories.findFirst({
-        where: and(
-          eq(categories.name, "Not specified"),
-          eq(categories.isDeleted, false)
-        ),
-      });
+      console.log('Updating category visibility:', { categoryId, isHidden });
 
-      if (!notSpecifiedCategory) {
-        const [newCategory] = await db.insert(categories)
-          .values({
-            name: "Not specified",
-            displayOrder: 9999,
-            isDeleted: false,
-          })
-          .returning();
-        notSpecifiedCategory = newCategory;
-      }
-
-      // Move all videos to "Not specified" category
-      await db.update(videos)
-        .set({
-          categoryId: notSpecifiedCategory.id,
-          subcategoryId: null
-        })
-        .where(eq(videos.categoryId, categoryId));
-
-      // Soft delete all subcategories
-      await db
-        .update(subcategories)
-        .set({ isDeleted: true })
-        .where(eq(subcategories.categoryId, categoryId));
-
-      // Soft delete the category
-      const [deletedCategory] = await db
+      // Update category visibility
+      const [updatedCategory] = await db
         .update(categories)
-        .set({ isDeleted: true })
+        .set({ isDeleted: isHidden })
         .where(eq(categories.id, categoryId))
         .returning();
 
-      if (!deletedCategory) {
+      if (!updatedCategory) {
         return res.status(404).json({ message: "Category not found" });
       }
 
-      res.json(deletedCategory);
+      res.json(updatedCategory);
     } catch (error) {
-      console.error('Error deleting category:', error);
+      console.error('Error updating category visibility:', error);
       handleDatabaseError(error, res);
     }
   });
 
-  app.delete("/api/subcategories/:id", async (req, res) => {
+  app.patch("/api/subcategories/:id/visibility", async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
       const subcategoryId = parseInt(req.params.id);
-      console.log('Attempting to delete subcategory:', subcategoryId);
+      const { isHidden } = req.body;
 
-      // First find the subcategory to make sure it exists and isn't already deleted
-      const subcategoryToDelete = await db.query.subcategories.findFirst({
-        where: and(
-          eq(subcategories.id, subcategoryId),
-          eq(subcategories.isDeleted, false)
-        ),
-      });
+      console.log('Updating subcategory visibility:', { subcategoryId, isHidden });
 
-      console.log('Found subcategory:', subcategoryToDelete);
-
-      if (!subcategoryToDelete) {
-        console.log('Subcategory not found or already deleted:', subcategoryId);
-        return res.status(404).json({
-          message: "Subcategory not found",
-          details: "The specified subcategory does not exist or has already been deleted"
-        });
-      }
-
-      // Update videos to remove the subcategory reference
-      await db.update(videos)
-        .set({ subcategoryId: null })
-        .where(eq(videos.subcategoryId, subcategoryId));
-
-      // Soft delete the subcategory
-      const [deletedSubcategory] = await db
+      // Update subcategory visibility
+      const [updatedSubcategory] = await db
         .update(subcategories)
-        .set({ isDeleted: true })
+        .set({ isDeleted: isHidden })
         .where(eq(subcategories.id, subcategoryId))
         .returning();
 
-      console.log('Successfully deleted subcategory:', deletedSubcategory);
-      res.json(deletedSubcategory);
+      if (!updatedSubcategory) {
+        return res.status(404).json({ message: "Subcategory not found" });
+      }
+
+      res.json(updatedSubcategory);
     } catch (error) {
-      console.error('Error in subcategory deletion:', error);
+      console.error('Error updating subcategory visibility:', error);
       handleDatabaseError(error, res);
     }
   });
 
-  app.delete("/api/categories/:categoryId/subcategories/:id", async (req, res) => {
+  app.post("/api/videos", express.json({ limit: '10mb' }), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
-      const subcategoryId = parseInt(req.params.id);
+      console.log('Received video data:', req.body);
 
-      // First find the subcategory
-      const subcategoryToDelete = await db.query.subcategories.findFirst({
-        where: eq(subcategories.id, subcategoryId),
-      });
+      const { title, description, url, categoryId, subcategoryId, platform, thumbnailPreview } = req.body;
 
-      if (!subcategoryToDelete) {
-        return res.status(404).json({
-          message: "Subcategory not found",
-          details: "The specified subcategory does not exist"
+      // Validate required fields with specific messages
+      const missingFields = [];
+      if (!title) missingFields.push('title');
+      if (!url) missingFields.push('url');
+      if (!categoryId) missingFields.push('category');
+      if (!platform) missingFields.push('platform');
+
+      if (missingFields.length > 0) {
+        console.log('Missing fields:', missingFields);
+        return res.status(400).json({
+          message: "Missing required fields",
+          details: `Missing: ${missingFields.join(', ')}`
         });
       }
 
-      // Find or create "Not specified" subcategory in the same category
-      let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
-        where: and(
-          eq(subcategories.name, "Not specified"),
-          eq(subcategories.categoryId, subcategoryToDelete.categoryId),
-          eq(subcategories.isDeleted, false)
-        ),
-      });
+      // Get thumbnail URL if preview is not pending
+      const thumbnailUrl = thumbnailPreview ? null : await getThumbnailUrl(url, platform, title, description);
 
-      if (!notSpecifiedSubcategory) {
-        const [newSubcategory] = await db.insert(subcategories)
-          .values({
-            name: "Not specified",
-            categoryId: subcategoryToDelete.categoryId,
-            displayOrder: 9999,
-            isDeleted: false
-          })
-          .returning();
-        notSpecifiedSubcategory = newSubcategory;
-      }
-
-      // Move videos to "Not specified"
-      await db.update(videos)
-        .set({ subcategoryId: notSpecifiedSubcategory.id })
-        .where(eq(videos.subcategoryId, subcategoryId));
-
-      // Soft delete the subcategory
-      const [deletedSubcategory] = await db
-        .update(subcategories)
-        .set({ isDeleted: true })
-        .where(eq(subcategories.id, subcategoryId))
+      // Insert new video
+      const [video] = await db.insert(videos)
+        .values({
+          title,
+          description: description || '',
+          url,
+          thumbnailUrl,
+          categoryId: parseInt(categoryId),
+          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
+          platform,
+          isDeleted: false, // Add isDeleted field
+        })
         .returning();
 
-      res.json(deletedSubcategory);
+      res.json(video);
     } catch (error) {
-      console.error('Error in subcategory deletion:', error);
       handleDatabaseError(error, res);
     }
   });
