@@ -581,16 +581,53 @@ export function registerRoutes(app: express.Application): Server {
 
       const categoryId = parseInt(req.params.id);
 
-      // First update all videos that use this category to have no category
+      // Get or create the "Not specified" category
+      let notSpecifiedCategory = await db.query.categories.findFirst({
+        where: eq(categories.name, "Not specified"),
+      });
+
+      if (!notSpecifiedCategory) {
+        const [newCategory] = await db.insert(categories)
+          .values({
+            name: "Not specified",
+            displayOrder: 9999, // Put it at the end
+          })
+          .returning();
+        notSpecifiedCategory = newCategory;
+      }
+
+      // Get or create the "Not specified" subcategory under "Not specified" category
+      let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
+        where: and(
+          eq(subcategories.name, "Not specified"),
+          eq(subcategories.categoryId, notSpecifiedCategory.id)
+        ),
+      });
+
+      if (!notSpecifiedSubcategory) {
+        const [newSubcategory] = await db.insert(subcategories)
+          .values({
+            name: "Not specified",
+            categoryId: notSpecifiedCategory.id,
+            displayOrder: 9999,
+          })
+          .returning();
+        notSpecifiedSubcategory = newSubcategory;
+      }
+
+      // Update all videos in this category to use "Not specified" category
       await db.update(videos)
-        .set({ categoryId: null, subcategoryId: null })
+        .set({ 
+          categoryId: notSpecifiedCategory.id,
+          subcategoryId: notSpecifiedSubcategory.id 
+        })
         .where(eq(videos.categoryId, categoryId));
 
-      // Delete associated subcategories
+      // Delete all subcategories of this category
       await db.delete(subcategories)
         .where(eq(subcategories.categoryId, categoryId));
 
-      // Then delete the category itself
+      // Delete the category
       const [deletedCategory] = await db
         .delete(categories)
         .where(eq(categories.id, categoryId))
@@ -602,6 +639,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(deletedCategory);
     } catch (error) {
+      console.error('Error deleting category:', error);
       handleDatabaseError(error, res);
     }
   });
@@ -642,9 +680,28 @@ export function registerRoutes(app: express.Application): Server {
 
       console.log('Found subcategory to delete:', existingSubcategory);
 
-      // Update all videos that use this subcategory to remove the reference
+      // Get or create the "Not specified" subcategory for this category
+      let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
+        where: and(
+          eq(subcategories.name, "Not specified"),
+          eq(subcategories.categoryId, categoryId)
+        ),
+      });
+
+      if (!notSpecifiedSubcategory) {
+        const [newSubcategory] = await db.insert(subcategories)
+          .values({
+            name: "Not specified",
+            categoryId: categoryId,
+            displayOrder: 9999, // Put it at the end
+          })
+          .returning();
+        notSpecifiedSubcategory = newSubcategory;
+      }
+
+      // Update all videos that use this subcategory to use "Not specified"
       const updateResult = await db.update(videos)
-        .set({ subcategoryId: null })
+        .set({ subcategoryId: notSpecifiedSubcategory.id })
         .where(eq(videos.subcategoryId, subcategoryId));
 
       console.log('Updated videos result:', updateResult);
