@@ -9,11 +9,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
 
-// Configure express for larger payloads, but not as large as the multipart data
-const app = express();
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true, limit: '2mb' }));
-
 // Configure multer for handling file uploads with more generous limits
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -51,6 +46,7 @@ const handleMulterError = (err: any, req: express.Request, res: express.Response
 };
 
 // Add DEBUG middleware to log request sizes
+const app = express();
 app.use((req, res, next) => {
   console.log('Request content length:', req.headers['content-length']);
   next();
@@ -217,49 +213,80 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
 export function registerRoutes(app: express.Application): Server {
   // Setup auth first
   setupAuth(app);
+
   // Add multer error handling middleware
   app.use(handleMulterError);
 
-  // Handle file uploads first
-  app.patch("/api/videos/:id", upload.single('thumbnail'), async (req, res) => {
+  // Configure express for larger payloads, but not as large as the multipart data
+  app.use(express.json({ limit: '2mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+  // Handle file uploads first - this needs to be before the JSON parser
+  app.patch("/api/videos/:id/thumbnail", upload.single('thumbnail'), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
       const videoId = parseInt(req.params.id);
-      console.log('Update video request:', {
+      console.log('Thumbnail update request:', {
         fileSize: req.file?.size,
         bodySize: JSON.stringify(req.body).length,
         contentLength: req.headers['content-length']
       });
 
-      // Validate required fields
+      if (!req.file) {
+        return res.status(400).json({ message: "No thumbnail file uploaded" });
+      }
+
+      // Convert the uploaded file to base64
+      const base64Image = req.file.buffer.toString('base64');
+      const mimeType = req.file.mimetype;
+      const thumbnailUrl = `data:${mimeType};base64,${base64Image}`;
+
+      // Update video with new thumbnail
+      const [updatedVideo] = await db
+        .update(videos)
+        .set({ thumbnailUrl })
+        .where(eq(videos.id, videoId))
+        .returning();
+
+      if (!updatedVideo) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      res.json(updatedVideo);
+    } catch (error) {
+      console.error('Error updating thumbnail:', error);
+      res.status(500).json({
+        message: "Failed to update thumbnail",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  // Regular PATCH endpoint for updating other video fields
+  app.patch("/api/videos/:id", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const videoId = parseInt(req.params.id);
       const { title, description, url, categoryId, subcategoryId, platform } = req.body;
+
+      // Validate required fields
       if (!title || !url || !categoryId || !platform) {
         return res.status(400).json({ message: "Missing required fields" });
       }
 
-      // Handle custom thumbnail if uploaded
-      let thumbnailUrl = null;
-      if (req.file) {
-        // Convert the uploaded file to base64
-        const base64Image = req.file.buffer.toString('base64');
-        const mimeType = req.file.mimetype;
-        thumbnailUrl = `data:${mimeType};base64,${base64Image}`;
-      } else {
-        // If no custom thumbnail uploaded, get thumbnail from video URL
-        thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
-      }
-
-      // Update video
-      const [video] = await db
+      // Update video without changing thumbnail
+      const [updatedVideo] = await db
         .update(videos)
         .set({
           title,
           description,
           url,
-          thumbnailUrl,
           categoryId: parseInt(categoryId),
           subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
           platform,
@@ -267,11 +294,11 @@ export function registerRoutes(app: express.Application): Server {
         .where(eq(videos.id, videoId))
         .returning();
 
-      if (!video) {
+      if (!updatedVideo) {
         return res.status(404).json({ message: "Video not found" });
       }
 
-      res.json(video);
+      res.json(updatedVideo);
     } catch (error) {
       console.error('Error updating video:', error);
       res.status(500).json({
@@ -409,50 +436,6 @@ export function registerRoutes(app: express.Application): Server {
       console.error('Error adding video:', error);
       res.status(500).json({
         message: "Failed to add video",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  });
-
-  // Update videos/:id/thumbnail endpoint with better error handling
-  app.post("/api/videos/:id/thumbnail", express.json({ limit: '50mb' }), async (req, res) => {
-    try {
-      if (!req.user?.isAdmin) {
-        return res.status(403).json({ message: "Unauthorized" });
-      }
-
-      const videoId = parseInt(req.params.id);
-      const { thumbnailUrl } = req.body;
-
-      if (!thumbnailUrl) {
-        return res.status(400).json({ message: "Thumbnail URL is required" });
-      }
-
-      // Add size validation for base64 images
-      if (thumbnailUrl.startsWith('data:image')) {
-        const base64Size = Buffer.from(thumbnailUrl.split(',')[1], 'base64').length;
-        if (base64Size > 10 * 1024 * 1024) { // 10MB limit
-          return res.status(413).json({
-            message: "Image size too large. Please upload an image smaller than 10MB."
-          });
-        }
-      }
-
-      const [updatedVideo] = await db
-        .update(videos)
-        .set({ thumbnailUrl })
-        .where(eq(videos.id, videoId))
-        .returning();
-
-      if (!updatedVideo) {
-        return res.status(404).json({ message: "Video not found" });
-      }
-
-      res.json(updatedVideo);
-    } catch (error) {
-      console.error('Error updating thumbnail:', error);
-      res.status(500).json({
-        message: "Failed to update thumbnail",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
