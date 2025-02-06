@@ -1,4 +1,5 @@
 import { createServer, type Server } from "http";
+import express from 'express';
 import { db } from "@db";
 import { videos, categories, userPreferences, subcategories } from "@db/schema";
 import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
@@ -7,26 +8,39 @@ import fetch from "node-fetch";
 import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
-import { findBestImageForVideo } from './lib/imageAnalysis';
-import express from 'express';
-import thumbnailRoutes from './routes/thumbnail';
 
-// Configure multer for handling file uploads
+// Configure multer for handling file uploads with more generous limits
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
+    fileSize: 10 * 1024 * 1024, // Increased to 10MB limit
   },
   fileFilter: (_req, file, cb) => {
-    // Accept only image files
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(null, false);
+    if (!file.mimetype.startsWith('image/')) {
+      cb(new Error('Only image files are allowed'));
+      return;
     }
+    cb(null, true);
   }
 });
+
+// Error handler middleware for multer errors
+const handleMulterError = (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        message: "File is too large. Maximum size is 10MB.",
+        error: err.message
+      });
+    }
+    return res.status(400).json({
+      message: "Error uploading file",
+      error: err.message
+    });
+  }
+  next(err);
+};
 
 async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
   try {
@@ -88,11 +102,11 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
 
         // Calculate match scores with context awareness
         const scores = Object.entries(categories).map(([category, { keywords, weight, color }]) => {
-          const titleMatches = keywords.filter(keyword => 
+          const titleMatches = keywords.filter(keyword =>
             title?.toLowerCase().includes(keyword)
           ).length * 2; // Title matches count double
 
-          const descriptionMatches = keywords.filter(keyword => 
+          const descriptionMatches = keywords.filter(keyword =>
             description?.toLowerCase().includes(keyword)
           ).length;
 
@@ -103,7 +117,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
         });
 
         // Find best matching category
-        const bestMatch = scores.reduce((prev, current) => 
+        const bestMatch = scores.reduce((prev, current) =>
           current.score > prev.score ? current : prev
         );
         console.log('Best matching category:', bestMatch);
@@ -117,14 +131,14 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
           // Strategy 1: Direct keyword match from title
           () => files.find(file => {
             const fileNameLower = file.toLowerCase();
-            return title?.toLowerCase().split(' ').some(word => 
+            return title?.toLowerCase().split(' ').some(word =>
               word.length > 3 && fileNameLower.includes(word)
             );
           }),
           // Strategy 2: Category-based match
           () => files.find(file => {
-            const pattern = bestMatch.score > 0.3 ? 
-              new RegExp(bestMatch.category.replace('_', ''), 'i') : 
+            const pattern = bestMatch.score > 0.3 ?
+              new RegExp(bestMatch.category.replace('_', ''), 'i') :
               null;
             return pattern?.test(file);
           }),
@@ -166,7 +180,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
               ${title || 'Video Content'}
             </text>
             <text x="640" y="380" font-family="Arial" font-size="36" fill="rgba(255,255,255,0.9)" text-anchor="middle" dominant-baseline="middle">
-              ${bestMatch.category.split('_').map(word => 
+              ${bestMatch.category.split('_').map(word =>
                 word.charAt(0).toUpperCase() + word.slice(1)
               ).join(' ')}
             </text>
@@ -190,8 +204,12 @@ export function registerRoutes(app: express.Application): Server {
   // Setup auth first
   setupAuth(app);
 
-  // Register thumbnail routes before other routes to ensure proper handling
-  app.use('/api/thumbnails', thumbnailRoutes);
+  // Configure express for larger payloads
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // Add multer error handling middleware
+  app.use(handleMulterError);
 
   app.get("/api/videos", async (req, res) => {
     try {
@@ -241,7 +259,7 @@ export function registerRoutes(app: express.Application): Server {
       res.json(result);
     } catch (error) {
       console.error('Error fetching videos:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch videos",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -275,7 +293,7 @@ export function registerRoutes(app: express.Application): Server {
     res.json(result);
   });
 
-  app.post("/api/videos", express.json(), async (req, res) => {
+  app.post("/api/videos", express.json({limit: '10mb'}), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
@@ -294,8 +312,8 @@ export function registerRoutes(app: express.Application): Server {
 
       if (missingFields.length > 0) {
         console.log('Missing fields:', missingFields);
-        return res.status(400).json({ 
-          message: "Missing required fields", 
+        return res.status(400).json({
+          message: "Missing required fields",
           details: `Missing: ${missingFields.join(', ')}`
         });
       }
@@ -319,14 +337,14 @@ export function registerRoutes(app: express.Application): Server {
       res.json(video);
     } catch (error) {
       console.error('Error adding video:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to add video",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   });
 
-  // Add new endpoint for thumbnail updates
+  // Update videos/:id/thumbnail endpoint with better error handling
   app.post("/api/videos/:id/thumbnail", express.json({ limit: '50mb' }), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
@@ -338,6 +356,16 @@ export function registerRoutes(app: express.Application): Server {
 
       if (!thumbnailUrl) {
         return res.status(400).json({ message: "Thumbnail URL is required" });
+      }
+
+      // Add size validation for base64 images
+      if (thumbnailUrl.startsWith('data:image')) {
+        const base64Size = Buffer.from(thumbnailUrl.split(',')[1], 'base64').length;
+        if (base64Size > 10 * 1024 * 1024) { // 10MB limit
+          return res.status(413).json({
+            message: "Image size too large. Please upload an image smaller than 10MB."
+          });
+        }
       }
 
       const [updatedVideo] = await db
@@ -353,7 +381,7 @@ export function registerRoutes(app: express.Application): Server {
       res.json(updatedVideo);
     } catch (error) {
       console.error('Error updating thumbnail:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to update thumbnail",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -408,7 +436,7 @@ export function registerRoutes(app: express.Application): Server {
       res.json(video);
     } catch (error) {
       console.error('Error updating video:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to update video",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -445,7 +473,7 @@ export function registerRoutes(app: express.Application): Server {
       res.json(category.subcategories);
     } catch (error) {
       console.error('Error fetching subcategories:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to fetch subcategories",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -644,7 +672,7 @@ export function registerRoutes(app: express.Application): Server {
       res.json(recommendations);
     } catch (error) {
       console.error('Error in recommendations:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to get recommendations",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -670,7 +698,7 @@ export function registerRoutes(app: express.Application): Server {
       res.json(deletedVideo);
     } catch (error) {
       console.error('Error deleting video:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to delete video",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
