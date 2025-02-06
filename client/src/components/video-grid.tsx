@@ -2,12 +2,12 @@ import { Link } from "wouter";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback, useRef } from "react";
 import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -61,7 +61,9 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   // Handle dialog close
   const handleDialogClose = useCallback(() => {
     setDialogOpen(false);
-    setSelectedVideo(null);
+    setTimeout(() => {
+      setSelectedVideo(null);
+    }, 300); // Wait for dialog animation to complete
   }, []);
 
   const getPlatformIcon = (platform: string) => {
@@ -148,32 +150,16 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
               </div>
               {showEditButton && (
                 <div className="flex items-center gap-2">
-                  <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleDialogOpen(video);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="max-w-2xl">
-                      <DialogHeader>
-                        <DialogTitle>Edit Video</DialogTitle>
-                      </DialogHeader>
-                      {selectedVideo && (
-                        <EditVideoForm 
-                          video={selectedVideo} 
-                          onClose={handleDialogClose}
-                          scrollPosition={scrollPositionRef.current}
-                        />
-                      )}
-                    </DialogContent>
-                  </Dialog>
+                  <Button 
+                    variant="ghost" 
+                    size="icon"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleDialogOpen(video);
+                    }}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
 
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -216,6 +202,22 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
           </CardContent>
         </Card>
       ))}
+
+      {/* Edit Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit Video</DialogTitle>
+          </DialogHeader>
+          {selectedVideo && (
+            <EditVideoForm 
+              video={selectedVideo} 
+              onClose={handleDialogClose}
+              scrollPosition={scrollPositionRef.current}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

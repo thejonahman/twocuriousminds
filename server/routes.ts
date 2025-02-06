@@ -529,6 +529,74 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
+  app.delete("/api/categories/:id", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const categoryId = parseInt(req.params.id);
+
+      // Delete associated subcategories first
+      await db.delete(subcategories)
+        .where(eq(subcategories.categoryId, categoryId));
+
+      // Then delete the category itself
+      const [deletedCategory] = await db
+        .delete(categories)
+        .where(eq(categories.id, categoryId))
+        .returning();
+
+      if (!deletedCategory) {
+        return res.status(404).json({ message: "Category not found" });
+      }
+
+      res.json(deletedCategory);
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      res.status(500).json({
+        message: "Failed to delete category",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+  app.delete("/api/categories/:categoryId/subcategories/:id", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const categoryId = parseInt(req.params.categoryId);
+      const subcategoryId = parseInt(req.params.id);
+
+      // Verify the subcategory belongs to the specified category
+      const subcategory = await db.query.subcategories.findFirst({
+        where: and(
+          eq(subcategories.id, subcategoryId),
+          eq(subcategories.categoryId, categoryId)
+        ),
+      });
+
+      if (!subcategory) {
+        return res.status(404).json({ message: "Subcategory not found" });
+      }
+
+      const [deletedSubcategory] = await db
+        .delete(subcategories)
+        .where(eq(subcategories.id, subcategoryId))
+        .returning();
+
+      res.json(deletedSubcategory);
+    } catch (error) {
+      console.error('Error deleting subcategory:', error);
+      res.status(500).json({
+        message: "Failed to delete subcategory",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   return createServer(app);
 }
 

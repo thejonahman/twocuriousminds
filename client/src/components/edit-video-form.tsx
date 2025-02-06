@@ -6,11 +6,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardFooter } from "@/components/ui/card";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Skeleton } from "@/components/ui/skeleton";
+import { Trash2 } from 'lucide-react';
 
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -54,6 +55,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [deleteTopicDialogOpen, setDeleteTopicDialogOpen] = useState(false);
+  const [deleteSubtopicDialogOpen, setDeleteSubtopicDialogOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const hasSubmitted = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -89,41 +92,32 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     staleTime: 30000,
   });
 
-  const generateThumbnailMutation = useMutation({
-    mutationFn: async ({ title, description }: { title: string; description?: string }) => {
-      const response = await fetch("/api/thumbnails/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ title, description }),
-      });
-
+  const deleteCategoryMutation = useMutation({
+    mutationFn: async (categoryId: string) => {
+      const response = await apiRequest("DELETE", `/api/categories/${categoryId}`);
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.details || errorData.message || "Failed to generate thumbnail");
+        throw new Error(errorData.message || "Failed to delete category");
       }
-
-      return await response.json();
+      return response.json();
     },
-    onSuccess: (data) => {
-      if (data?.imageUrl) {
-        setThumbnailUrl(data.imageUrl);
-        toast({
-          title: "Success",
-          description: "Thumbnail generated successfully",
-        });
-      }
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      toast({
+        title: "Success",
+        description: "Category deleted successfully"
+      });
+      form.setValue("categoryId", "");
+      form.setValue("subcategoryId", "");
+      setDeleteTopicDialogOpen(false);
+      setDeleteSubtopicDialogOpen(false);
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to generate thumbnail",
+        title: "Error",
         description: error.message,
-        variant: "destructive",
+        variant: "destructive"
       });
-    },
-    onSettled: () => {
-      setIsGeneratingThumbnail(false);
     }
   });
 
@@ -139,9 +133,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         throw new Error(errorData.message || "Failed to update video");
       }
 
-      const videoData = await response.json();
-
-      return videoData;
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -163,92 +155,25 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
-  const handleGenerateThumbnail = useCallback(async () => {
-    const title = form.getValues("title");
-    const description = form.getValues("description");
-
-    if (!title || title.trim().length === 0) {
-      toast({
-        title: "Missing title",
-        description: "Please enter a video title before generating a thumbnail",
-        variant: "destructive",
-      });
-      return;
+  const handleDeleteTopic = () => {
+    const categoryId = form.getValues("categoryId");
+    if (categoryId) {
+      deleteCategoryMutation.mutate(categoryId);
     }
+  };
 
-    setIsGeneratingThumbnail(true);
-    generateThumbnailMutation.mutate({
-      title: title.trim(),
-      description: description?.trim()
-    });
-  }, [form, generateThumbnailMutation]);
-
-  const handleThumbnailChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "Error",
-        description: "Image file size must be less than 5MB",
-        variant: "destructive",
-      });
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      return;
+  const handleDeleteSubtopic = () => {
+    const subcategoryId = form.getValues("subcategoryId");
+    if (subcategoryId) {
+      deleteCategoryMutation.mutate(subcategoryId);
     }
-
-    try {
-      setIsGeneratingThumbnail(true);
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFilePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-
-      const formData = new FormData();
-      formData.append('thumbnail', file);
-
-      const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
-        method: 'PATCH',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to upload thumbnail');
-      }
-
-      const updatedVideo = await response.json();
-      setThumbnailUrl(updatedVideo.thumbnailUrl);
-
-      toast({
-        title: "Success",
-        description: "Thumbnail updated successfully",
-      });
-    } catch (error) {
-      console.error('Thumbnail upload error:', error);
-      toast({
-        title: "Error",
-        description: "Failed to upload thumbnail",
-        variant: "destructive",
-      });
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      setFilePreview(null);
-    } finally {
-      setIsGeneratingThumbnail(false);
-    }
-  }, [video.id]);
+  };
 
   const onSubmit = useCallback(async (data: VideoFormData) => {
     try {
       setIsSubmitting(true);
       await updateVideoMutation.mutateAsync(data);
     } catch (error) {
-      console.error('Form submission error:', error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "An unexpected error occurred",
@@ -259,243 +184,245 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [updateVideoMutation]);
 
   useEffect(() => {
-    // Store the current scroll position when the form mounts
-    const currentScrollPosition = scrollPosition;
-
     if (hasSubmitted.current && !isSubmitting) {
-      // Use requestAnimationFrame to ensure DOM updates are complete
-      const restoreScroll = () => {
-        requestAnimationFrame(() => {
-          window.scrollTo({
-            top: currentScrollPosition,
-            behavior: 'instant'
-          });
-
-          // Only close the form after the scroll position is restored
-          const timeoutId = setTimeout(() => {
-            if (onClose) {
-              onClose();
-            }
-          }, 100);
-
-          return () => clearTimeout(timeoutId);
+      const timeoutId = setTimeout(() => {
+        window.scrollTo({
+          top: scrollPosition,
+          behavior: 'instant'
         });
-      };
+        if (onClose) {
+          onClose();
+        }
+      }, 100);
 
-      restoreScroll();
+      return () => clearTimeout(timeoutId);
     }
   }, [isSubmitting, scrollPosition, onClose]);
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', zIndex: 50 }}>
-      <div className="w-full max-w-2xl bg-background rounded-lg shadow-lg overflow-hidden">
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-[85vh]">
-            <div className="flex-1 overflow-y-auto">
-              <div className="p-6 space-y-6">
-                <div className="space-y-2">
-                  <FormLabel>Thumbnail</FormLabel>
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                    <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                      {thumbnailUrl ? (
-                        <img
-                          src={thumbnailUrl}
-                          alt="Video thumbnail"
-                          className="w-full h-full object-cover"
-                          style={{ opacity: isGeneratingThumbnail ? 0.5 : 1 }}
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                          No thumbnail
-                        </div>
-                      )}
-                      {isGeneratingThumbnail && (
-                        <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
-                          <Skeleton className="h-full w-full" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-2">
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" ref={formRef}>
+        <div className="space-y-4">
+          <FormField
+            control={form.control}
+            name="title"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Title</FormLabel>
+                <FormControl>
+                  <Input {...field} placeholder="Enter video title" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="description"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Description (Optional)</FormLabel>
+                <FormControl>
+                  <Input {...field} placeholder="Enter video description" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="url"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>URL</FormLabel>
+                <FormControl>
+                  <Input {...field} placeholder="Video URL" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="categoryId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Topic</FormLabel>
+                <div className="flex gap-2">
+                  {isCategoriesLoading ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : (
+                    <Select
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        form.setValue("subcategoryId", "");
+                      }}
+                      value={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select topic" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent position="popper" className="z-[60]">
+                        {categories?.map((category) => (
+                          <SelectItem key={category.id} value={String(category.id)}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  <AlertDialog open={deleteTopicDialogOpen} onOpenChange={setDeleteTopicDialogOpen}>
+                    <AlertDialogTrigger asChild>
                       <Button
                         type="button"
-                        variant="secondary"
-                        onClick={handleGenerateThumbnail}
-                        disabled={isGeneratingThumbnail}
-                        className="w-full sm:w-auto"
+                        variant="outline"
+                        size="icon"
+                        className="text-destructive hover:text-destructive/90"
+                        disabled={!field.value}
                       >
-                        {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
+                        <Trash2 className="h-4 w-4" />
                       </Button>
-                      <div>
-                        <Input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleThumbnailChange}
-                          disabled={isGeneratingThumbnail}
-                          ref={fileInputRef}
-                          className="cursor-pointer"
-                        />
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Or upload a custom thumbnail image (optional)
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="title"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Title</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Enter video title" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description (Optional)</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Enter video description" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="url"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>URL</FormLabel>
-                        <FormControl>
-                          <Input {...field} placeholder="Video URL" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="categoryId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Topic</FormLabel>
-                        {isCategoriesLoading ? (
-                          <Skeleton className="h-10 w-full" />
-                        ) : (
-                          <Select
-                            onValueChange={(value) => {
-                              field.onChange(value);
-                              form.setValue("subcategoryId", "");
-                            }}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select topic" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {categories?.map((category) => (
-                                <SelectItem key={category.id} value={String(category.id)}>
-                                  {category.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="subcategoryId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Subtopic (Optional)</FormLabel>
-                        {isSubcategoriesLoading && selectedCategoryId ? (
-                          <Skeleton className="h-10 w-full" />
-                        ) : (
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                            disabled={!selectedCategoryId}
-                          >
-                            <FormControl>
-                              <SelectTrigger>
-                                <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              {subcategories?.map((subcategory) => (
-                                <SelectItem key={subcategory.id} value={String(subcategory.id)}>
-                                  {subcategory.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="platform"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Platform</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="z-[70]">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Topic</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete this topic? This will also delete all subtopics and associated videos.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleDeleteTopic}
+                          className="bg-destructive hover:bg-destructive/90"
                         >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select platform" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="youtube">YouTube</SelectItem>
-                            <SelectItem value="tiktok">TikTok</SelectItem>
-                            <SelectItem value="instagram">Instagram</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
-              </div>
-            </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
-            <div className="border-t bg-background p-4 mt-auto">
-              <Button
-                type="submit"
-                className="w-full relative"
-                disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
-              >
-                <span className={isSubmitting ? 'invisible' : 'visible'}>
-                  {isSubmitting ? "Updating..." : "Update Video"}
-                </span>
-                {isSubmitting && (
-                  <span className="absolute inset-0 flex items-center justify-center">
-                    Updating...
-                  </span>
-                )}
-              </Button>
-            </div>
-          </form>
-        </Form>
-      </div>
-    </div>
+          <FormField
+            control={form.control}
+            name="subcategoryId"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Subtopic (Optional)</FormLabel>
+                <div className="flex gap-2">
+                  {isSubcategoriesLoading && selectedCategoryId ? (
+                    <Skeleton className="h-10 w-full" />
+                  ) : (
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={!selectedCategoryId}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent position="popper" className="z-[60]">
+                        {subcategories?.map((subcategory) => (
+                          <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                            {subcategory.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  <AlertDialog open={deleteSubtopicDialogOpen} onOpenChange={setDeleteSubtopicDialogOpen}>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="text-destructive hover:text-destructive/90"
+                        disabled={!field.value}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="z-[70]">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Subtopic</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Are you sure you want to delete this subtopic? This will also delete all associated videos.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleDeleteSubtopic}
+                          className="bg-destructive hover:bg-destructive/90"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="platform"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Platform</FormLabel>
+                <Select
+                  onValueChange={field.onChange}
+                  value={field.value}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select platform" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent position="popper" className="z-[60]">
+                    <SelectItem value="youtube">YouTube</SelectItem>
+                    <SelectItem value="tiktok">TikTok</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <div className="pt-4 border-t">
+          <Button
+            type="submit"
+            className="w-full relative"
+            disabled={isSubmitting || updateVideoMutation.isPending}
+          >
+            <span className={isSubmitting ? 'invisible' : 'visible'}>
+              {isSubmitting ? "Updating..." : "Update Video"}
+            </span>
+            {isSubmitting && (
+              <span className="absolute inset-0 flex items-center justify-center">
+                Updating...
+              </span>
+            )}
+          </Button>
+        </div>
+      </form>
+    </Form>
   );
 }
