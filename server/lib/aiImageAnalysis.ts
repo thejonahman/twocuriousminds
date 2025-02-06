@@ -54,7 +54,7 @@ export async function findBestImageMatch(
   try {
     // Get content understanding first
     const contentAnalysis = await openai.chat.completions.create({
-      model: "gpt-4",
+      model: "gpt-4-vision-preview",
       messages: [
         {
           role: "system",
@@ -83,43 +83,22 @@ export async function findBestImageMatch(
 
     // Analyze each image
     const analysisResults: ImageAnalysisResult[] = [];
-    
+
     // Analyze up to 5 images to stay within rate limits
     const imagesToAnalyze = files.slice(0, 5);
-    
+
     for (const file of imagesToAnalyze) {
       const imagePath = path.join(imagesFolder, file);
       const imageAnalysis = await analyzeImageContent(imagePath);
-      
-      if (imageAnalysis) {
-        // Compare image analysis with content understanding
-        const matchAnalysis = await openai.chat.completions.create({
-          model: "gpt-4",
-          messages: [
-            {
-              role: "system",
-              content: "You are an expert at matching video content with thumbnail images. Score matches from 0-1 and explain why."
-            },
-            {
-              role: "user",
-              content: `How well does this image match the video content? Score from 0-1 and explain why.
-                Video content: ${contentUnderstanding}
-                Image description: ${imageAnalysis}
-                
-                Respond in JSON format like: {"score": 0.8, "reason": "explanation"}`
-            }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.3,
-          max_tokens: 150
-        });
 
-        const matchResult = JSON.parse(matchAnalysis.choices[0].message.content);
-        
+      if (imageAnalysis) {
+        // Compare image analysis with content understanding using simpler comparison
+        const matchScore = await evaluateMatch(contentUnderstanding || "", imageAnalysis);
+
         analysisResults.push({
           fileName: file,
-          score: matchResult.score,
-          reason: matchResult.reason
+          score: matchScore.score,
+          reason: matchScore.reason
         });
       }
     }
@@ -136,5 +115,39 @@ export async function findBestImageMatch(
   } catch (error) {
     console.error('Error in AI image matching:', error);
     return null;
+  }
+}
+
+async function evaluateMatch(contentDescription: string, imageDescription: string): Promise<{ score: number; reason: string }> {
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4-vision-preview",
+      messages: [
+        {
+          role: "system",
+          content: "You are an expert at matching video content with thumbnail images. Score matches from 0-1 and explain why."
+        },
+        {
+          role: "user",
+          content: `How well does this image match the video content? Score from 0-1 and explain why.
+            Video content: ${contentDescription}
+            Image description: ${imageDescription}
+
+            Respond in JSON format like: {"score": 0.8, "reason": "explanation"}`
+        }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 150
+    });
+
+    const result = JSON.parse(response.choices[0].message.content);
+    return {
+      score: result.score,
+      reason: result.reason
+    };
+  } catch (error) {
+    console.error('Error evaluating match:', error);
+    return { score: 0, reason: "Error evaluating match" };
   }
 }
