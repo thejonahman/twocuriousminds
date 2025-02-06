@@ -9,13 +9,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import multer from 'multer';
 
+// Configure express for larger payloads, but not as large as the multipart data
+const app = express();
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
 // Configure multer for handling file uploads with more generous limits
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
-    fieldSize: 10 * 1024 * 1024 // Also 10MB for non-file fields
+    fileSize: 10 * 1024 * 1024, // 10MB limit for files
+    fieldSize: 2 * 1024 * 1024 // 2MB for non-file fields
   },
   fileFilter: (_req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
@@ -30,6 +35,7 @@ const upload = multer({
 const handleMulterError = (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (err instanceof multer.MulterError) {
     console.error('Multer error:', err);
+    console.error('Request body size:', JSON.stringify(req.body).length);
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(413).json({
         message: "File is too large. Maximum size is 10MB.",
@@ -43,6 +49,12 @@ const handleMulterError = (err: any, req: express.Request, res: express.Response
   }
   next(err);
 };
+
+// Add DEBUG middleware to log request sizes
+app.use((req, res, next) => {
+  console.log('Request content length:', req.headers['content-length']);
+  next();
+});
 
 async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
   try {
@@ -205,11 +217,6 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
 export function registerRoutes(app: express.Application): Server {
   // Setup auth first
   setupAuth(app);
-
-  // Configure express for larger payloads, but not as large as the multipart data
-  app.use(express.json({ limit: '2mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '2mb' }));
-
   // Add multer error handling middleware
   app.use(handleMulterError);
 
@@ -221,9 +228,14 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const videoId = parseInt(req.params.id);
-      const { title, description, url, categoryId, subcategoryId, platform } = req.body;
+      console.log('Update video request:', {
+        fileSize: req.file?.size,
+        bodySize: JSON.stringify(req.body).length,
+        contentLength: req.headers['content-length']
+      });
 
       // Validate required fields
+      const { title, description, url, categoryId, subcategoryId, platform } = req.body;
       if (!title || !url || !categoryId || !platform) {
         return res.status(400).json({ message: "Missing required fields" });
       }
@@ -445,7 +457,6 @@ export function registerRoutes(app: express.Application): Server {
       });
     }
   });
-
 
 
   app.get("/api/categories", async (_req, res) => {
