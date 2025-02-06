@@ -12,27 +12,7 @@ import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
-
-interface Video {
-  id: number;
-  title: string;
-  url: string;
-  thumbnailUrl: string | null;
-  platform: string;
-  watched: boolean;
-  description: string;
-  category: {
-    id: number;
-    name: string;
-  };
-  subcategory: {
-    id: number;
-    name: string;
-    displayOrder?: number;
-  } | null;
-  categoryId: number;
-  subcategoryId?: number;
-}
+import { Video } from "@/lib/types";
 
 interface VideoGridProps {
   videos: Video[];
@@ -158,7 +138,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
             <div className="flex items-center justify-between gap-2">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="secondary" className="capitalize bg-primary/10">
-                  {video.platform}
+                  {video.category.name}
                 </Badge>
                 {video.subcategory && (
                   <Badge variant="outline" className="border-accent/20">

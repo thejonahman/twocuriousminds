@@ -4,23 +4,13 @@ import { VideoGrid } from "@/components/video-grid";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
+import { Video } from "@/lib/types";
 
 interface User {
   id: number;
   username: string;
   email: string;
   isAdmin: boolean;
-}
-
-interface Video {
-  id: number;
-  title: string;
-  thumbnailUrl: string | null;
-  platform: string;
-  watched: boolean;
-  subcategory: {
-    name: string;
-  } | null;
 }
 
 export function AdminPage(): JSX.Element {
@@ -42,7 +32,6 @@ export function AdminPage(): JSX.Element {
     queryKey: ["/api/videos"],
     enabled: !!user?.isAdmin,
   });
-
 
   if (isLoading) {
     return <div>Loading...</div>;
