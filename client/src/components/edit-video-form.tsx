@@ -284,10 +284,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [isSubmitting, scrollPosition, onClose]);
 
   return (
-    <Card className="flex flex-col h-[85vh] bg-background">
+    <Card className="w-full max-w-2xl mx-auto">
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full" ref={formRef}>
-          <div className="flex-1 min-h-0">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-[85vh]">
+          <div className="flex-1 min-h-0 overflow-hidden">
             <CardContent className="h-full space-y-4 overflow-y-auto pb-20">
               <div className="space-y-2">
                 <FormLabel>Thumbnail</FormLabel>
@@ -481,7 +481,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
             </CardContent>
           </div>
 
-          <CardFooter className="border-t bg-background fixed bottom-0 left-0 right-0 z-50 p-4">
+          <CardFooter className="border-t bg-background sticky bottom-0 z-50 p-4">
             <Button
               type="submit"
               className="w-full"
