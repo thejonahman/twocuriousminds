@@ -606,13 +606,14 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  app.delete("/api/subcategories/:id", async (req, res) => {
+  app.delete("/api/categories/:categoryId/subcategories/:id", async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
       const subcategoryId = parseInt(req.params.id);
+      const categoryId = parseInt(req.params.categoryId);
       console.log('Attempting to delete subcategory:', subcategoryId);
 
       // Validate subcategory ID
@@ -625,7 +626,10 @@ export function registerRoutes(app: express.Application): Server {
 
       // First verify the subcategory exists
       const existingSubcategory = await db.query.subcategories.findFirst({
-        where: eq(subcategories.id, subcategoryId),
+        where: and(
+          eq(subcategories.id, subcategoryId),
+          eq(subcategories.categoryId, categoryId)
+        ),
       });
 
       if (!existingSubcategory) {
