@@ -2,11 +2,10 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { AnimatedButton } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import { motion, AnimatePresence } from "framer-motion";
 
 interface ChatMessage {
   id: number;
@@ -74,9 +73,9 @@ export function ChatInterface({ videoId }: { videoId: number }) {
             placeholder="Ask a question about the video..."
             className="flex-1"
           />
-          <AnimatedButton type="submit" disabled={mutation.isPending}>
+          <Button type="submit" disabled={mutation.isPending}>
             <Send className="h-4 w-4" />
-          </AnimatedButton>
+          </Button>
         </form>
       </CardFooter>
     </Card>
