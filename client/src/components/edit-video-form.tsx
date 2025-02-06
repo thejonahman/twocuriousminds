@@ -216,6 +216,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       formData.append('thumbnail', file);
 
       try {
+        // Set loading state
+        setIsGeneratingThumbnail(true);
+
+        // Read file first and update UI immediately
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setThumbnailUrl(reader.result as string);
+        };
+        reader.readAsDataURL(file);
+
+        // Then send to server
         const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
           method: 'PATCH',
           body: formData,
@@ -225,11 +236,14 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           throw new Error('Failed to upload thumbnail');
         }
 
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setThumbnailUrl(reader.result as string);
-        };
-        reader.readAsDataURL(file);
+        const updatedVideo = await response.json();
+
+        // Update with server response
+        setThumbnailUrl(updatedVideo.thumbnailUrl);
+        toast({
+          title: "Success",
+          description: "Thumbnail updated successfully",
+        });
       } catch (error) {
         console.error('Thumbnail upload error:', error);
         toast({
@@ -237,6 +251,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           description: "Failed to upload thumbnail",
           variant: "destructive",
         });
+      } finally {
+        setIsGeneratingThumbnail(false);
       }
     }
   }, [video.id]);
@@ -257,22 +273,33 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [updateVideoMutation]);
 
   return (
-    <Card className="max-h-[85vh] flex flex-col">
+    <Card className="max-h-[85vh] flex flex-col transition-all duration-200">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full" ref={formRef}>
           <CardContent className="space-y-4 overflow-y-auto flex-1">
             <div className="space-y-2">
               <FormLabel>Thumbnail</FormLabel>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                {thumbnailUrl && (
-                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                    <img
-                      src={thumbnailUrl}
-                      alt="Video thumbnail"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                )}
+                <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
+                  {thumbnailUrl ? (
+                    <div className={`transition-opacity duration-200 ${isGeneratingThumbnail ? 'opacity-50' : 'opacity-100'}`}>
+                      <img
+                        src={thumbnailUrl}
+                        alt="Video thumbnail"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                      No thumbnail
+                    </div>
+                  )}
+                  {isGeneratingThumbnail && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-background/50">
+                      <Skeleton className="h-full w-full absolute" />
+                    </div>
+                  )}
+                </div>
                 <div className="flex flex-col gap-2 w-full">
                   <div className="relative">
                     <Button
@@ -280,22 +307,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       variant="secondary"
                       onClick={handleGenerateThumbnail}
                       disabled={isGeneratingThumbnail}
-                      className="w-full sm:w-auto"
+                      className="w-full sm:w-auto transition-opacity duration-200"
                     >
                       {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
                     </Button>
-                    {isGeneratingThumbnail && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-background/50">
-                        <Skeleton className="h-9 w-32" />
-                      </div>
-                    )}
                   </div>
                   <div className="flex-1">
                     <Input
                       type="file"
                       accept="image/*"
                       onChange={handleThumbnailChange}
-                      className="cursor-pointer"
+                      className="cursor-pointer transition-opacity duration-200"
                       disabled={isGeneratingThumbnail}
                     />
                     <p className="text-sm text-muted-foreground mt-1">
@@ -448,7 +470,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           <CardFooter className="border-t mt-auto">
             <Button
               type="submit"
-              className="w-full"
+              className="w-full transition-all duration-200"
               disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
             >
               {isSubmitting ? "Updating..." : "Update Video"}
