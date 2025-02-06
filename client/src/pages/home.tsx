@@ -106,23 +106,23 @@ export default function Home() {
   ) : [];
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-4 text-center max-w-3xl mx-auto">
-        <h1 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-primary/80 to-primary bg-clip-text text-transparent">
+    <div className="space-y-12">
+      <div className="space-y-6 text-center max-w-3xl mx-auto pt-8">
+        <h1 className="text-5xl font-bold tracking-tight bg-gradient-to-br from-primary/90 via-primary to-primary/80 bg-clip-text text-transparent">
           Ready to see yourself clearly?
         </h1>
-        <p className="text-muted-foreground text-lg">
+        <p className="text-muted-foreground text-xl">
           Browse through the best handpicked videos
         </p>
       </div>
 
       <div className="relative max-w-2xl mx-auto transform transition-all duration-300 hover:scale-[1.02]">
-        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/60" />
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground/60" />
         <Input
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search videos by title, topic, or category..."
-          className="pl-11 py-6 text-lg bg-background/50 border-2 border-muted/30 hover:border-primary/30 focus:border-primary/50 transition-all duration-300 shadow-lg hover:shadow-xl rounded-2xl"
+          className="pl-12 py-7 text-lg bg-background/50 border-2 border-muted/30 hover:border-primary/30 focus:border-primary/50 transition-all duration-300 shadow-lg hover:shadow-xl rounded-2xl"
         />
         {searchQuery && (
           <button
@@ -135,7 +135,7 @@ export default function Home() {
       </div>
 
       {searchQuery ? (
-        <div className="space-y-6">
+        <div className="space-y-8">
           <div className="flex items-center justify-between border-b pb-4">
             <h2 className="text-2xl font-semibold flex items-center gap-2">
               Search Results
@@ -149,21 +149,21 @@ export default function Home() {
       ) : (
         <Tabs 
           defaultValue={initialCategoryId || sortedCategories[0]?.[0]} 
-          className="space-y-8"
+          className="space-y-10"
         >
-          <div className="space-y-6">
+          <div className="space-y-8">
             <div className="text-center">
-              <h2 className="text-2xl font-bold bg-gradient-to-r from-primary/90 to-primary bg-clip-text text-transparent">
+              <h2 className="text-3xl font-bold bg-gradient-to-br from-primary/90 to-primary bg-clip-text text-transparent">
                 Explore Topics
               </h2>
             </div>
-            <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-2 backdrop-blur-lg bg-background/80 border-b">
-              <TabsList className="h-auto flex-wrap justify-start w-full p-1 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 rounded-xl">
+            <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-3 backdrop-blur-lg bg-background/80 border-b">
+              <TabsList className="h-auto flex-wrap justify-start w-full p-1.5 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 rounded-xl">
                 {sortedCategories.map(([id, category]) => (
                   <TabsTrigger 
                     key={id} 
                     value={id} 
-                    className="text-base py-2.5 px-4 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md rounded-lg transition-all duration-200"
+                    className="text-base py-3 px-5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md rounded-lg transition-all duration-200"
                   >
                     {category.name}
                   </TabsTrigger>
@@ -173,14 +173,14 @@ export default function Home() {
           </div>
 
           {sortedCategories.map(([id, category]) => (
-            <TabsContent key={id} value={id} className="space-y-8">
-              <div className="grid grid-cols-1 lg:grid-cols-[240px,1fr] gap-8">
-                <aside className="lg:border-r lg:pr-6">
-                  <div className="lg:sticky lg:top-24 space-y-4">
+            <TabsContent key={id} value={id} className="space-y-10">
+              <div className="grid grid-cols-1 lg:grid-cols-[260px,1fr] gap-10">
+                <aside className="lg:border-r lg:pr-8">
+                  <div className="lg:sticky lg:top-24 space-y-6">
                     <div className="pb-4 border-b">
                       <h2 className="font-semibold text-xl text-foreground/90">Subtopics</h2>
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-2">
                       {Object.entries(category.subcategories)
                         .sort(([,a], [,b]) => {
                           if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
@@ -192,7 +192,7 @@ export default function Home() {
                           <button
                             key={subId}
                             onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
-                            className="w-full text-left px-4 py-3 rounded-xl hover:bg-accent/50 hover:shadow-sm transition-all duration-200 flex items-center justify-between group"
+                            className="w-full text-left px-5 py-3.5 rounded-xl hover:bg-accent/50 hover:shadow-sm transition-all duration-200 flex items-center justify-between group"
                           >
                             <span className="text-sm font-medium">{subcategory.name}</span>
                             <Badge variant="secondary" className="bg-primary/5 group-hover:bg-primary/10 transition-colors">
@@ -204,7 +204,7 @@ export default function Home() {
                   </div>
                 </aside>
 
-                <div className="space-y-12">
+                <div className="space-y-14">
                   {Object.entries(category.subcategories)
                     .sort(([,a], [,b]) => {
                       if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
@@ -216,9 +216,9 @@ export default function Home() {
                       <div 
                         key={subId} 
                         id={`subcategory-${subId}`} 
-                        className="scroll-mt-24 space-y-6 p-6 rounded-2xl bg-accent/5 border border-accent/10 hover:border-accent/20 transition-colors"
+                        className="scroll-mt-24 space-y-8 p-8 rounded-2xl bg-accent/5 border border-accent/10 hover:border-accent/20 transition-colors shadow-sm hover:shadow-md"
                       >
-                        <div className="flex items-center gap-3 pb-4 border-b">
+                        <div className="flex items-center gap-3 pb-6 border-b">
                           <h2 className="text-2xl font-semibold tracking-tight">{subcategory.name}</h2>
                           <Badge variant="secondary" className="bg-primary/10">
                             {subcategory.videos.length} videos
