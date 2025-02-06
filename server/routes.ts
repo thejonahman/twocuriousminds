@@ -653,56 +653,71 @@ export function registerRoutes(app: express.Application): Server {
       const subcategoryId = parseInt(req.params.id);
       const categoryId = parseInt(req.params.categoryId);
 
-      // First verify the subcategory exists
-      const subcategoryToDelete = await db.query.subcategories.findFirst({
-        where: eq(subcategories.id, subcategoryId)
+      // Log the received IDs
+      console.log('Deleting subcategory:', { subcategoryId, categoryId });
+
+      // First verify the category exists
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId),
       });
 
-      if (!subcategoryToDelete) {
+      if (!category) {
+        console.log('Category not found:', categoryId);
         return res.status(404).json({
-          message: "Subcategory not found",
-          details: "The specified subcategory does not exist"
+          message: "Category not found",
+          details: `Category with ID ${categoryId} does not exist`
         });
       }
 
-      // Find or create "Not specified" subcategory in the same category
+      // Then verify the subcategory exists and belongs to this category
+      const subcategoryToDelete = await db.query.subcategories.findFirst({
+        where: and(
+          eq(subcategories.id, subcategoryId),
+          eq(subcategories.categoryId, categoryId)
+        ),
+      });
+
+      if (!subcategoryToDelete) {
+        console.log('Subcategory not found:', { subcategoryId, categoryId });
+        return res.status(404).json({
+          message: "Subcategory not found",
+          details: "The specified subcategory does not exist in this category"
+        });
+      }
+
+      // Find existing "Not specified" subcategory or create it
       let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
         where: and(
           eq(subcategories.name, "Not specified"),
-          eq(subcategories.categoryId, subcategoryToDelete.categoryId)
+          eq(subcategories.categoryId, categoryId)
         ),
       });
 
       if (!notSpecifiedSubcategory) {
-        // Create "Not specified" subcategory in this category
+        // Create "Not specified" subcategory
         const [newSubcategory] = await db.insert(subcategories)
           .values({
             name: "Not specified",
-            categoryId: subcategoryToDelete.categoryId,
+            categoryId: categoryId,
             displayOrder: 9999,
           })
           .returning();
         notSpecifiedSubcategory = newSubcategory;
+        console.log('Created Not specified subcategory:', newSubcategory);
       }
 
-      // Move all videos to the "Not specified" subcategory
+      // Move videos to "Not specified"
       await db.update(videos)
         .set({ subcategoryId: notSpecifiedSubcategory.id })
         .where(eq(videos.subcategoryId, subcategoryId));
 
-      // Now delete the original subcategory
+      // Finally delete the subcategory
       const [deletedSubcategory] = await db
         .delete(subcategories)
         .where(eq(subcategories.id, subcategoryId))
         .returning();
 
-      if (!deletedSubcategory) {
-        return res.status(500).json({
-          message: "Failed to delete subcategory",
-          details: "The subcategory was found but could not be deleted"
-        });
-      }
-
+      console.log('Successfully deleted subcategory:', deletedSubcategory);
       res.json(deletedSubcategory);
     } catch (error) {
       console.error('Error in subcategory deletion:', error);
