@@ -397,9 +397,9 @@ export function registerRoutes(app: express.Application): Server {
         [result] = await db
           .update(userPreferences)
           .set({
-            preferredCategories,
-            preferredPlatforms,
-            excludedCategories,
+            preferredCategories: preferredCategories || [],
+            preferredPlatforms: preferredPlatforms || [],
+            excludedCategories: excludedCategories || [],
             updatedAt: new Date(),
           })
           .where(eq(userPreferences.userId, req.user.id))
@@ -410,9 +410,9 @@ export function registerRoutes(app: express.Application): Server {
           .insert(userPreferences)
           .values({
             userId: req.user.id,
-            preferredCategories,
-            preferredPlatforms,
-            excludedCategories,
+            preferredCategories: preferredCategories || [],
+            preferredPlatforms: preferredPlatforms || [],
+            excludedCategories: excludedCategories || [],
           })
           .returning();
       }
@@ -420,7 +420,10 @@ export function registerRoutes(app: express.Application): Server {
       res.json(result);
     } catch (error) {
       console.error('Error saving preferences:', error);
-      res.status(500).json({ message: "Failed to save preferences" });
+      res.status(500).json({ 
+        message: "Failed to save preferences",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 

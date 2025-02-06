@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -38,16 +38,18 @@ export function PreferencesDialog() {
 
   const { data: serverPreferences, isLoading } = useQuery<PreferencesData>({
     queryKey: ["/api/preferences"],
-    onSuccess: (data) => {
-      if (data) {
-        setLocalPreferences({
-          preferredCategories: data.preferredCategories || [],
-          preferredPlatforms: data.preferredPlatforms || [],
-          excludedCategories: data.excludedCategories || [],
-        });
-      }
-    },
   });
+
+  // Update local preferences whenever server preferences change
+  useEffect(() => {
+    if (serverPreferences) {
+      setLocalPreferences({
+        preferredCategories: serverPreferences.preferredCategories || [],
+        preferredPlatforms: serverPreferences.preferredPlatforms || [],
+        excludedCategories: serverPreferences.excludedCategories || [],
+      });
+    }
+  }, [serverPreferences]);
 
   const platforms = [
     { id: "youtube", name: "YouTube", icon: <Youtube className="h-4 w-4 text-red-500" /> },
@@ -76,7 +78,7 @@ export function PreferencesDialog() {
     onError: (error: Error) => {
       toast({
         title: "Error",
-        description: "Failed to save preferences. Please try again.",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -181,8 +183,8 @@ export function PreferencesDialog() {
             <ScrollArea className="h-[300px] rounded-md border">
               <div className="p-4 grid gap-4">
                 {categories?.map((category) => (
-                  <div 
-                    key={category.id} 
+                  <div
+                    key={category.id}
                     className={`p-3 rounded-lg transition-colors ${
                       localPreferences.preferredCategories.includes(category.id)
                         ? 'bg-primary/10'
