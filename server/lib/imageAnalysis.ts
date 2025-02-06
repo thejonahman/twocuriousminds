@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 
-// Content-based image matching with improved categorization
 export async function findBestImageForVideo(
   title: string,
   description: string,
@@ -15,40 +14,30 @@ export async function findBestImageForVideo(
 
     console.log('Analyzing content:', { title, description });
 
-    // Enhanced categories with domain-specific keywords
+    // Enhanced categories with domain-specific keywords and synonyms
     const categories = {
-      skiing: {
+      animals: {
         weight: 1.0,
         keywords: [
-          'ski', 'skiing', 'slope', 'snow', 'mountain',
-          'technique', 'turn', 'parallel', 'mogul', 'carving',
-          'jump', 'alpine', 'downhill', 'piste', 'powder',
-          'beginner', 'advanced', 'intermediate', 'lesson'
+          'animal', 'bird', 'falcon', 'eagle', 'hawk', 'predator',
+          'prey', 'hunt', 'flight', 'wings', 'target', 'tracking',
+          'vision', 'nature', 'wildlife', 'behavior'
         ]
       },
       psychology: {
         weight: 0.9,
         keywords: [
           'psychology', 'mind', 'behavior', 'mental', 'cognitive',
-          'emotion', 'thinking', 'brain', 'personality', 'development',
-          'learning', 'memory', 'attention', 'motivation', 'perception',
-          'adhd', 'focus', 'concentration', 'habit'
+          'attention', 'focus', 'target', 'concentration', 'perception',
+          'tracking', 'learning', 'instinct', 'ability'
         ]
       },
       science: {
         weight: 0.8,
         keywords: [
-          'science', 'physics', 'chemistry', 'biology', 'experiment',
-          'research', 'study', 'theory', 'principle', 'method',
-          'laboratory', 'observation', 'analysis', 'data'
-        ]
-      },
-      business: {
-        weight: 0.7,
-        keywords: [
-          'business', 'economics', 'finance', 'market', 'management',
-          'strategy', 'leadership', 'organization', 'planning', 'decision',
-          'entrepreneur', 'startup', 'company', 'corporate'
+          'science', 'biology', 'research', 'study', 'observation',
+          'analysis', 'data', 'tracking', 'measurement', 'precision',
+          'accuracy', 'mechanism', 'system', 'function'
         ]
       }
     } as const;
@@ -57,18 +46,19 @@ export async function findBestImageForVideo(
     const contentText = `${title} ${description}`.toLowerCase();
     console.log('Content text for matching:', contentText);
 
-    // First try exact matches from the README naming convention
+    // First try exact matches from common filenames
     const exactMatches = {
-      'skiing': /thumbnail_skiing\.(jpg|jpeg|png|webp)$/i,
-      'psychology': /thumbnail_psychology\.(jpg|jpeg|png|webp)$/i,
-      'learning': /thumbnail_learning\.(jpg|jpeg|png|webp)$/i,
-      'business': /thumbnail_business\.(jpg|jpeg|png|webp)$/i,
-      'science': /thumbnail_science\.(jpg|jpeg|png|webp)$/i
+      'falcon': /falcon|bird|prey/i,
+      'tracking': /track|target/i,
+      'vision': /vision|sight|eye/i,
+      'flight': /flight|fly|air/i
     };
 
     for (const [category, pattern] of Object.entries(exactMatches)) {
-      if (contentText.includes(category)) {
-        const match = files.find(file => pattern.test(file));
+      if (pattern.test(contentText)) {
+        const match = files.find(file => 
+          file.toLowerCase().includes(category.toLowerCase())
+        );
         if (match) {
           console.log('Found exact category match:', match, 'for category:', category);
           return match;
@@ -76,22 +66,24 @@ export async function findBestImageForVideo(
       }
     }
 
-    // Try activity-specific image matches
+    // Try specific image patterns based on content
     const specificImagePatterns = [
-      /parallel.*ski/i,
-      /moguls?/i,
-      /jump.*turn/i,
-      /adhd/i,
-      /burnout/i,
-      /dense.*air/i
+      { pattern: /falcon.*target/i, priority: ['falcon', 'bird', 'prey'] },
+      { pattern: /track.*movement/i, priority: ['tracking', 'motion'] },
+      { pattern: /vision|sight/i, priority: ['eye', 'vision', 'sight'] },
+      { pattern: /flight|flying/i, priority: ['flight', 'air', 'sky'] }
     ];
 
-    for (const pattern of specificImagePatterns) {
+    for (const { pattern, priority } of specificImagePatterns) {
       if (pattern.test(contentText)) {
-        const match = files.find(file => pattern.test(file));
-        if (match) {
-          console.log('Found specific activity match:', match, 'for pattern:', pattern);
-          return match;
+        for (const term of priority) {
+          const match = files.find(file => 
+            file.toLowerCase().includes(term.toLowerCase())
+          );
+          if (match) {
+            console.log('Found specific match:', match, 'for pattern:', pattern);
+            return match;
+          }
         }
       }
     }
@@ -122,31 +114,34 @@ export async function findBestImageForVideo(
 
     // If we have a good category match, look for related images
     if (bestCategory.score > 0.1) {
-      const categoryPattern = new RegExp(bestCategory.matchingKeywords.join('|'), 'i');
-      const matchingFile = files.find(file => categoryPattern.test(file));
-      if (matchingFile) {
-        console.log('Found category-based match:', matchingFile);
-        return matchingFile;
+      for (const keyword of bestCategory.matchingKeywords) {
+        const match = files.find(file => 
+          file.toLowerCase().includes(keyword.toLowerCase())
+        );
+        if (match) {
+          console.log('Found category-based match:', match);
+          return match;
+        }
       }
     }
 
-    // If no match found, try to find a contextually relevant image
-    const contextPatterns = [
-      /background/i,
-      /default/i,
-      /general/i,
+    // Try generic nature/wildlife images as fallback
+    const fallbackPatterns = [
+      /nature/i,
+      /wildlife/i,
+      /animal/i,
+      /bird/i,
       /thumbnail_default\.(jpg|jpeg|png|webp)$/i
     ];
 
-    for (const pattern of contextPatterns) {
-      const matchingFile = files.find(file => pattern.test(file));
-      if (matchingFile) {
-        console.log('Using contextual fallback image:', matchingFile);
-        return matchingFile;
+    for (const pattern of fallbackPatterns) {
+      const match = files.find(file => pattern.test(file));
+      if (match) {
+        console.log('Using fallback image:', match);
+        return match;
       }
     }
 
-    // Return null if no match found
     console.log('No matching image found, will use SVG fallback');
     return null;
 

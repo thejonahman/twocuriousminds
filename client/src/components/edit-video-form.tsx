@@ -146,29 +146,40 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, {
-        ...data,
-        thumbnailPreview: thumbnailUrl ? true : false
-      });
+      try {
+        console.log('Starting video update with data:', data);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update video");
-      }
-
-      const videoData = await response.json();
-
-      if (thumbnailUrl && thumbnailUrl !== video.thumbnailUrl) {
-        const thumbnailResponse = await apiRequest("POST", `/api/videos/${video.id}/thumbnail`, {
-          thumbnailUrl
+        const response = await apiRequest("PATCH", `/api/videos/${video.id}`, {
+          ...data,
+          thumbnailPreview: thumbnailUrl ? true : false
         });
 
-        if (!thumbnailResponse.ok) {
-          console.error('Failed to upload thumbnail');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to update video");
         }
-      }
 
-      return videoData;
+        const videoData = await response.json();
+
+        // Only upload thumbnail if it's new or changed
+        if (thumbnailUrl && thumbnailUrl !== video.thumbnailUrl) {
+          console.log('Uploading new thumbnail');
+          const thumbnailResponse = await apiRequest("POST", `/api/videos/${video.id}/thumbnail`, {
+            thumbnailUrl
+          });
+
+          if (!thumbnailResponse.ok) {
+            const thumbnailError = await thumbnailResponse.json();
+            console.error('Thumbnail upload failed:', thumbnailError);
+            throw new Error("Failed to upload thumbnail");
+          }
+        }
+
+        return videoData;
+      } catch (error) {
+        console.error('Video update error:', error);
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -179,9 +190,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       hasSubmitted.current = true;
     },
     onError: (error: Error) => {
+      console.error('Update mutation error:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Failed to update video",
         variant: "destructive",
       });
     },
