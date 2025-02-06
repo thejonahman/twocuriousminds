@@ -1,7 +1,17 @@
 import fs from "fs";
 import path from "path";
 
-// Content-based image matching with improved categorization
+type Category = {
+  weight: number;
+  keywords: string[];
+  synonyms?: { [key: string]: string[] };
+};
+
+type Categories = {
+  [key: string]: Category;
+};
+
+// Content-based image matching with improved ski instruction categorization
 export async function findBestImageForVideo(
   title: string,
   description: string,
@@ -15,46 +25,51 @@ export async function findBestImageForVideo(
 
     console.log('Analyzing content:', { title, description });
 
-    // Enhanced categories with weighted keywords
-    const categories = {
-      science: {
+    // Enhanced categories with ski-specific terminology
+    const categories: Categories = {
+      skiing_technique: {
         weight: 1.0,
         keywords: [
-          'science', 'physics', 'chemistry', 'biology', 'experiment',
-          'air', 'density', 'pressure', 'temperature', 'gas',
-          'molecule', 'particle', 'atmosphere', 'research', 'study'
-        ]
+          'ski', 'skiing', 'technique', 'form', 'posture',
+          'turn', 'carve', 'edge', 'parallel', 'stance',
+          'balance', 'movement', 'position', 'control'
+        ],
+        synonyms: {
+          'turn': ['carving', 'steering', 'pivot'],
+          'stance': ['position', 'posture', 'alignment'],
+          'technique': ['form', 'method', 'approach']
+        }
       },
-      education: {
+      ski_terrain: {
         weight: 0.9,
         keywords: [
-          'learn', 'teach', 'education', 'school', 'classroom',
-          'lecture', 'lesson', 'study', 'concept', 'understand',
-          'explain', 'demonstrate', 'example', 'theory'
+          'slope', 'run', 'trail', 'mogul', 'powder',
+          'groomed', 'steep', 'flat', 'bump', 'conditions',
+          'snow', 'ice', 'piste', 'off-piste'
         ]
       },
-      sports: {
+      ski_equipment: {
         weight: 0.8,
         keywords: [
-          'sport', 'exercise', 'training', 'fitness', 'practice',
-          'technique', 'skill', 'movement', 'performance', 'athletic',
-          'competition', 'game', 'match', 'player'
+          'boot', 'binding', 'pole', 'gear', 'equipment',
+          'skis', 'helmet', 'goggles', 'wear', 'clothing',
+          'jacket', 'pants', 'gloves'
         ]
       },
-      technology: {
-        weight: 0.8,
+      ski_instruction: {
+        weight: 1.0,
         keywords: [
-          'technology', 'digital', 'computer', 'software', 'hardware',
-          'device', 'system', 'network', 'data', 'programming',
-          'app', 'application', 'internet', 'electronic'
+          'lesson', 'teach', 'learn', 'instructor', 'beginner',
+          'intermediate', 'advanced', 'expert', 'tutorial',
+          'guide', 'tip', 'advice', 'demonstration'
         ]
       },
-      nature: {
-        weight: 0.7,
+      ski_safety: {
+        weight: 0.9,
         keywords: [
-          'nature', 'environment', 'climate', 'weather', 'earth',
-          'sky', 'cloud', 'wind', 'storm', 'temperature',
-          'season', 'atmospheric', 'outdoor', 'natural'
+          'safety', 'precaution', 'fall', 'crash', 'injury',
+          'prevention', 'protect', 'secure', 'emergency',
+          'rescue', 'caution', 'warning'
         ]
       }
     };
@@ -63,31 +78,50 @@ export async function findBestImageForVideo(
     const contentText = `${title} ${description}`.toLowerCase();
     console.log('Content text for matching:', contentText);
 
-    // First try exact word matches from filename
-    const words = contentText.split(/\s+/);
-    for (const word of words) {
-      if (word.length > 3) { // Skip short words
-        const exactMatch = files.find(file =>
-          file.toLowerCase().includes(word.toLowerCase())
-        );
-        if (exactMatch) {
-          console.log('Found exact word match:', exactMatch, 'for word:', word);
-          return exactMatch;
-        }
+    // Enhanced matching algorithm
+    // 1. First try exact phrase matches
+    const phrases = contentText.match(/\b[\w\s]{3,}\b/g) || [];
+    for (const phrase of phrases) {
+      const exactMatch = files.find(file =>
+        file.toLowerCase().includes(phrase.toLowerCase().replace(/\s+/g, ''))
+      );
+      if (exactMatch) {
+        console.log('Found exact phrase match:', exactMatch, 'for phrase:', phrase);
+        return exactMatch;
       }
     }
 
-    // Calculate category scores
+    // 2. Calculate category scores with synonym expansion
     const categoryScores = Object.entries(categories).map(([category, info]) => {
-      const matchingKeywords = info.keywords.filter(keyword => {
+      let matchCount = 0;
+      const totalKeywords = info.keywords.length;
+
+      // Check direct keywords
+      info.keywords.forEach(keyword => {
         const regex = new RegExp(`\\b${keyword}\\b`, 'i');
-        return regex.test(contentText);
+        if (regex.test(contentText)) {
+          matchCount++;
+        }
       });
 
-      const score = (matchingKeywords.length / info.keywords.length) * info.weight;
+      // Check synonyms if available
+      if (info.synonyms) {
+        Object.entries(info.synonyms).forEach(([mainWord, synonymList]) => {
+          if (synonymList.some(synonym => {
+            const regex = new RegExp(`\\b${synonym}\\b`, 'i');
+            return regex.test(contentText);
+          })) {
+            matchCount++;
+          }
+        });
+      }
+
+      const score = (matchCount / totalKeywords) * info.weight;
 
       console.log(`Category "${category}" score:`, {
-        matchingKeywords,
+        matchCount,
+        totalKeywords,
+        weight: info.weight,
         score
       });
 
@@ -101,40 +135,39 @@ export async function findBestImageForVideo(
 
     console.log('Best matching category:', bestCategory);
 
-    // Build regex patterns for the best category
+    // Build prioritized patterns for matching
     const patterns = [
-      // Exact category name match
-      new RegExp(`${bestCategory.category}`, 'i'),
-      // Keywords from the category
+      // Exact category match
+      new RegExp(`${bestCategory.category.replace('_', '')}`, 'i'),
+      // Keywords from the category with high specificity
       ...categories[bestCategory.category].keywords.map(keyword =>
-        new RegExp(keyword, 'i')
-      )
+        new RegExp(`\\b${keyword}\\b`, 'i')
+      ),
+      // General ski-related patterns
+      /ski/i, /snow/i, /winter/i,
+      // Fallback patterns
+      /sport/i, /outdoor/i, /activity/i
     ];
 
-    // Find matching image
+    // Find matching image with improved logging
     for (const pattern of patterns) {
-      const matchingFile = files.find(file => pattern.test(file));
-      if (matchingFile) {
-        console.log('Found matching file:', matchingFile, 'using pattern:', pattern);
-        return matchingFile;
+      const matchingFiles = files.filter(file => pattern.test(file));
+      if (matchingFiles.length > 0) {
+        // Sort matches by filename length (shorter names often more relevant)
+        const bestMatch = matchingFiles.sort((a, b) => a.length - b.length)[0];
+        console.log('Found best matching file:', bestMatch, 'using pattern:', pattern);
+        return bestMatch;
       }
     }
 
-    // If no match found, use generic patterns based on content
-    const genericPatterns = [
-      /background/i, /texture/i, /pattern/i,
-      /abstract/i, /general/i, /default/i
-    ];
-
-    for (const pattern of genericPatterns) {
-      const matchingFile = files.find(file => pattern.test(file));
-      if (matchingFile) {
-        console.log('Using generic image:', matchingFile);
-        return matchingFile;
-      }
+    // If no match found, use ski-specific default
+    const defaultImage = files.find(file => /thumbnail_skiing\.jpg/i.test(file));
+    if (defaultImage) {
+      console.log('Using default skiing image:', defaultImage);
+      return defaultImage;
     }
 
-    // Return null if no match found
+    // Final fallback
     console.log('No matching image found, will use SVG fallback');
     return null;
 

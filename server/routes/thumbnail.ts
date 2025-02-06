@@ -71,7 +71,7 @@ router.post('/generate', async (req, res) => {
         });
       }
     } else {
-      // Generate fallback SVG
+      // Generate fallback SVG with ski theme
       console.log('No matching image found, generating SVG fallback');
       const svgContent = `
         <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
