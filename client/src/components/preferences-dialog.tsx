@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Settings, ThumbsDown, Youtube, Instagram } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface Category {
   id: number;
@@ -21,14 +22,22 @@ interface PreferencesData {
 
 export function PreferencesDialog() {
   const [open, setOpen] = useState(false);
+  const [localPreferences, setLocalPreferences] = useState<PreferencesData | null>(null);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
   });
 
-  const { data: preferences } = useQuery<PreferencesData>({
+  const { data: serverPreferences } = useQuery<PreferencesData>({
     queryKey: ["/api/preferences"],
+    onSuccess: (data) => {
+      // Initialize local state with server data if not already set
+      if (!localPreferences) {
+        setLocalPreferences(data);
+      }
+    },
   });
 
   const platforms = [
@@ -46,13 +55,24 @@ export function PreferencesDialog() {
       queryClient.invalidateQueries({ queryKey: ["/api/preferences"] });
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] }); // Refresh recommendations
       setOpen(false);
+      toast({
+        title: "Preferences Saved",
+        description: "Your content preferences have been updated successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: "Failed to save preferences. Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
   const toggleCategory = (categoryId: number, type: "preferred" | "excluded") => {
-    if (!preferences) return;
+    if (!localPreferences) return;
 
-    const newPreferences = { ...preferences };
+    const newPreferences = { ...localPreferences };
     if (type === "preferred") {
       if (newPreferences.preferredCategories.includes(categoryId)) {
         newPreferences.preferredCategories = newPreferences.preferredCategories.filter(id => id !== categoryId);
@@ -71,24 +91,40 @@ export function PreferencesDialog() {
       }
     }
 
-    mutation.mutate(newPreferences);
+    setLocalPreferences(newPreferences);
   };
 
   const togglePlatform = (platformId: string) => {
-    if (!preferences) return;
+    if (!localPreferences) return;
 
-    const newPreferences = { ...preferences };
+    const newPreferences = { ...localPreferences };
     if (newPreferences.preferredPlatforms.includes(platformId)) {
       newPreferences.preferredPlatforms = newPreferences.preferredPlatforms.filter(id => id !== platformId);
     } else {
       newPreferences.preferredPlatforms = [...newPreferences.preferredPlatforms, platformId];
     }
 
-    mutation.mutate(newPreferences);
+    setLocalPreferences(newPreferences);
   };
 
+  const handleSave = () => {
+    if (!localPreferences) return;
+    mutation.mutate(localPreferences);
+  };
+
+  const handleClose = (open: boolean) => {
+    if (!open) {
+      // Reset local changes when dialog is closed without saving
+      setLocalPreferences(serverPreferences || null);
+    }
+    setOpen(open);
+  };
+
+  // Check if there are unsaved changes
+  const hasChanges = JSON.stringify(localPreferences) !== JSON.stringify(serverPreferences);
+
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="h-8 w-8">
           <Settings className="h-4 w-4" />
@@ -114,16 +150,16 @@ export function PreferencesDialog() {
                   <div 
                     key={category.id} 
                     className={`p-3 rounded-lg transition-colors ${
-                      preferences?.preferredCategories.includes(category.id)
+                      localPreferences?.preferredCategories.includes(category.id)
                         ? 'bg-primary/10'
-                        : preferences?.excludedCategories.includes(category.id)
+                        : localPreferences?.excludedCategories.includes(category.id)
                         ? 'bg-destructive/10'
                         : 'hover:bg-accent'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <Badge
-                        variant={preferences?.preferredCategories.includes(category.id) ? "default" : "outline"}
+                        variant={localPreferences?.preferredCategories.includes(category.id) ? "default" : "outline"}
                         className="text-base font-normal py-1.5"
                       >
                         {category.name}
@@ -133,26 +169,26 @@ export function PreferencesDialog() {
                           variant="ghost"
                           size="sm"
                           className={`gap-2 ${
-                            preferences?.preferredCategories.includes(category.id)
+                            localPreferences?.preferredCategories.includes(category.id)
                               ? 'text-primary hover:text-primary'
                               : ''
                           }`}
                           onClick={() => toggleCategory(category.id, "preferred")}
                         >
-                          {preferences?.preferredCategories.includes(category.id) ? "Selected" : "Select"}
+                          {localPreferences?.preferredCategories.includes(category.id) ? "Selected" : "Select"}
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           className={`gap-2 ${
-                            preferences?.excludedCategories.includes(category.id)
+                            localPreferences?.excludedCategories.includes(category.id)
                               ? 'text-destructive hover:text-destructive'
                               : ''
                           }`}
                           onClick={() => toggleCategory(category.id, "excluded")}
                         >
                           <ThumbsDown className="h-4 w-4" />
-                          {preferences?.excludedCategories.includes(category.id) ? "Excluded" : "Exclude"}
+                          {localPreferences?.excludedCategories.includes(category.id) ? "Excluded" : "Exclude"}
                         </Button>
                       </div>
                     </div>
@@ -170,7 +206,7 @@ export function PreferencesDialog() {
               {platforms.map((platform) => (
                 <Button
                   key={platform.id}
-                  variant={preferences?.preferredPlatforms.includes(platform.id) ? "default" : "outline"}
+                  variant={localPreferences?.preferredPlatforms.includes(platform.id) ? "default" : "outline"}
                   className="gap-2"
                   onClick={() => togglePlatform(platform.id)}
                 >
@@ -181,6 +217,23 @@ export function PreferencesDialog() {
             </div>
           </div>
         </div>
+        <DialogFooter>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => handleClose(false)}
+              disabled={mutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={!hasChanges || mutation.isPending}
+            >
+              {mutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
