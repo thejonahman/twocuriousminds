@@ -149,7 +149,7 @@ export function registerRoutes(app: express.Application): Server {
     try {
       // Get user preferences if authenticated
       const preferences = req.user ? await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.user_id, req.user.id),
+        where: eq(userPreferences.userId, req.user.id),
       }) : null;
 
       // Build query conditions
@@ -364,13 +364,13 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const result = await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.user_id, req.user.id),
+        where: eq(userPreferences.userId, req.user.id),
       });
 
       if (!result) {
         const defaults = await db.insert(userPreferences)
           .values({
-            user_id: req.user.id,
+            userId: req.user.id,
             preferredCategories: [],
             preferredPlatforms: [],
             excludedCategories: [],
@@ -396,7 +396,7 @@ export function registerRoutes(app: express.Application): Server {
 
       // First try to find existing preferences
       const existingPreferences = await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.user_id, req.user.id),
+        where: eq(userPreferences.userId, req.user.id),
       });
 
       let result;
@@ -410,14 +410,14 @@ export function registerRoutes(app: express.Application): Server {
             excludedCategories: excludedCategories || [],
             updatedAt: new Date(),
           })
-          .where(eq(userPreferences.user_id, req.user.id))
+          .where(eq(userPreferences.userId, req.user.id))
           .returning();
       } else {
         // Insert new preferences
         [result] = await db
           .insert(userPreferences)
           .values({
-            user_id: req.user.id,
+            userId: req.user.id,
             preferredCategories: preferredCategories || [],
             preferredPlatforms: preferredPlatforms || [],
             excludedCategories: excludedCategories || [],
@@ -448,7 +448,7 @@ export function registerRoutes(app: express.Application): Server {
 
       // Get user preferences if authenticated
       const preferences = userId ? await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.user_id, userId),
+        where: eq(userPreferences.userId, userId),
       }) : null;
 
       // Build recommendation query conditions
