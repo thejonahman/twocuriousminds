@@ -1,8 +1,11 @@
 import { createServer, type Server } from "http";
 import express from 'express';
 import { db } from "@db";
-import { videos } from "@db/schema";
-import { eq } from "drizzle-orm";
+import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
+import fetch from "node-fetch";
+import * as fs from 'fs';
+import * as path from 'path';
+import { videos, categories, userPreferences, subcategories } from "@db/schema";
 import { setupAuth } from "./auth";
 import multer from 'multer';
 
@@ -146,24 +149,23 @@ export function registerRoutes(app: express.Application): Server {
     try {
       // Get user preferences if authenticated
       const preferences = req.user ? await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.userId, req.user.id),
+        where: eq(userPreferences.user_id, req.user.id),
       }) : null;
 
       // Build query conditions
       const conditions = [];
 
       // Add preference-based filters if user has preferences
-      if (preferences) {
-        if (preferences.excludedCategories?.length > 0) {
-          conditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
-        }
-        if (preferences.preferredCategories?.length > 0) {
-          conditions.push(inArray(videos.categoryId, preferences.preferredCategories));
-        }
-        if (preferences.preferredPlatforms?.length > 0) {
-          conditions.push(inArray(videos.platform, preferences.preferredPlatforms));
-        }
+      if (preferences?.excludedCategories?.length) {
+        conditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
       }
+      if (preferences?.preferredCategories?.length) {
+        conditions.push(inArray(videos.categoryId, preferences.preferredCategories));
+      }
+      if (preferences?.preferredPlatforms?.length) {
+        conditions.push(inArray(videos.platform, preferences.preferredPlatforms));
+      }
+
 
       const result = await db.query.videos.findMany({
         where: conditions.length > 0 ? and(...conditions) : undefined,
@@ -362,13 +364,13 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const result = await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.userId, req.user.id),
+        where: eq(userPreferences.user_id, req.user.id),
       });
 
       if (!result) {
         const defaults = await db.insert(userPreferences)
           .values({
-            userId: req.user.id,
+            user_id: req.user.id,
             preferredCategories: [],
             preferredPlatforms: [],
             excludedCategories: [],
@@ -394,7 +396,7 @@ export function registerRoutes(app: express.Application): Server {
 
       // First try to find existing preferences
       const existingPreferences = await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.userId, req.user.id),
+        where: eq(userPreferences.user_id, req.user.id),
       });
 
       let result;
@@ -408,14 +410,14 @@ export function registerRoutes(app: express.Application): Server {
             excludedCategories: excludedCategories || [],
             updatedAt: new Date(),
           })
-          .where(eq(userPreferences.userId, req.user.id))
+          .where(eq(userPreferences.user_id, req.user.id))
           .returning();
       } else {
         // Insert new preferences
         [result] = await db
           .insert(userPreferences)
           .values({
-            userId: req.user.id,
+            user_id: req.user.id,
             preferredCategories: preferredCategories || [],
             preferredPlatforms: preferredPlatforms || [],
             excludedCategories: excludedCategories || [],
@@ -446,7 +448,7 @@ export function registerRoutes(app: express.Application): Server {
 
       // Get user preferences if authenticated
       const preferences = userId ? await db.query.userPreferences.findFirst({
-        where: eq(userPreferences.userId, userId),
+        where: eq(userPreferences.user_id, userId),
       }) : null;
 
       // Build recommendation query conditions
@@ -454,13 +456,13 @@ export function registerRoutes(app: express.Application): Server {
 
       // Add preference-based filters if user has preferences
       if (preferences) {
-        if (preferences.excludedCategories?.length > 0) {
+        if (preferences.excludedCategories?.length) {
           conditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
         }
-        if (preferences.preferredCategories?.length > 0) {
+        if (preferences.preferredCategories?.length) {
           conditions.push(inArray(videos.categoryId, preferences.preferredCategories));
         }
-        if (preferences.preferredPlatforms?.length > 0) {
+        if (preferences.preferredPlatforms?.length) {
           conditions.push(inArray(videos.platform, preferences.preferredPlatforms));
         }
       } else {
@@ -743,9 +745,3 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
     return null;
   }
 }
-
-import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
-import fetch from "node-fetch";
-import * as fs from 'fs';
-import * as path from 'path';
-import { categories, userPreferences, subcategories } from "@db/schema";

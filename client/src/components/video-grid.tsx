@@ -105,7 +105,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                 >
                   {getPlatformIcon(video.platform)}
                 </div>
-                {video.thumbnailUrl && !failedThumbnails.has(video.id) && (
+                {(video.thumbnailUrl !== null && video.thumbnailUrl !== undefined) && !failedThumbnails.has(video.id) && (
                   <img
                     src={video.thumbnailUrl}
                     alt={video.title}

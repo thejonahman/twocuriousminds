@@ -14,6 +14,32 @@ import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Trash2, Plus } from 'lucide-react';
 
+interface Video {
+  id: number;
+  title: string;
+  description?: string;
+  url: string;
+  categoryId: number;
+  subcategoryId?: number;
+  platform: string;
+  thumbnailUrl: string | null;
+  category: {
+    id: number;
+    name: string;
+  };
+  subcategory: {
+    id: number;
+    name: string;
+    displayOrder?: number;
+  } | null;
+}
+
+interface EditVideoFormProps {
+  video: Video;
+  onClose?: () => void;
+  scrollPosition: number;
+}
+
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -33,22 +59,6 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
-interface Video {
-  id: number;
-  title: string;
-  description?: string;
-  url: string;
-  categoryId: number;
-  subcategoryId?: number;
-  platform: string;
-  thumbnailUrl?: string;
-}
-
-interface EditVideoFormProps {
-  video: Video;
-  onClose?: () => void;
-  scrollPosition: number;
-}
 
 export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormProps) {
   const queryClient = useQueryClient();
