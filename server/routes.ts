@@ -211,6 +211,17 @@ export function registerRoutes(app: express.Application): Server {
   // Add multer error handling middleware
   app.use(handleMulterError);
 
+  // Add generic error handling for payload size
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err.type === 'entity.too.large') {
+      return res.status(413).json({
+        message: "Request payload too large. Maximum size is 10MB.",
+        error: err.message
+      });
+    }
+    next(err);
+  });
+
   app.get("/api/videos", async (req, res) => {
     try {
       // Get user preferences if authenticated
