@@ -45,23 +45,12 @@ router.post('/generate', async (req, res) => {
       });
     }
 
-    // Find matching image with timeout
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Image search timed out')), 5000);
-    });
-
-    const imageSearchPromise = findBestImageForVideo(
+    // Find matching image
+    const fileName = await findBestImageForVideo(
       title,
       description || '',
       imagesFolder
     );
-
-    const fileName = await Promise.race([imageSearchPromise, timeoutPromise])
-      .catch(error => {
-        console.error('Image search failed or timed out:', error);
-        return null;
-      });
-
     console.log('Found matching file:', fileName);
 
     let imageUrl: string;
@@ -82,36 +71,13 @@ router.post('/generate', async (req, res) => {
         });
       }
     } else {
-      // Generate enhanced fallback SVG with gradient background and better typography
-      console.log('No matching image found, generating enhanced SVG fallback');
-      const sanitizedTitle = title
-        .replace(/[<>]/g, '')
-        .substring(0, 50);
-
+      // Generate fallback SVG
+      console.log('No matching image found, generating SVG fallback');
       const svgContent = `
         <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" style="stop-color:#2563eb;stop-opacity:1" />
-              <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
-            </linearGradient>
-            <filter id="shadow">
-              <feDropShadow dx="2" dy="2" stdDeviation="2" flood-opacity="0.3"/>
-            </filter>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#grad)"/>
-          <rect x="5%" y="5%" width="90%" height="90%" fill="none" 
-                stroke="rgba(255,255,255,0.1)" stroke-width="2"/>
-          <text x="640" y="360" 
-                font-family="Arial, sans-serif" 
-                font-size="48" 
-                font-weight="bold"
-                fill="white" 
-                text-anchor="middle" 
-                dominant-baseline="middle"
-                filter="url(#shadow)"
-                style="text-transform: capitalize;">
-            ${sanitizedTitle}
+          <rect width="100%" height="100%" fill="#2563eb"/>
+          <text x="640" y="360" font-family="Arial" font-size="64" fill="white" text-anchor="middle" dominant-baseline="middle">
+            ${title}
           </text>
         </svg>
       `;
@@ -127,6 +93,8 @@ router.post('/generate', async (req, res) => {
 
   } catch (error) {
     console.error('Unhandled error in thumbnail generation:', error);
+    // Ensure we're still sending JSON even in case of errors
+    res.setHeader('Content-Type', 'application/json');
     return res.status(500).json({ 
       success: false,
       error: 'Thumbnail generation failed',

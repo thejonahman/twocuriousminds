@@ -146,47 +146,29 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      try {
-        // First update the video metadata
-        const response = await apiRequest("PATCH", `/api/videos/${video.id}`, {
-          ...data,
-          thumbnailPreview: thumbnailUrl ? true : false
+      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, {
+        ...data,
+        thumbnailPreview: thumbnailUrl ? true : false
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to update video");
+      }
+
+      const videoData = await response.json();
+
+      if (thumbnailUrl && thumbnailUrl !== video.thumbnailUrl) {
+        const thumbnailResponse = await apiRequest("POST", `/api/videos/${video.id}/thumbnail`, {
+          thumbnailUrl
         });
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || "Failed to update video");
+        if (!thumbnailResponse.ok) {
+          console.error('Failed to upload thumbnail');
         }
-
-        const videoData = await response.json();
-
-        // Only upload thumbnail if it's new or changed
-        if (thumbnailUrl && thumbnailUrl !== video.thumbnailUrl) {
-          try {
-            const thumbnailResponse = await apiRequest("POST", `/api/videos/${video.id}/thumbnail`, {
-              thumbnailUrl
-            });
-
-            if (!thumbnailResponse.ok) {
-              const thumbnailError = await thumbnailResponse.json();
-              throw new Error(thumbnailError.message || "Failed to upload thumbnail");
-            }
-          } catch (thumbnailError) {
-            console.error('Thumbnail upload error:', thumbnailError);
-            // Continue with the update even if thumbnail upload fails
-            toast({
-              title: "Warning",
-              description: "Video updated but thumbnail upload failed",
-              variant: "destructive",
-            });
-          }
-        }
-
-        return videoData;
-      } catch (error) {
-        console.error('Video update error:', error);
-        throw error;
       }
+
+      return videoData;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -197,10 +179,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       hasSubmitted.current = true;
     },
     onError: (error: Error) => {
-      console.error('Update mutation error:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to update video",
+        description: error.message,
         variant: "destructive",
       });
     },
@@ -241,33 +222,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         return;
       }
 
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        toast({
-          title: "Error",
-          description: "Please upload an image file",
-          variant: "destructive",
-        });
-        return;
-      }
-
       const reader = new FileReader();
       reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result === 'string') {
-          setThumbnailUrl(result);
-          toast({
-            title: "Success",
-            description: "Thumbnail uploaded successfully",
-          });
-        }
-      };
-      reader.onerror = () => {
-        toast({
-          title: "Error",
-          description: "Failed to read image file",
-          variant: "destructive",
-        });
+        setThumbnailUrl(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
@@ -279,6 +236,11 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       await updateVideoMutation.mutateAsync(data);
     } catch (error) {
       console.error('Form submission error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "An unexpected error occurred",
+        variant: "destructive",
+      });
       setIsSubmitting(false);
     }
   }, [updateVideoMutation]);
@@ -326,7 +288,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       disabled={isGeneratingThumbnail}
                     />
                     <p className="text-sm text-muted-foreground mt-1">
-                      Upload PNG, JPG or WebP (max 5MB)
+                      Or upload a custom thumbnail image (optional)
                     </p>
                   </div>
                 </div>
@@ -476,16 +438,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
             <Button
               type="submit"
               className="w-full"
-              disabled={isSubmitting || isGeneratingThumbnail}
+              disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
             >
-              {isSubmitting ? (
-                <span className="flex items-center gap-2">
-                  <Skeleton className="h-4 w-4 rounded-full animate-spin" />
-                  Updating...
-                </span>
-              ) : (
-                "Update Video"
-              )}
+              {isSubmitting ? "Updating..." : "Update Video"}
             </Button>
           </CardFooter>
         </form>

@@ -12,9 +12,7 @@ import { fromZodError } from "zod-validation-error";
 
 declare global {
   namespace Express {
-    interface User extends Omit<SelectUser, 'id'> {
-      id: string;
-    }
+    interface User extends SelectUser {}
   }
 }
 
@@ -94,7 +92,7 @@ export function setupAuth(app: Express) {
           return done(null, false);
         }
 
-        return done(null, { ...user, id: String(user.id) });
+        return done(null, user);
       } catch (error) {
         console.error("Login error:", error);
         return done(error);
@@ -104,19 +102,14 @@ export function setupAuth(app: Express) {
 
   passport.serializeUser((user, done) => done(null, user.id));
 
-  passport.deserializeUser(async (id: string, done) => {
+  passport.deserializeUser(async (id: number, done) => {
     try {
       const [user] = await db
         .select()
         .from(users)
-        .where(eq(users.id, parseInt(id, 10)))
+        .where(eq(users.id, id))
         .limit(1);
-
-      if (!user) {
-        return done(new Error('User not found'));
-      }
-
-      done(null, { ...user, id: String(user.id) });
+      done(null, user);
     } catch (error) {
       done(error);
     }
@@ -139,17 +132,14 @@ export function setupAuth(app: Express) {
       const [user] = await db
         .insert(users)
         .values({
-          username: result.data.username,
-          email: result.data.email,
+          ...result.data,
           password: hashedPassword,
-          isAdmin: false,
         })
         .returning();
 
-      const sessionUser = { ...user, id: String(user.id) };
-      req.login(sessionUser, (err) => {
+      req.login(user, (err) => {
         if (err) return next(err);
-        res.status(201).json(sessionUser);
+        res.status(201).json(user);
       });
     } catch (error) {
       next(error);
