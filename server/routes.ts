@@ -349,7 +349,7 @@ export function registerRoutes(app: express.Application): Server {
         with: {
           subcategories: {
             where: eq(subcategories.isDeleted, false),
-            orderBy: [asc(subcategories.name)], //Removed displayOrder
+            orderBy: [asc(subcategories.name)],
           },
         },
       });
@@ -566,7 +566,7 @@ export function registerRoutes(app: express.Application): Server {
 
       const videoId = parseInt(req.params.id);
       const [deletedVideo] = await db
-        .update(videos) //Update instead of delete
+        .update(videos)
         .set({ isDeleted: true })
         .where(eq(videos.id, videoId))
         .returning();
@@ -636,6 +636,53 @@ export function registerRoutes(app: express.Application): Server {
       res.json(deletedCategory);
     } catch (error) {
       console.error('Error deleting category:', error);
+      handleDatabaseError(error, res);
+    }
+  });
+
+  app.delete("/api/subcategories/:id", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const subcategoryId = parseInt(req.params.id);
+      console.log('Attempting to delete subcategory:', subcategoryId);
+
+      // First find the subcategory to make sure it exists and isn't already deleted
+      const subcategoryToDelete = await db.query.subcategories.findFirst({
+        where: and(
+          eq(subcategories.id, subcategoryId),
+          eq(subcategories.isDeleted, false)
+        ),
+      });
+
+      console.log('Found subcategory:', subcategoryToDelete);
+
+      if (!subcategoryToDelete) {
+        console.log('Subcategory not found or already deleted:', subcategoryId);
+        return res.status(404).json({
+          message: "Subcategory not found",
+          details: "The specified subcategory does not exist or has already been deleted"
+        });
+      }
+
+      // Update videos to remove the subcategory reference
+      await db.update(videos)
+        .set({ subcategoryId: null })
+        .where(eq(videos.subcategoryId, subcategoryId));
+
+      // Soft delete the subcategory
+      const [deletedSubcategory] = await db
+        .update(subcategories)
+        .set({ isDeleted: true })
+        .where(eq(subcategories.id, subcategoryId))
+        .returning();
+
+      console.log('Successfully deleted subcategory:', deletedSubcategory);
+      res.json(deletedSubcategory);
+    } catch (error) {
+      console.error('Error in subcategory deletion:', error);
       handleDatabaseError(error, res);
     }
   });
