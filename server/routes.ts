@@ -3,8 +3,6 @@ import express from 'express';
 import { db } from "@db";
 import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
 import fetch from "node-fetch";
-import * as fs from 'fs';
-import * as path from 'path';
 import { videos, categories, userPreferences, subcategories } from "@db/schema";
 import { setupAuth } from "./auth";
 import multer from 'multer';
@@ -580,6 +578,14 @@ export function registerRoutes(app: express.Application): Server {
         return res.status(404).json({ message: "Category not found" });
       }
 
+      // Also hide all subcategories if category is hidden
+      if (isHidden) {
+        await db
+          .update(subcategories)
+          .set({ isDeleted: true })
+          .where(eq(subcategories.categoryId, categoryId));
+      }
+
       res.json(updatedCategory);
     } catch (error) {
       console.error('Error updating category visibility:', error);
@@ -598,6 +604,19 @@ export function registerRoutes(app: express.Application): Server {
 
       console.log('Updating subcategory visibility:', { subcategoryId, isHidden });
 
+      // First check if subcategory exists
+      const existingSubcategory = await db.query.subcategories.findFirst({
+        where: eq(subcategories.id, subcategoryId)
+      });
+
+      if (!existingSubcategory) {
+        console.log('Subcategory not found:', subcategoryId);
+        return res.status(404).json({ 
+          message: "Subcategory not found",
+          details: "The specified subcategory does not exist"
+        });
+      }
+
       // Update subcategory visibility
       const [updatedSubcategory] = await db
         .update(subcategories)
@@ -605,10 +624,7 @@ export function registerRoutes(app: express.Application): Server {
         .where(eq(subcategories.id, subcategoryId))
         .returning();
 
-      if (!updatedSubcategory) {
-        return res.status(404).json({ message: "Subcategory not found" });
-      }
-
+      console.log('Successfully updated subcategory visibility:', updatedSubcategory);
       res.json(updatedSubcategory);
     } catch (error) {
       console.error('Error updating subcategory visibility:', error);

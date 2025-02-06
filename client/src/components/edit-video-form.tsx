@@ -7,12 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Trash2, Plus, Upload, RefreshCw } from 'lucide-react';
+import { EyeOff, Plus, Upload, RefreshCw } from 'lucide-react';
 
 interface Video {
   id: number;
@@ -66,8 +66,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [deleteTopicDialogOpen, setDeleteTopicDialogOpen] = useState(false);
-  const [deleteSubtopicDialogOpen, setDeleteSubtopicDialogOpen] = useState(false);
+  const [hideTopicDialogOpen, setHideTopicDialogOpen] = useState(false);
+  const [hideSubtopicDialogOpen, setHideSubtopicDialogOpen] = useState(false);
   const [newTopicDialogOpen, setNewTopicDialogOpen] = useState(false);
   const [newSubtopicDialogOpen, setNewSubtopicDialogOpen] = useState(false);
   const [newTopicName, setNewTopicName] = useState("");
@@ -190,12 +190,14 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     staleTime: 30000,
   });
 
-  const deleteCategoryMutation = useMutation({
+  const toggleCategoryVisibilityMutation = useMutation({
     mutationFn: async (categoryId: string) => {
-      const response = await apiRequest("DELETE", `/api/categories/${categoryId}`);
+      const response = await apiRequest("PATCH", `/api/categories/${categoryId}/visibility`, {
+        isHidden: true
+      });
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to delete category");
+        throw new Error(errorData.message || "Failed to hide category");
       }
       return response.json();
     },
@@ -203,12 +205,44 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       toast({
         title: "Success",
-        description: "Category deleted successfully"
+        description: "Topic hidden successfully"
       });
       form.setValue("categoryId", "");
       form.setValue("subcategoryId", "");
-      setDeleteTopicDialogOpen(false);
-      setDeleteSubtopicDialogOpen(false);
+      setHideTopicDialogOpen(false);
+      setHideSubtopicDialogOpen(false);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
+  const toggleSubcategoryVisibilityMutation = useMutation({
+    mutationFn: async (subcategoryId: string) => {
+      const response = await apiRequest("PATCH", `/api/subcategories/${subcategoryId}/visibility`, {
+        isHidden: true
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to hide subcategory");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ 
+        queryKey: [`/api/categories/${form.getValues("categoryId")}/subcategories`] 
+      });
+      toast({
+        title: "Success",
+        description: "Subtopic hidden successfully"
+      });
+      form.setValue("subcategoryId", "");
+      setHideTopicDialogOpen(false);
+      setHideSubtopicDialogOpen(false);
     },
     onError: (error: Error) => {
       toast({
@@ -296,17 +330,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
-  const handleDeleteTopic = () => {
+  const handleHideTopic = () => {
     const categoryId = form.getValues("categoryId");
     if (categoryId) {
-      deleteCategoryMutation.mutate(categoryId);
+      toggleCategoryVisibilityMutation.mutate(categoryId);
     }
   };
 
-  const handleDeleteSubtopic = () => {
+  const handleHideSubtopic = () => {
     const subcategoryId = form.getValues("subcategoryId");
     if (subcategoryId) {
-      deleteCategoryMutation.mutate(subcategoryId);
+      toggleSubcategoryVisibilityMutation.mutate(subcategoryId);
     }
   };
 
@@ -385,20 +419,19 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" ref={formRef}>
-        {/* Thumbnail Section */}
         <div className="space-y-4">
           <FormField
             control={form.control}
             name="title"
             render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Title</FormLabel>
-                  <FormControl>
-                    <Input {...field} placeholder="Enter video title" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+              <FormItem>
+                <FormLabel>Title</FormLabel>
+                <FormControl>
+                  <Input {...field} placeholder="Enter video title" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
           />
           <FormItem>
             <FormLabel>Thumbnail</FormLabel>
@@ -538,32 +571,32 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                     </DialogContent>
                   </Dialog>
 
-                  <AlertDialog open={deleteTopicDialogOpen} onOpenChange={setDeleteTopicDialogOpen}>
+                  <AlertDialog open={hideTopicDialogOpen} onOpenChange={setHideTopicDialogOpen}>
                     <AlertDialogTrigger asChild>
                       <Button
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="text-destructive hover:text-destructive/90"
+                        className="text-muted-foreground hover:text-muted-foreground/90"
                         disabled={!field.value}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <EyeOff className="h-4 w-4" />
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent className="z-[70]">
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Topic</AlertDialogTitle>
+                        <AlertDialogTitle>Hide Topic</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Are you sure you want to delete this topic? This will also delete all subtopics and associated videos.
+                          Are you sure you want to hide this topic? This will also hide all subtopics. Hidden items can be restored later by an administrator.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={handleDeleteTopic}
-                          className="bg-destructive hover:bg-destructive/90"
+                          onClick={handleHideTopic}
+                          className="bg-muted hover:bg-muted/90"
                         >
-                          Delete
+                          Hide
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -639,32 +672,32 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                     </DialogContent>
                   </Dialog>
 
-                  <AlertDialog open={deleteSubtopicDialogOpen} onOpenChange={setDeleteSubtopicDialogOpen}>
+                  <AlertDialog open={hideSubtopicDialogOpen} onOpenChange={setHideSubtopicDialogOpen}>
                     <AlertDialogTrigger asChild>
                       <Button
                         type="button"
                         variant="outline"
                         size="icon"
-                        className="text-destructive hover:text-destructive/90"
+                        className="text-muted-foreground hover:text-muted-foreground/90"
                         disabled={!field.value}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <EyeOff className="h-4 w-4" />
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent className="z-[70]">
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Subtopic</AlertDialogTitle>
+                        <AlertDialogTitle>Hide Subtopic</AlertDialogTitle>
                         <AlertDialogDescription>
-                          Are you sure you want to delete this subtopic? This will also delete all associated videos.
+                          Are you sure you want to hide this subtopic? Hidden items can be restored later by an administrator.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={handleDeleteSubtopic}
-                          className="bg-destructive hover:bg-destructive/90"
+                          onClick={handleHideSubtopic}
+                          className="bg-muted hover:bg-muted/90"
                         >
-                          Delete
+                          Hide
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
