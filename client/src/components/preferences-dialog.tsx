@@ -38,9 +38,13 @@ export function PreferencesDialog() {
 
   const { data: serverPreferences, isLoading } = useQuery<PreferencesData>({
     queryKey: ["/api/preferences"],
-    onSettled: (data) => {
+    onSuccess: (data) => {
       if (data) {
-        setLocalPreferences(data);
+        setLocalPreferences({
+          preferredCategories: data.preferredCategories || [],
+          preferredPlatforms: data.preferredPlatforms || [],
+          excludedCategories: data.excludedCategories || [],
+        });
       }
     },
   });
@@ -121,7 +125,13 @@ export function PreferencesDialog() {
   const handleClose = (open: boolean) => {
     if (!open) {
       // Reset local changes when dialog is closed without saving
-      setLocalPreferences(serverPreferences || DEFAULT_PREFERENCES);
+      if (serverPreferences) {
+        setLocalPreferences({
+          preferredCategories: serverPreferences.preferredCategories || [],
+          preferredPlatforms: serverPreferences.preferredPlatforms || [],
+          excludedCategories: serverPreferences.excludedCategories || [],
+        });
+      }
     }
     setOpen(open);
   };
