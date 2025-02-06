@@ -484,10 +484,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           <CardFooter className="border-t bg-background sticky bottom-0 z-10 mt-auto py-4">
             <Button
               type="submit"
-              className="w-full transition-all duration-300"
+              className="w-full transition-colors hover:transition-none duration-200 ease-in-out"
               disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
             >
-              {isSubmitting ? "Updating..." : "Update Video"}
+              <span className={`transition-opacity duration-200 ${isSubmitting ? 'opacity-0' : 'opacity-100'}`}>
+                {isSubmitting ? "Updating..." : "Update Video"}
+              </span>
+              {isSubmitting && (
+                <span className="absolute inset-0 flex items-center justify-center">
+                  Updating...
+                </span>
+              )}
             </Button>
           </CardFooter>
         </form>
