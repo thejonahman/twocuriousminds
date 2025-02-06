@@ -696,124 +696,48 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
         console.log('Analyzing content:', { title, description });
         const contentText = `${title || ''} ${description || ''}`.toLowerCase();
 
-        // Enhanced categories with more specific keywords and context
         const categories = {
           beginner_technique: {
-            keywords: ['beginner', 'start', 'learn', 'first time', 'basic', 'fundamental', 'introduction', 'getting started'],
-            weight: 1.2,
+            keywords: ['beginner', 'start', 'learn', 'first time', 'basic'],
             color: '#4F46E5'
           },
           advanced_technique: {
-            keywords: ['advanced', 'expert', 'professional', 'racing', 'competition', 'performance', 'skill'],
-            weight: 1.1,
+            keywords: ['advanced', 'expert', 'professional', 'racing'],
             color: '#7C3AED'
           },
-          powder_skiing: {
-            keywords: ['powder', 'deep snow', 'backcountry', 'off-piste', 'fresh snow', 'powder day'],
-            weight: 1.0,
-            color: '#2563EB'
-          },
           safety_instruction: {
-            keywords: ['safety', 'protection', 'avalanche', 'rescue', 'emergency', 'precaution', 'risk'],
-            weight: 1.3,
+            keywords: ['safety', 'protection', 'avalanche', 'rescue'],
             color: '#DC2626'
-          },
-          equipment_guide: {
-            keywords: ['gear', 'equipment', 'ski', 'boot', 'binding', 'pole', 'setup', 'maintenance'],
-            weight: 0.9,
-            color: '#059669'
           }
         };
 
-        // Calculate match scores with context awareness
-        const scores = Object.entries(categories).map(([category, { keywords, weight, color }]) => {
-          const titleMatches = keywords.filter(keyword =>
-            title?.toLowerCase().includes(keyword)
-          ).length * 2; // Title matches count double
-
-          const descriptionMatches = keywords.filter(keyword =>
-            description?.toLowerCase().includes(keyword)
-          ).length;
-
-          const score = ((titleMatches + descriptionMatches) / (keywords.length * 3)) * weight;
-          console.log(`Category "${category}" score:`, { titleMatches, descriptionMatches, weight, score });
-
-          return { category, score, color };
-        });
-
         // Find best matching category
-        const bestMatch = scores.reduce((prev, current) =>
-          current.score > prev.score ? current : prev
-        );
-        console.log('Best matching category:', bestMatch);
+        const bestMatch = Object.entries(categories).reduce((prev, [category, data]) => {
+          const matchCount = data.keywords.filter(keyword => contentText.includes(keyword)).length;
+          return matchCount > prev.matchCount ? { category, matchCount, color: data.color } : prev;
+        }, { category: 'beginner_technique', matchCount: 0, color: '#4F46E5' });
 
-        // Try to find a matching image
-        const imagesFolder = path.join(process.cwd(), 'attached_assets');
-        const files = fs.readdirSync(imagesFolder);
-
-        // Enhanced image matching with multiple strategies
-        const matchStrategies = [
-          // Strategy 1: Direct keyword match from title
-          () => files.find(file => {
-            const fileNameLower = file.toLowerCase();
-            return title?.toLowerCase().split(' ').some(word =>
-              word.length > 3 && fileNameLower.includes(word)
-            );
-          }),
-          // Strategy 2: Category-based match
-          () => files.find(file => {
-            const pattern = bestMatch.score > 0.3 ?
-              new RegExp(bestMatch.category.replace('_', ''), 'i') :
-              null;
-            return pattern?.test(file);
-          }),
-          // Strategy 3: Generic ski-related match
-          () => files.find(file => /ski|snow|winter/i.test(file))
-        ];
-
-        let matchedFile = null;
-        for (const strategy of matchStrategies) {
-          matchedFile = strategy();
-          if (matchedFile) break;
-        }
-
-        if (matchedFile) {
-          const imagePath = path.join(imagesFolder, matchedFile);
-          const imageBuffer = fs.readFileSync(imagePath);
-          const extension = path.extname(matchedFile).substring(1);
-          return `data:image/${extension};base64,${imageBuffer.toString('base64')}`;
-        }
-
-        // Generate an enhanced SVG thumbnail
-        const gradientColor = bestMatch.color || '#4F46E5';
-        const secondaryColor = bestMatch.color === '#DC2626' ? '#991B1B' : '#7C3AED';
-
-        return 'data:image/svg+xml;base64,' + Buffer.from(`
+        // Generate an SVG thumbnail with proper escaping
+        const svgContent = `
           <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" style="stop-color:${gradientColor};stop-opacity:1" />
-                <stop offset="100%" style="stop-color:${secondaryColor};stop-opacity:1" />
+                <stop offset="0%" style="stop-color:${bestMatch.color};stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#1F2937;stop-opacity:1" />
               </linearGradient>
-              <filter id="shadow">
-                <feDropShadow dx="0" dy="4" stdDeviation="4" flood-opacity="0.25"/>
-              </filter>
             </defs>
             <rect width="100%" height="100%" fill="url(#bg)"/>
             <rect x="40" y="40" width="1200" height="640" fill="rgba(255,255,255,0.1)" rx="20"/>
-            <text x="640" y="280" font-family="Arial" font-size="56" fill="white" text-anchor="middle" dominant-baseline="middle" filter="url(#shadow)">
-              ${title || 'Video Content'}
+            <text x="640" y="320" font-family="Arial" font-size="48" fill="white" text-anchor="middle" dominant-baseline="middle">
+              ${title ? title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : 'Video Content'}
             </text>
-            <text x="640" y="380" font-family="Arial" font-size="36" fill="rgba(255,255,255,0.9)" text-anchor="middle" dominant-baseline="middle">
-              ${bestMatch.category.split('_').map(word =>
-                word.charAt(0).toUpperCase() + word.slice(1)
-              ).join(' ')}
-            </text>
-            <text x="640" y="440" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
+            <text x="640" y="400" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
               ${platform.charAt(0).toUpperCase() + platform.slice(1)}
             </text>
           </svg>
-        `).toString('base64');
+        `.trim().replace(/\n\s+/g, ' ');
+
+        return `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
       }
       default:
         console.error('Unsupported platform:', platform);
