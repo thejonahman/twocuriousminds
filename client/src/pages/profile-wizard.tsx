@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,31 @@ export default function ProfileWizard() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
+  // Query to fetch existing preferences
+  const { data: existingPreferences, isLoading: preferencesLoading } = useQuery({
+    queryKey: ["/api/preferences"],
+    enabled: !!user, // Only run if user is authenticated
+  });
+
+  // Effect to check for existing preferences and redirect if found
+  useEffect(() => {
+    if (!preferencesLoading && existingPreferences) {
+      const hasPreferences = (
+        (existingPreferences.preferredCategories?.length ?? 0) > 0 ||
+        (existingPreferences.excludedCategories?.length ?? 0) > 0 ||
+        (existingPreferences.preferredPlatforms?.length ?? 0) > 0
+      );
+
+      if (hasPreferences) {
+        toast({
+          title: "Preferences Already Set",
+          description: "Your viewing preferences are already configured.",
+        });
+        navigate("/");
+      }
+    }
+  }, [existingPreferences, preferencesLoading, navigate, toast]);
+
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
   });
@@ -48,7 +73,6 @@ export default function ProfileWizard() {
         title: "Preferences saved",
         description: "Your profile has been set up successfully!",
       });
-      // Explicitly navigate to home page after successful save
       navigate("/");
     },
     onError: (error: Error) => {
@@ -59,6 +83,23 @@ export default function ProfileWizard() {
       });
     },
   });
+
+  // If still loading preferences or user is redirecting, show loading state
+  if (preferencesLoading) {
+    return (
+      <div className="container max-w-2xl py-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Loading Preferences</CardTitle>
+            <CardDescription>Please wait while we check your preferences...</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Progress value={100} className="w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const platforms = [
     { id: "youtube", name: "YouTube", icon: <Youtube className="h-4 w-4" /> },
