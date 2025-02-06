@@ -37,31 +37,98 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
           console.error('Could not extract YouTube video ID from:', url);
           return null;
         }
+        // Try HD thumbnail first, fall back to default if not available
         return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
       }
       case 'tiktok':
       case 'instagram': {
-        // Try to find the best matching image based on the content
-        const imagesFolder = path.join(process.cwd(), 'attached_assets');
-        const bestMatch = await findBestImageForVideo(
-          title || '',
-          description || '',
-          imagesFolder
-        );
+        console.log('Analyzing content:', { title, description });
+        // Combine title and description for better content matching
+        const contentText = `${title || ''} ${description || ''}`.toLowerCase();
+        console.log('Content text for matching:', contentText);
 
-        if (bestMatch) {
-          const imagePath = path.join(imagesFolder, bestMatch);
+        // Define categories with weighted keywords for better matching
+        const categories = {
+          skiing_technique: {
+            keywords: ['ski', 'skiing', 'turn', 'carve', 'edge', 'stance', 'parallel', 'mogul', 'powder', 'snow', 'slope', 'trail', 'run', 'piste'],
+            weight: 1.0
+          },
+          ski_terrain: {
+            keywords: ['powder', 'groomed', 'mogul', 'bump', 'steep', 'ice', 'snow', 'piste', 'trail', 'run', 'terrain', 'park', 'slope', 'mountain'],
+            weight: 0.9
+          },
+          ski_equipment: {
+            keywords: ['boot', 'binding', 'pole', 'helmet', 'goggle', 'glove', 'ski', 'equipment', 'gear', 'wax', 'edge', 'base', 'tuning'],
+            weight: 0.8
+          },
+          ski_instruction: {
+            keywords: ['lesson', 'learn', 'teach', 'instructor', 'beginner', 'intermediate', 'advanced', 'technique', 'tip', 'guide', 'how', 'drill', 'exercise'],
+            weight: 1.0
+          },
+          ski_safety: {
+            keywords: ['safety', 'avalanche', 'rescue', 'emergency', 'caution', 'warning', 'danger', 'protection', 'safe', 'risk', 'hazard', 'fall'],
+            weight: 0.9
+          }
+        };
+
+        // Calculate match scores for each category
+        const scores = Object.entries(categories).map(([category, { keywords, weight }]) => {
+          const matchCount = keywords.filter(keyword => contentText.includes(keyword)).length;
+          const score = (matchCount / keywords.length) * weight;
+          console.log(`Category "${category}" score:`, { matchCount, totalKeywords: keywords.length, weight, score });
+          return { category, score };
+        });
+
+        // Find best matching category
+        const bestMatch = scores.reduce((prev, current) => 
+          current.score > prev.score ? current : prev
+        );
+        console.log('Best matching category:', bestMatch);
+
+        // Try to find a matching image based on the best category
+        const imagesFolder = path.join(process.cwd(), 'attached_assets');
+        const files = fs.readdirSync(imagesFolder);
+
+        // First try to match based on specific keywords in the title
+        let matchedFile = files.find(file => {
+          const fileNameLower = file.toLowerCase();
+          return contentText.split(' ').some(word => 
+            fileNameLower.includes(word) && word.length > 3
+          );
+        });
+
+        // If no direct match, try category-based matching
+        if (!matchedFile) {
+          const pattern = bestMatch.score > 0 ? 
+            new RegExp(bestMatch.category.replace('_', ''), 'i') : 
+            /ski/i;
+
+          matchedFile = files.find(file => pattern.test(file));
+          console.log('Found best matching file:', matchedFile, 'using pattern:', pattern);
+        }
+
+        if (matchedFile) {
+          const imagePath = path.join(imagesFolder, matchedFile);
           const imageBuffer = fs.readFileSync(imagePath);
-          const extension = path.extname(bestMatch).substring(1);
+          const extension = path.extname(matchedFile).substring(1);
           return `data:image/${extension};base64,${imageBuffer.toString('base64')}`;
         }
 
-        // Fallback to text-based thumbnail if no match found
+        // Generate a text-based thumbnail as fallback
         return 'data:image/svg+xml;base64,' + Buffer.from(`
           <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-            <rect width="100%" height="100%" fill="#718096"/>
-            <text x="640" y="360" font-family="Arial" font-size="64" fill="white" text-anchor="middle">
+            <defs>
+              <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:#4F46E5;stop-opacity:1" />
+                <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+              </linearGradient>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#bg)"/>
+            <text x="640" y="320" font-family="Arial" font-size="48" fill="white" text-anchor="middle" dominant-baseline="middle">
               ${title || 'Video Content'}
+            </text>
+            <text x="640" y="400" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
+              ${platform.charAt(0).toUpperCase() + platform.slice(1)}
             </text>
           </svg>
         `).toString('base64');
