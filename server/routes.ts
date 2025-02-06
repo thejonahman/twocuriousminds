@@ -651,47 +651,46 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const subcategoryId = parseInt(req.params.id);
+      const categoryId = parseInt(req.params.categoryId);
 
       // First verify the subcategory exists
-      const existingSubcategory = await db.query.subcategories.findFirst({
+      const subcategoryToDelete = await db.query.subcategories.findFirst({
         where: eq(subcategories.id, subcategoryId)
       });
 
-      if (!existingSubcategory) {
+      if (!subcategoryToDelete) {
         return res.status(404).json({
           message: "Subcategory not found",
           details: "The specified subcategory does not exist"
         });
       }
 
-      // Get the category ID from the existing subcategory
-      const categoryId = existingSubcategory.categoryId;
-
-      // Get or create the "Not specified" subcategory for this category
+      // Find or create "Not specified" subcategory in the same category
       let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
         where: and(
           eq(subcategories.name, "Not specified"),
-          eq(subcategories.categoryId, categoryId)
+          eq(subcategories.categoryId, subcategoryToDelete.categoryId)
         ),
       });
 
       if (!notSpecifiedSubcategory) {
+        // Create "Not specified" subcategory in this category
         const [newSubcategory] = await db.insert(subcategories)
           .values({
             name: "Not specified",
-            categoryId: categoryId,
+            categoryId: subcategoryToDelete.categoryId,
             displayOrder: 9999,
           })
           .returning();
         notSpecifiedSubcategory = newSubcategory;
       }
 
-      // Update all videos that use this subcategory to use "Not specified"
+      // Move all videos to the "Not specified" subcategory
       await db.update(videos)
         .set({ subcategoryId: notSpecifiedSubcategory.id })
         .where(eq(videos.subcategoryId, subcategoryId));
 
-      // Delete the subcategory
+      // Now delete the original subcategory
       const [deletedSubcategory] = await db
         .delete(subcategories)
         .where(eq(subcategories.id, subcategoryId))
