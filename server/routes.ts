@@ -635,6 +635,7 @@ export function registerRoutes(app: express.Application): Server {
         .returning();
 
       if (!deletedSubcategory) {
+        console.log('No subcategory found to delete:', subcategoryId);
         return res.status(404).json({
           message: "Subcategory not found",
           details: "The specified subcategory does not exist"
