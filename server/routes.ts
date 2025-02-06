@@ -201,7 +201,7 @@ export function registerRoutes(app: express.Application): Server {
       }) : null;
 
       // Build query conditions
-      const conditions = [];
+      const conditions = [eq(videos.isDeleted, false)];
 
       // Add preference-based filters if user has preferences
       if (preferences?.excludedCategories?.length) {
@@ -246,7 +246,7 @@ export function registerRoutes(app: express.Application): Server {
   app.get("/api/videos/:id", async (req, res) => {
     try {
       const result = await db.query.videos.findFirst({
-        where: eq(videos.id, parseInt(req.params.id)),
+        where: and(eq(videos.id, parseInt(req.params.id)), eq(videos.isDeleted, false)),
         with: {
           category: true,
           subcategory: true,
@@ -311,6 +311,7 @@ export function registerRoutes(app: express.Application): Server {
           categoryId: parseInt(categoryId),
           subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
           platform,
+          isDeleted: false, // Add isDeleted field
         })
         .returning();
 
@@ -320,12 +321,14 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-
   app.get("/api/categories", async (_req, res) => {
     try {
       const result = await db.query.categories.findMany({
+        where: eq(categories.isDeleted, false),
         with: {
-          subcategories: true,
+          subcategories: {
+            where: eq(subcategories.isDeleted, false),
+          },
         },
       });
       res.json(result);
@@ -338,11 +341,14 @@ export function registerRoutes(app: express.Application): Server {
     try {
       const categoryId = parseInt(req.params.categoryId);
 
-      // Validate that the category exists
       const category = await db.query.categories.findFirst({
-        where: eq(categories.id, categoryId),
+        where: and(
+          eq(categories.id, categoryId),
+          eq(categories.isDeleted, false)
+        ),
         with: {
           subcategories: {
+            where: eq(subcategories.isDeleted, false),
             orderBy: [asc(subcategories.displayOrder), asc(subcategories.name)],
           },
         },
@@ -375,7 +381,7 @@ export function registerRoutes(app: express.Application): Server {
       // If parentId is provided, verify parent category exists
       if (parentId) {
         const parentCategory = await db.query.categories.findFirst({
-          where: eq(categories.id, parentId)
+          where: and(eq(categories.id, parentId), eq(categories.isDeleted, false))
         });
 
         if (!parentCategory) {
@@ -390,6 +396,7 @@ export function registerRoutes(app: express.Application): Server {
         .insert(parentId ? subcategories : categories)
         .values({
           name: name.trim(),
+          isDeleted: false, // Add isDeleted field
           ...(parentId && { categoryId: parentId })
         })
         .returning();
@@ -486,7 +493,7 @@ export function registerRoutes(app: express.Application): Server {
 
       // Get current video
       const currentVideo = await db.query.videos.findFirst({
-        where: eq(videos.id, videoId),
+        where: and(eq(videos.id, videoId), eq(videos.isDeleted, false)),
       });
 
       if (!currentVideo) {
@@ -500,7 +507,7 @@ export function registerRoutes(app: express.Application): Server {
       }) : null;
 
       // Build recommendation query conditions
-      const conditions = [ne(videos.id, videoId)];
+      const conditions = [ne(videos.id, videoId), eq(videos.isDeleted, false)];
 
       // Add preference-based filters if user has preferences
       if (preferences) {
@@ -559,7 +566,8 @@ export function registerRoutes(app: express.Application): Server {
 
       const videoId = parseInt(req.params.id);
       const [deletedVideo] = await db
-        .delete(videos)
+        .update(videos) //Update instead of delete
+        .set({ isDeleted: true })
         .where(eq(videos.id, videoId))
         .returning();
 
@@ -581,55 +589,43 @@ export function registerRoutes(app: express.Application): Server {
 
       const categoryId = parseInt(req.params.id);
 
-      // Get or create the "Not specified" category
+      // Find or create "Not specified" category
       let notSpecifiedCategory = await db.query.categories.findFirst({
-        where: eq(categories.name, "Not specified"),
+        where: and(
+          eq(categories.name, "Not specified"),
+          eq(categories.isDeleted, false)
+        ),
       });
 
       if (!notSpecifiedCategory) {
         const [newCategory] = await db.insert(categories)
           .values({
             name: "Not specified",
-            displayOrder: 9999, // Put it at the end
+            displayOrder: 9999,
+            isDeleted: false,
           })
           .returning();
         notSpecifiedCategory = newCategory;
       }
 
-      // Get or create the "Not specified" subcategory under "Not specified" category
-      let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
-        where: and(
-          eq(subcategories.name, "Not specified"),
-          eq(subcategories.categoryId, notSpecifiedCategory.id)
-        ),
-      });
-
-      if (!notSpecifiedSubcategory) {
-        const [newSubcategory] = await db.insert(subcategories)
-          .values({
-            name: "Not specified",
-            categoryId: notSpecifiedCategory.id,
-            displayOrder: 9999,
-          })
-          .returning();
-        notSpecifiedSubcategory = newSubcategory;
-      }
-
-      // Update all videos in this category to use "Not specified" category
+      // Move all videos to "Not specified" category
       await db.update(videos)
         .set({
           categoryId: notSpecifiedCategory.id,
-          subcategoryId: notSpecifiedSubcategory.id
+          subcategoryId: null
         })
         .where(eq(videos.categoryId, categoryId));
 
-      // Delete all subcategories of this category
-      await db.delete(subcategories)
+      // Soft delete all subcategories
+      await db
+        .update(subcategories)
+        .set({ isDeleted: true })
         .where(eq(subcategories.categoryId, categoryId));
 
-      // Delete the category
+      // Soft delete the category
       const [deletedCategory] = await db
-        .delete(categories)
+        .update(categories)
+        .set({ isDeleted: true })
         .where(eq(categories.id, categoryId))
         .returning();
 
@@ -651,21 +647,11 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const subcategoryId = parseInt(req.params.id);
-      const categoryId = parseInt(req.params.categoryId);
 
-      console.log('Delete subcategory request:', {
-        subcategoryId,
-        categoryId,
-        params: req.params,
-        url: req.url
-      });
-
-      // First find the subcategory directly
+      // First find the subcategory
       const subcategoryToDelete = await db.query.subcategories.findFirst({
-        where: eq(subcategories.id, subcategoryId)
+        where: eq(subcategories.id, subcategoryId),
       });
-
-      console.log('Found subcategory:', subcategoryToDelete);
 
       if (!subcategoryToDelete) {
         return res.status(404).json({
@@ -674,27 +660,25 @@ export function registerRoutes(app: express.Application): Server {
         });
       }
 
-      // Now find or create "Not specified" subcategory in the SAME category as the subcategory we're deleting
+      // Find or create "Not specified" subcategory
       let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
         where: and(
           eq(subcategories.name, "Not specified"),
-          eq(subcategories.categoryId, subcategoryToDelete.categoryId)
+          eq(subcategories.categoryId, subcategoryToDelete.categoryId),
+          eq(subcategories.isDeleted, false)
         ),
       });
 
-      console.log('Existing Not specified subcategory:', notSpecifiedSubcategory);
-
       if (!notSpecifiedSubcategory) {
-        // Create "Not specified" subcategory in the same category
         const [newSubcategory] = await db.insert(subcategories)
           .values({
             name: "Not specified",
             categoryId: subcategoryToDelete.categoryId,
             displayOrder: 9999,
+            isDeleted: false
           })
           .returning();
         notSpecifiedSubcategory = newSubcategory;
-        console.log('Created new Not specified subcategory:', newSubcategory);
       }
 
       // Move videos to "Not specified"
@@ -702,15 +686,13 @@ export function registerRoutes(app: express.Application): Server {
         .set({ subcategoryId: notSpecifiedSubcategory.id })
         .where(eq(videos.subcategoryId, subcategoryId));
 
-      console.log('Updated videos to use Not specified subcategory');
-
-      // Finally delete the subcategory
+      // Soft delete the subcategory
       const [deletedSubcategory] = await db
-        .delete(subcategories)
+        .update(subcategories)
+        .set({ isDeleted: true })
         .where(eq(subcategories.id, subcategoryId))
         .returning();
 
-      console.log('Deleted subcategory:', deletedSubcategory);
       res.json(deletedSubcategory);
     } catch (error) {
       console.error('Error in subcategory deletion:', error);

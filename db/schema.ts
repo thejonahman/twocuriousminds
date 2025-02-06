@@ -25,6 +25,8 @@ export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  displayOrder: integer("display_order").default(0),
 });
 
 export const subcategories = pgTable("subcategories", {
@@ -32,6 +34,7 @@ export const subcategories = pgTable("subcategories", {
   name: text("name").notNull(),
   categoryId: integer("category_id").notNull().references(() => categories.id),
   displayOrder: integer("display_order").default(0),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
 });
 
 export const videos = pgTable("videos", {
@@ -44,6 +47,7 @@ export const videos = pgTable("videos", {
   subcategoryId: integer("subcategory_id").references(() => subcategories.id),
   platform: text("platform").notNull(),
   watched: boolean("watched").default(false),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -75,11 +79,12 @@ export const categoryRelations = relations(categories, ({ many }) => ({
   subcategories: many(subcategories),
 }));
 
-export const subcategoryRelations = relations(subcategories, ({ one }) => ({
+export const subcategoryRelations = relations(subcategories, ({ one, many }) => ({
   category: one(categories, {
     fields: [subcategories.categoryId],
     references: [categories.id],
   }),
+  videos: many(videos),
 }));
 
 // Zod schemas
