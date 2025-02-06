@@ -47,19 +47,9 @@ export const videos = pgTable("videos", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const videoViews = pgTable("video_views", {
-  id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull().references(() => users.id),
-  videoId: integer("video_id").notNull().references(() => videos.id),
-  watchedDuration: integer("watched_duration").default(0),
-  completed: boolean("completed").default(false),
-  lastWatched: timestamp("last_watched").defaultNow(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
+// Relations setup
 export const userRelations = relations(users, ({ many }) => ({
   preferences: many(userPreferences),
-  videoViews: many(videoViews),
 }));
 
 export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
@@ -69,7 +59,7 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
   }),
 }));
 
-export const videoRelations = relations(videos, ({ one, many }) => ({
+export const videoRelations = relations(videos, ({ one }) => ({
   category: one(categories, {
     fields: [videos.categoryId],
     references: [categories.id],
@@ -78,7 +68,6 @@ export const videoRelations = relations(videos, ({ one, many }) => ({
     fields: [videos.subcategoryId],
     references: [subcategories.id],
   }),
-  views: many(videoViews),
 }));
 
 export const categoryRelations = relations(categories, ({ many }) => ({
@@ -93,6 +82,7 @@ export const subcategoryRelations = relations(subcategories, ({ one }) => ({
   }),
 }));
 
+// Zod schemas
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3).max(50),
   email: z.string().email(),
@@ -109,6 +99,3 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
 export const selectUserPreferencesSchema = createSelectSchema(userPreferences);
-
-export const insertVideoViewSchema = createInsertSchema(videoViews);
-export const selectVideoViewSchema = createSelectSchema(videoViews);

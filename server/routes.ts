@@ -1,6 +1,6 @@
 import { createServer, type Server } from "http";
 import { db } from "@db";
-import { videos, categories, userPreferences, subcategories, videoViews } from "@db/schema";
+import { videos, categories, userPreferences, subcategories } from "@db/schema";
 import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
 import { setupAuth } from "./auth";
 import fetch from "node-fetch";
@@ -486,33 +486,50 @@ export function registerRoutes(app: express.Application): Server {
       }) : null;
 
       // Build recommendation query conditions
-      const conditions = [ne(videos.id, videoId)]; // Exclude current video
+      const conditions = [ne(videos.id, videoId)];
 
-      // Add preference-based filters
+      // Add preference-based filters if user has preferences
       if (preferences) {
         if (preferences.excludedCategories?.length > 0) {
           conditions.push(notInArray(videos.categoryId, preferences.excludedCategories));
         }
+        if (preferences.preferredCategories?.length > 0) {
+          conditions.push(inArray(videos.categoryId, preferences.preferredCategories));
+        }
+        if (preferences.preferredPlatforms?.length > 0) {
+          conditions.push(inArray(videos.platform, preferences.preferredPlatforms));
+        }
+      } else {
+        // If no preferences, use similarity-based recommendations
+        conditions.push(
+          or(
+            eq(videos.categoryId, currentVideo.categoryId),
+            eq(videos.platform, currentVideo.platform)
+          )
+        );
       }
 
-      // Get recommendations based on category and platform matching
       const recommendations = await db.query.videos.findMany({
         where: and(...conditions),
         with: {
           category: true,
           subcategory: true,
         },
-        orderBy: sql`
-          CASE
-            WHEN category_id = ${currentVideo.categoryId} AND platform = ${currentVideo.platform} THEN 1
-            WHEN category_id = ${currentVideo.categoryId} THEN 2
-            WHEN platform = ${currentVideo.platform} THEN 3
-            ELSE 4
-          END,
-          created_at DESC
-        `,
         limit: 5,
       });
+
+      // Update missing thumbnails for recommendations
+      for (const video of recommendations) {
+        if (!video.thumbnailUrl) {
+          const thumbnailUrl = await getThumbnailUrl(video.url, video.platform, video.title, video.description);
+          if (thumbnailUrl) {
+            await db.update(videos)
+              .set({ thumbnailUrl })
+              .where(eq(videos.id, video.id));
+            video.thumbnailUrl = thumbnailUrl;
+          }
+        }
+      }
 
       res.json(recommendations);
     } catch (error) {
