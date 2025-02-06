@@ -20,9 +20,15 @@ interface PreferencesData {
   excludedCategories: number[];
 }
 
+const DEFAULT_PREFERENCES: PreferencesData = {
+  preferredCategories: [],
+  preferredPlatforms: [],
+  excludedCategories: [],
+};
+
 export function PreferencesDialog() {
   const [open, setOpen] = useState(false);
-  const [localPreferences, setLocalPreferences] = useState<PreferencesData | null>(null);
+  const [localPreferences, setLocalPreferences] = useState<PreferencesData>(DEFAULT_PREFERENCES);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -30,13 +36,10 @@ export function PreferencesDialog() {
     queryKey: ["/api/categories"],
   });
 
-  const { data: serverPreferences } = useQuery<PreferencesData>({
+  const { data: serverPreferences, isLoading } = useQuery<PreferencesData>({
     queryKey: ["/api/preferences"],
     onSuccess: (data) => {
-      // Initialize local state with server data if not already set
-      if (!localPreferences) {
-        setLocalPreferences(data);
-      }
+      setLocalPreferences(data || DEFAULT_PREFERENCES);
     },
   });
 
@@ -70,58 +73,73 @@ export function PreferencesDialog() {
   });
 
   const toggleCategory = (categoryId: number, type: "preferred" | "excluded") => {
-    if (!localPreferences) return;
-
-    const newPreferences = { ...localPreferences };
-    if (type === "preferred") {
-      if (newPreferences.preferredCategories.includes(categoryId)) {
-        newPreferences.preferredCategories = newPreferences.preferredCategories.filter(id => id !== categoryId);
+    setLocalPreferences(prev => {
+      const newPreferences = { ...prev };
+      if (type === "preferred") {
+        if (newPreferences.preferredCategories.includes(categoryId)) {
+          newPreferences.preferredCategories = newPreferences.preferredCategories.filter(id => id !== categoryId);
+        } else {
+          newPreferences.preferredCategories = [...newPreferences.preferredCategories, categoryId];
+          // Remove from excluded if it was there
+          newPreferences.excludedCategories = newPreferences.excludedCategories.filter(id => id !== categoryId);
+        }
       } else {
-        newPreferences.preferredCategories = [...newPreferences.preferredCategories, categoryId];
-        // Remove from excluded if it was there
-        newPreferences.excludedCategories = newPreferences.excludedCategories.filter(id => id !== categoryId);
+        if (newPreferences.excludedCategories.includes(categoryId)) {
+          newPreferences.excludedCategories = newPreferences.excludedCategories.filter(id => id !== categoryId);
+        } else {
+          newPreferences.excludedCategories = [...newPreferences.excludedCategories, categoryId];
+          // Remove from preferred if it was there
+          newPreferences.preferredCategories = newPreferences.preferredCategories.filter(id => id !== categoryId);
+        }
       }
-    } else {
-      if (newPreferences.excludedCategories.includes(categoryId)) {
-        newPreferences.excludedCategories = newPreferences.excludedCategories.filter(id => id !== categoryId);
-      } else {
-        newPreferences.excludedCategories = [...newPreferences.excludedCategories, categoryId];
-        // Remove from preferred if it was there
-        newPreferences.preferredCategories = newPreferences.preferredCategories.filter(id => id !== categoryId);
-      }
-    }
-
-    setLocalPreferences(newPreferences);
+      return newPreferences;
+    });
   };
 
   const togglePlatform = (platformId: string) => {
-    if (!localPreferences) return;
-
-    const newPreferences = { ...localPreferences };
-    if (newPreferences.preferredPlatforms.includes(platformId)) {
-      newPreferences.preferredPlatforms = newPreferences.preferredPlatforms.filter(id => id !== platformId);
-    } else {
-      newPreferences.preferredPlatforms = [...newPreferences.preferredPlatforms, platformId];
-    }
-
-    setLocalPreferences(newPreferences);
+    setLocalPreferences(prev => {
+      const newPreferences = { ...prev };
+      if (newPreferences.preferredPlatforms.includes(platformId)) {
+        newPreferences.preferredPlatforms = newPreferences.preferredPlatforms.filter(id => id !== platformId);
+      } else {
+        newPreferences.preferredPlatforms = [...newPreferences.preferredPlatforms, platformId];
+      }
+      return newPreferences;
+    });
   };
 
   const handleSave = () => {
-    if (!localPreferences) return;
     mutation.mutate(localPreferences);
   };
 
   const handleClose = (open: boolean) => {
     if (!open) {
       // Reset local changes when dialog is closed without saving
-      setLocalPreferences(serverPreferences || null);
+      setLocalPreferences(serverPreferences || DEFAULT_PREFERENCES);
     }
     setOpen(open);
   };
 
   // Check if there are unsaved changes
   const hasChanges = JSON.stringify(localPreferences) !== JSON.stringify(serverPreferences);
+
+  if (isLoading) {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Settings className="h-4 w-4" />
+            <span className="sr-only">Preferences</span>
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Loading preferences...</DialogTitle>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -150,16 +168,16 @@ export function PreferencesDialog() {
                   <div 
                     key={category.id} 
                     className={`p-3 rounded-lg transition-colors ${
-                      localPreferences?.preferredCategories.includes(category.id)
+                      localPreferences.preferredCategories.includes(category.id)
                         ? 'bg-primary/10'
-                        : localPreferences?.excludedCategories.includes(category.id)
+                        : localPreferences.excludedCategories.includes(category.id)
                         ? 'bg-destructive/10'
                         : 'hover:bg-accent'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <Badge
-                        variant={localPreferences?.preferredCategories.includes(category.id) ? "default" : "outline"}
+                        variant={localPreferences.preferredCategories.includes(category.id) ? "default" : "outline"}
                         className="text-base font-normal py-1.5"
                       >
                         {category.name}
@@ -169,26 +187,26 @@ export function PreferencesDialog() {
                           variant="ghost"
                           size="sm"
                           className={`gap-2 ${
-                            localPreferences?.preferredCategories.includes(category.id)
+                            localPreferences.preferredCategories.includes(category.id)
                               ? 'text-primary hover:text-primary'
                               : ''
                           }`}
                           onClick={() => toggleCategory(category.id, "preferred")}
                         >
-                          {localPreferences?.preferredCategories.includes(category.id) ? "Selected" : "Select"}
+                          {localPreferences.preferredCategories.includes(category.id) ? "Selected" : "Select"}
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
                           className={`gap-2 ${
-                            localPreferences?.excludedCategories.includes(category.id)
+                            localPreferences.excludedCategories.includes(category.id)
                               ? 'text-destructive hover:text-destructive'
                               : ''
                           }`}
                           onClick={() => toggleCategory(category.id, "excluded")}
                         >
                           <ThumbsDown className="h-4 w-4" />
-                          {localPreferences?.excludedCategories.includes(category.id) ? "Excluded" : "Exclude"}
+                          {localPreferences.excludedCategories.includes(category.id) ? "Excluded" : "Exclude"}
                         </Button>
                       </div>
                     </div>
@@ -206,7 +224,7 @@ export function PreferencesDialog() {
               {platforms.map((platform) => (
                 <Button
                   key={platform.id}
-                  variant={localPreferences?.preferredPlatforms.includes(platform.id) ? "default" : "outline"}
+                  variant={localPreferences.preferredPlatforms.includes(platform.id) ? "default" : "outline"}
                   className="gap-2"
                   onClick={() => togglePlatform(platform.id)}
                 >
