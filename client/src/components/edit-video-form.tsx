@@ -259,24 +259,27 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [updateVideoMutation]);
 
   useEffect(() => {
+    // Store the current scroll position when the form mounts
+    const currentScrollPosition = scrollPosition;
+
     if (hasSubmitted.current && !isSubmitting) {
+      // Use requestAnimationFrame to ensure DOM updates are complete
       const restoreScroll = () => {
-        try {
+        requestAnimationFrame(() => {
           window.scrollTo({
-            top: scrollPosition,
-            behavior: "instant"
+            top: currentScrollPosition,
+            behavior: 'instant'
           });
 
+          // Only close the form after the scroll position is restored
           const timeoutId = setTimeout(() => {
             if (onClose) {
               onClose();
             }
-          }, 50);
+          }, 100);
 
           return () => clearTimeout(timeoutId);
-        } catch (error) {
-          console.error('Error restoring scroll position:', error);
-        }
+        });
       };
 
       restoreScroll();
