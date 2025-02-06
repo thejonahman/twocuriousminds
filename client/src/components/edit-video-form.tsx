@@ -284,8 +284,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [isSubmitting, scrollPosition, onClose]);
 
   return (
-    <div className="fixed inset-0 bg-background/80 grid place-items-center p-4">
-      <Card className="w-full max-w-2xl grid grid-rows-[1fr,auto] max-h-[85vh] bg-background shadow-lg">
+    <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50">
+      <Card className="w-full max-w-2xl grid grid-rows-[1fr,auto] h-[85vh] bg-background shadow-lg relative">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-rows-[1fr,auto] h-full">
             <div className="overflow-auto">
