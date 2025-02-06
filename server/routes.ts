@@ -617,9 +617,9 @@ export function registerRoutes(app: express.Application): Server {
 
       // Update all videos in this category to use "Not specified" category
       await db.update(videos)
-        .set({ 
+        .set({
           categoryId: notSpecifiedCategory.id,
-          subcategoryId: notSpecifiedSubcategory.id 
+          subcategoryId: notSpecifiedSubcategory.id
         })
         .where(eq(videos.categoryId, categoryId));
 
@@ -652,7 +652,6 @@ export function registerRoutes(app: express.Application): Server {
 
       const subcategoryId = parseInt(req.params.id);
       const categoryId = parseInt(req.params.categoryId);
-      console.log('Attempting to delete subcategory:', subcategoryId);
 
       // Validate subcategory ID
       if (isNaN(subcategoryId)) {
@@ -664,10 +663,7 @@ export function registerRoutes(app: express.Application): Server {
 
       // First verify the subcategory exists
       const existingSubcategory = await db.query.subcategories.findFirst({
-        where: and(
-          eq(subcategories.id, subcategoryId),
-          eq(subcategories.categoryId, categoryId)
-        ),
+        where: eq(subcategories.id, subcategoryId)
       });
 
       if (!existingSubcategory) {
@@ -677,8 +673,6 @@ export function registerRoutes(app: express.Application): Server {
           details: "The specified subcategory does not exist"
         });
       }
-
-      console.log('Found subcategory to delete:', existingSubcategory);
 
       // Get or create the "Not specified" subcategory for this category
       let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
@@ -693,18 +687,17 @@ export function registerRoutes(app: express.Application): Server {
           .values({
             name: "Not specified",
             categoryId: categoryId,
-            displayOrder: 9999, // Put it at the end
+            displayOrder: 9999,
           })
           .returning();
         notSpecifiedSubcategory = newSubcategory;
       }
 
       // Update all videos that use this subcategory to use "Not specified"
-      const updateResult = await db.update(videos)
+      await db.update(videos)
         .set({ subcategoryId: notSpecifiedSubcategory.id })
         .where(eq(videos.subcategoryId, subcategoryId));
 
-      console.log('Updated videos result:', updateResult);
 
       // Delete the subcategory
       const [deletedSubcategory] = await db
