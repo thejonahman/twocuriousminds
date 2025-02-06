@@ -284,15 +284,15 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [isSubmitting, scrollPosition, onClose]);
 
   return (
-    <div className="fixed inset-0 bg-background/50 flex items-center justify-center p-4 z-50">
-      <Card className="w-full max-w-2xl grid grid-rows-[1fr,auto] h-[85vh] bg-background shadow-lg relative">
+    <div className="fixed inset-0 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)', zIndex: 50 }}>
+      <div className="w-full max-w-2xl bg-background rounded-lg shadow-lg overflow-hidden">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-rows-[1fr,auto] h-full">
-            <div className="overflow-auto">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-[85vh]">
+            <div className="flex-1 overflow-y-auto">
               <div className="p-6 space-y-6">
                 <div className="space-y-2">
                   <FormLabel>Thumbnail</FormLabel>
-                  <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                     <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
                       {thumbnailUrl ? (
                         <img
@@ -353,7 +353,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="description"
@@ -367,7 +366,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="url"
@@ -381,7 +379,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="categoryId"
@@ -416,7 +413,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="subcategoryId"
@@ -449,7 +445,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
                     name="platform"
@@ -479,7 +474,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
               </div>
             </div>
 
-            <CardFooter className="border-t p-4 bg-background">
+            <div className="border-t bg-background p-4 mt-auto">
               <Button
                 type="submit"
                 className="w-full relative"
@@ -494,10 +489,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                   </span>
                 )}
               </Button>
-            </CardFooter>
+            </div>
           </form>
         </Form>
-      </Card>
+      </div>
     </div>
   );
 }
