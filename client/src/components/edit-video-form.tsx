@@ -53,8 +53,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const hasSubmitted = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -69,29 +71,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   });
 
   useEffect(() => {
-    if (hasSubmitted.current && !isSubmitting) {
-      const restoreScroll = () => {
-        try {
-          window.scrollTo({
-            top: scrollPosition,
-            behavior: "instant"
-          });
-
-          const timeoutId = setTimeout(() => {
-            if (onClose) {
-              onClose();
-            }
-          }, 50);
-
-          return () => clearTimeout(timeoutId);
-        } catch (error) {
-          console.error('Error restoring scroll position:', error);
-        }
-      };
-
-      restoreScroll();
+    if (filePreview) {
+      setThumbnailUrl(filePreview);
     }
-  }, [isSubmitting, scrollPosition, onClose]);
+  }, [filePreview]);
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
@@ -202,58 +185,61 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const handleThumbnailChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Error",
-          description: "Image file size must be less than 5MB",
-          variant: "destructive",
-        });
-        return;
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Error",
+        description: "Image file size must be less than 5MB",
+        variant: "destructive",
+      });
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
       }
+      return;
+    }
+
+    try {
+      setIsGeneratingThumbnail(true);
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFilePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
 
       const formData = new FormData();
       formData.append('thumbnail', file);
 
-      try {
-        // Set loading state
-        setIsGeneratingThumbnail(true);
+      const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
+        method: 'PATCH',
+        body: formData,
+      });
 
-        // Read file first and update UI immediately
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setThumbnailUrl(reader.result as string);
-        };
-        reader.readAsDataURL(file);
-
-        // Then send to server
-        const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
-          method: 'PATCH',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to upload thumbnail');
-        }
-
-        const updatedVideo = await response.json();
-
-        // Update with server response
-        setThumbnailUrl(updatedVideo.thumbnailUrl);
-        toast({
-          title: "Success",
-          description: "Thumbnail updated successfully",
-        });
-      } catch (error) {
-        console.error('Thumbnail upload error:', error);
-        toast({
-          title: "Error",
-          description: "Failed to upload thumbnail",
-          variant: "destructive",
-        });
-      } finally {
-        setIsGeneratingThumbnail(false);
+      if (!response.ok) {
+        throw new Error('Failed to upload thumbnail');
       }
+
+      const updatedVideo = await response.json();
+      setThumbnailUrl(updatedVideo.thumbnailUrl);
+
+      toast({
+        title: "Success",
+        description: "Thumbnail updated successfully",
+      });
+    } catch (error) {
+      console.error('Thumbnail upload error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to upload thumbnail",
+        variant: "destructive",
+      });
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      setFilePreview(null);
+    } finally {
+      setIsGeneratingThumbnail(false);
     }
   }, [video.id]);
 
@@ -272,8 +258,33 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   }, [updateVideoMutation]);
 
+  useEffect(() => {
+    if (hasSubmitted.current && !isSubmitting) {
+      const restoreScroll = () => {
+        try {
+          window.scrollTo({
+            top: scrollPosition,
+            behavior: "instant"
+          });
+
+          const timeoutId = setTimeout(() => {
+            if (onClose) {
+              onClose();
+            }
+          }, 50);
+
+          return () => clearTimeout(timeoutId);
+        } catch (error) {
+          console.error('Error restoring scroll position:', error);
+        }
+      };
+
+      restoreScroll();
+    }
+  }, [isSubmitting, scrollPosition, onClose]);
+
   return (
-    <Card className="max-h-[85vh] flex flex-col transition-all duration-200">
+    <Card className="max-h-[85vh] flex flex-col">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full" ref={formRef}>
           <CardContent className="space-y-4 overflow-y-auto flex-1">
@@ -281,44 +292,45 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
               <FormLabel>Thumbnail</FormLabel>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                  {thumbnailUrl ? (
-                    <div className={`transition-opacity duration-200 ${isGeneratingThumbnail ? 'opacity-50' : 'opacity-100'}`}>
-                      <img
-                        src={thumbnailUrl}
-                        alt="Video thumbnail"
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                      No thumbnail
-                    </div>
-                  )}
-                  {isGeneratingThumbnail && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-background/50">
-                      <Skeleton className="h-full w-full absolute" />
-                    </div>
-                  )}
+                  <div className="absolute inset-0 transition-all duration-300 ease-in-out">
+                    {thumbnailUrl ? (
+                      <div className={`w-full h-full transition-opacity duration-300 ${isGeneratingThumbnail ? 'opacity-50' : 'opacity-100'}`}>
+                        <img
+                          src={thumbnailUrl}
+                          alt="Video thumbnail"
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                        No thumbnail
+                      </div>
+                    )}
+                    {isGeneratingThumbnail && (
+                      <div className="absolute inset-0 bg-background/50 flex items-center justify-center transition-opacity duration-300">
+                        <Skeleton className="h-full w-full" />
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex flex-col gap-2 w-full">
-                  <div className="relative">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={handleGenerateThumbnail}
-                      disabled={isGeneratingThumbnail}
-                      className="w-full sm:w-auto transition-opacity duration-200"
-                    >
-                      {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
-                    </Button>
-                  </div>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleGenerateThumbnail}
+                    disabled={isGeneratingThumbnail}
+                    className="w-full sm:w-auto transition-all duration-300"
+                  >
+                    {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
+                  </Button>
                   <div className="flex-1">
                     <Input
                       type="file"
                       accept="image/*"
                       onChange={handleThumbnailChange}
-                      className="cursor-pointer transition-opacity duration-200"
+                      className="cursor-pointer transition-all duration-300"
                       disabled={isGeneratingThumbnail}
+                      ref={fileInputRef}
                     />
                     <p className="text-sm text-muted-foreground mt-1">
                       Or upload a custom thumbnail image (optional)
@@ -470,7 +482,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           <CardFooter className="border-t mt-auto">
             <Button
               type="submit"
-              className="w-full transition-all duration-200"
+              className="w-full transition-all duration-300"
               disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
             >
               {isSubmitting ? "Updating..." : "Update Video"}
