@@ -349,7 +349,7 @@ export function registerRoutes(app: express.Application): Server {
         with: {
           subcategories: {
             where: eq(subcategories.isDeleted, false),
-            orderBy: [asc(subcategories.displayOrder), asc(subcategories.name)],
+            orderBy: [asc(subcategories.name)], //Removed displayOrder
           },
         },
       });
@@ -660,7 +660,7 @@ export function registerRoutes(app: express.Application): Server {
         });
       }
 
-      // Find or create "Not specified" subcategory
+      // Find or create "Not specified" subcategory in the same category
       let notSpecifiedSubcategory = await db.query.subcategories.findFirst({
         where: and(
           eq(subcategories.name, "Not specified"),
