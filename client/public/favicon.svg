@@ -1,4 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
-  <path d="M16 4C12 4 8.5 6.5 8.5 11c0 2.5 1.2 4.6 3 6C9.5 18.5 8.5 21 8.5 23.5c0 4.5 3.5 7 7.5 7s7.5-2.5 7.5-7c0-2.5-1-5-3-6.5 1.8-1.4 3-3.5 3-6 0-4.5-3.5-7-7.5-7z" fill="#7c3aed"/>
-  <path d="M16 7c-2.2 0-4 1.8-4 4s1.8 4 4 4 4-1.8 4-4-1.8-4-4-4zm0 14c-2.2 0-4 1.8-4 4s1.8 4 4 4 4-1.8 4-4-1.8-4-4-4z" fill="#ffffff"/>
+  <defs>
+    <linearGradient id="brainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#7c3aed;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6d28d9;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <!-- Main brain shape -->
+  <path d="M16 4C10 4 5 8 5 13c0 2.5 1.5 4.7 3.5 6.2C6.5 21 5 23.5 5 26c0 5 5 6 11 6s11-1 11-6c0-2.5-1.5-5-3.5-6.8C25.5 17.7 27 15.5 27 13c0-5-5-9-11-9z" 
+        fill="url(#brainGradient)"
+        filter="url(#shadow)"/>
+  <!-- Brain details -->
+  <path d="M16 7c-3 0-5 2-5 4.5s2 4.5 5 4.5 5-2 5-4.5S19 7 16 7zm0 13c-3 0-5 2-5 4.5s2 4.5 5 4.5 5-2 5-4.5S19 20 16 20z" 
+        fill="#9333ea"
+        opacity="0.6"/>
 </svg>
