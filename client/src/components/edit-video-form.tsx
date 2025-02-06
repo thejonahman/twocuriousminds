@@ -593,7 +593,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                         <EyeOff className="h-4 w-4" />
                       </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent className="z-[70]">
+                    <AlertDialogContent>
                       <AlertDialogHeader>
                         <AlertDialogTitle>Hide Topic</AlertDialogTitle>
                         <AlertDialogDescription>
@@ -602,10 +602,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={handleHideTopic}
-                          className="bg-muted hover:bg-muted/90"
-                        >
+                        <AlertDialogAction onClick={handleHideTopic}>
                           Hide
                         </AlertDialogAction>
                       </AlertDialogFooter>
@@ -694,19 +691,16 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                         <EyeOff className="h-4 w-4" />
                       </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent className="z-[70]">
+                    <AlertDialogContent>
                       <AlertDialogHeader>
                         <AlertDialogTitle>Hide Subtopic</AlertDialogTitle>
                         <AlertDialogDescription>
                           Are you sure you want to hide this subtopic? Hidden items can be restored later by an administrator.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
-                      <AlertDialogFooter className="flex justify-end space-x-2">
-                        <AlertDialogCancel className="mr-2">Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={handleHideSubtopic}
-                          className="bg-muted hover:bg-muted/90"
-                        >
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleHideSubtopic}>
                           Hide
                         </AlertDialogAction>
                       </AlertDialogFooter>
