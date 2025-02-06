@@ -40,7 +40,7 @@ export function PreferencesDialog() {
     queryKey: ["/api/preferences"],
   });
 
-  // Update local preferences whenever server preferences change
+  // Update local preferences whenever server preferences change or dialog opens
   useEffect(() => {
     if (serverPreferences) {
       setLocalPreferences({
@@ -49,7 +49,7 @@ export function PreferencesDialog() {
         excludedCategories: serverPreferences.excludedCategories || [],
       });
     }
-  }, [serverPreferences]);
+  }, [serverPreferences, open]);
 
   const platforms = [
     { id: "youtube", name: "YouTube", icon: <Youtube className="h-4 w-4 text-red-500" /> },
@@ -140,24 +140,6 @@ export function PreferencesDialog() {
 
   // Check if there are unsaved changes
   const hasChanges = JSON.stringify(localPreferences) !== JSON.stringify(serverPreferences);
-
-  if (isLoading) {
-    return (
-      <Dialog open={open} onOpenChange={handleClose}>
-        <DialogTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <Settings className="h-4 w-4" />
-            <span className="sr-only">Preferences</span>
-          </Button>
-        </DialogTrigger>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Loading preferences...</DialogTitle>
-          </DialogHeader>
-        </DialogContent>
-      </Dialog>
-    );
-  }
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
