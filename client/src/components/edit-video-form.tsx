@@ -90,12 +90,16 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const generateThumbnailMutation = useMutation({
     mutationFn: async () => {
       setIsGeneratingThumbnail(true);
-      const response = await apiRequest("POST", `/api/thumbnails/generate`, {
+      const formData = {
         url: form.getValues("url"),
         platform: form.getValues("platform"),
         title: form.getValues("title"),
-        description: form.getValues("description"),
-      });
+        description: form.getValues("description") || ""
+      };
+
+      console.log('Sending thumbnail generation request:', formData);
+
+      const response = await apiRequest("POST", `/api/thumbnails/generate`, formData);
 
       if (!response.ok) {
         const errorData = await response.json();

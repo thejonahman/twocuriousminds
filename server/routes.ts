@@ -112,24 +112,37 @@ export function registerRoutes(app: express.Application): Server {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
+      console.log('Received thumbnail generation request:', req.body);
+
       const { url, platform, title, description } = req.body;
 
-      if (!url || !platform) {
+      // Validate each field individually for better error messages
+      const missingFields = [];
+      if (!url) missingFields.push('url');
+      if (!platform) missingFields.push('platform');
+
+      if (missingFields.length > 0) {
+        console.log('Missing fields:', missingFields);
         return res.status(400).json({
           message: "Missing required fields",
-          details: "URL and platform are required"
+          details: `Missing: ${missingFields.join(', ')}`
         });
       }
+
+      // Log the values being passed to getThumbnailUrl
+      console.log('Generating thumbnail with:', { url, platform, title, description });
 
       const thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
 
       if (!thumbnailUrl) {
+        console.log('Failed to generate thumbnail - no URL returned');
         return res.status(400).json({
           message: "Failed to generate thumbnail",
           details: "Could not generate thumbnail for the given URL"
         });
       }
 
+      console.log('Successfully generated thumbnail');
       res.json({ thumbnailUrl });
     } catch (error) {
       console.error('Error generating thumbnail:', error);
