@@ -106,6 +106,41 @@ export function registerRoutes(app: express.Application): Server {
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
+  app.post("/api/thumbnails/generate", async (req, res) => {
+    try {
+      if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: "Unauthorized" });
+      }
+
+      const { url, platform, title, description } = req.body;
+
+      if (!url || !platform) {
+        return res.status(400).json({
+          message: "Missing required fields",
+          details: "URL and platform are required"
+        });
+      }
+
+      const thumbnailUrl = await getThumbnailUrl(url, platform, title, description);
+
+      if (!thumbnailUrl) {
+        return res.status(400).json({
+          message: "Failed to generate thumbnail",
+          details: "Could not generate thumbnail for the given URL"
+        });
+      }
+
+      res.json({ thumbnailUrl });
+    } catch (error) {
+      console.error('Error generating thumbnail:', error);
+      res.status(500).json({
+        message: "Failed to generate thumbnail",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
+
   // Regular PATCH endpoint for updating other video fields
   app.patch("/api/videos/:id", async (req, res) => {
     try {
