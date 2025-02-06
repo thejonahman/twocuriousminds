@@ -284,18 +284,18 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   }, [isSubmitting, scrollPosition, onClose]);
 
   return (
-    <Card className="flex flex-col max-h-[85vh] relative bg-background">
+    <Card className="flex flex-col h-[85vh] bg-background">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full" ref={formRef}>
-          <div className="flex-1 overflow-hidden flex flex-col">
-            <CardContent className="space-y-4 flex-1 overflow-y-auto pt-6">
+          <div className="flex-1 min-h-0">
+            <CardContent className="h-full space-y-4 overflow-y-auto pb-20">
               <div className="space-y-2">
                 <FormLabel>Thumbnail</FormLabel>
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                   <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                    <div className="absolute inset-0 transition-all duration-300 ease-in-out">
+                    <div className="absolute inset-0">
                       {thumbnailUrl ? (
-                        <div className={`w-full h-full transition-opacity duration-300 ${isGeneratingThumbnail ? 'opacity-50' : 'opacity-100'}`}>
+                        <div className={`w-full h-full ${isGeneratingThumbnail ? 'opacity-50' : 'opacity-100'}`}>
                           <img
                             src={thumbnailUrl}
                             alt="Video thumbnail"
@@ -308,7 +308,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                         </div>
                       )}
                       {isGeneratingThumbnail && (
-                        <div className="absolute inset-0 bg-background/50 flex items-center justify-center transition-opacity duration-300">
+                        <div className="absolute inset-0 bg-background/50 flex items-center justify-center">
                           <Skeleton className="h-full w-full" />
                         </div>
                       )}
@@ -320,7 +320,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       variant="secondary"
                       onClick={handleGenerateThumbnail}
                       disabled={isGeneratingThumbnail}
-                      className="w-full sm:w-auto transition-all duration-300"
+                      className="w-full sm:w-auto"
                     >
                       {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
                     </Button>
@@ -329,7 +329,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                         type="file"
                         accept="image/*"
                         onChange={handleThumbnailChange}
-                        className="cursor-pointer transition-all duration-300"
+                        className="cursor-pointer"
                         disabled={isGeneratingThumbnail}
                         ref={fileInputRef}
                       />
@@ -481,13 +481,13 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
             </CardContent>
           </div>
 
-          <CardFooter className="border-t bg-background sticky bottom-0 z-10 mt-auto py-4">
+          <CardFooter className="border-t bg-background fixed bottom-0 left-0 right-0 z-50 p-4">
             <Button
               type="submit"
-              className="w-full transition-colors hover:transition-none duration-200 ease-in-out"
+              className="w-full"
               disabled={isSubmitting || updateVideoMutation.isPending || isGeneratingThumbnail}
             >
-              <span className={`transition-opacity duration-200 ${isSubmitting ? 'opacity-0' : 'opacity-100'}`}>
+              <span className={isSubmitting ? 'opacity-0' : 'opacity-100'}>
                 {isSubmitting ? "Updating..." : "Update Video"}
               </span>
               {isSubmitting && (
