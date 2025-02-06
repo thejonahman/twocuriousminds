@@ -40,6 +40,25 @@ export function registerRoutes(app: express.Application): Server {
   // Add multer error handling middleware
   app.use(handleMulterError);
 
+  // Add error handling for database operations
+  const handleDatabaseError = (error: any, res: express.Response) => {
+    console.error('Database error:', error);
+
+    // Check for connection errors
+    if (error.code === 'XX000' && error.message.includes('endpoint is disabled')) {
+      return res.status(503).json({
+        message: "Database connection temporarily unavailable",
+        error: "Please try again in a few moments"
+      });
+    }
+
+    // Generic database error
+    res.status(500).json({
+      message: "Database operation failed",
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  };
+
   // Handle file uploads first - BEFORE any JSON parsing middleware
   app.patch("/api/videos/:id/thumbnail", upload.single('thumbnail'), async (req, res) => {
     try {
@@ -76,11 +95,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(updatedVideo);
     } catch (error) {
-      console.error('Error updating thumbnail:', error);
-      res.status(500).json({
-        message: "Failed to update thumbnail",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -123,11 +138,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(updatedVideo);
     } catch (error) {
-      console.error('Error updating video:', error);
-      res.status(500).json({
-        message: "Failed to update video",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -178,42 +189,41 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(result);
     } catch (error) {
-      console.error('Error fetching videos:', error);
-      res.status(500).json({
-        message: "Failed to fetch videos",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
   app.get("/api/videos/:id", async (req, res) => {
-    const result = await db.query.videos.findFirst({
-      where: eq(videos.id, parseInt(req.params.id)),
-      with: {
-        category: true,
-        subcategory: true,
-      },
-    });
+    try {
+      const result = await db.query.videos.findFirst({
+        where: eq(videos.id, parseInt(req.params.id)),
+        with: {
+          category: true,
+          subcategory: true,
+        },
+      });
 
-    if (!result) {
-      res.status(404).json({ message: "Video not found" });
-      return;
-    }
-
-    if (!result.thumbnailUrl) {
-      const thumbnailUrl = await getThumbnailUrl(result.url, result.platform, result.title, result.description);
-      if (thumbnailUrl) {
-        await db.update(videos)
-          .set({ thumbnailUrl })
-          .where(eq(videos.id, result.id));
-        result.thumbnailUrl = thumbnailUrl;
+      if (!result) {
+        return res.status(404).json({ message: "Video not found" });
       }
-    }
 
-    res.json(result);
+      if (!result.thumbnailUrl) {
+        const thumbnailUrl = await getThumbnailUrl(result.url, result.platform, result.title, result.description);
+        if (thumbnailUrl) {
+          await db.update(videos)
+            .set({ thumbnailUrl })
+            .where(eq(videos.id, result.id));
+          result.thumbnailUrl = thumbnailUrl;
+        }
+      }
+
+      res.json(result);
+    } catch (error) {
+      handleDatabaseError(error, res);
+    }
   });
 
-  app.post("/api/videos", express.json({limit: '10mb'}), async (req, res) => {
+  app.post("/api/videos", express.json({ limit: '10mb' }), async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
@@ -256,22 +266,22 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(video);
     } catch (error) {
-      console.error('Error adding video:', error);
-      res.status(500).json({
-        message: "Failed to add video",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
 
   app.get("/api/categories", async (_req, res) => {
-    const result = await db.query.categories.findMany({
-      with: {
-        subcategories: true,
-      },
-    });
-    res.json(result);
+    try {
+      const result = await db.query.categories.findMany({
+        with: {
+          subcategories: true,
+        },
+      });
+      res.json(result);
+    } catch (error) {
+      handleDatabaseError(error, res);
+    }
   });
 
   app.get("/api/categories/:categoryId/subcategories", async (req, res) => {
@@ -294,11 +304,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(category.subcategories);
     } catch (error) {
-      console.error('Error fetching subcategories:', error);
-      res.status(500).json({
-        message: "Failed to fetch subcategories",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -345,47 +351,47 @@ export function registerRoutes(app: express.Application): Server {
       });
 
     } catch (error) {
-      console.error('Error creating category:', error);
-      res.status(500).json({
-        message: "Failed to create category",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
   app.get("/api/preferences", async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Not authenticated" });
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const result = await db.query.userPreferences.findFirst({
+        where: eq(userPreferences.userId, req.user.id),
+      });
+
+      if (!result) {
+        const defaults = await db.insert(userPreferences)
+          .values({
+            userId: req.user.id,
+            preferredCategories: [],
+            preferredPlatforms: [],
+            excludedCategories: [],
+          })
+          .returning();
+        res.json(defaults[0]);
+        return;
+      }
+
+      res.json(result);
+    } catch (error) {
+      handleDatabaseError(error, res);
     }
-
-    const result = await db.query.userPreferences.findFirst({
-      where: eq(userPreferences.userId, req.user.id),
-    });
-
-    if (!result) {
-      const defaults = await db.insert(userPreferences)
-        .values({
-          userId: req.user.id,
-          preferredCategories: [],
-          preferredPlatforms: [],
-          excludedCategories: [],
-        })
-        .returning();
-      res.json(defaults[0]);
-      return;
-    }
-
-    res.json(result);
   });
 
   app.post("/api/preferences", async (req, res) => {
-    if (!req.user) {
-      return res.status(401).json({ message: "Not authenticated" });
-    }
-
-    const { preferredCategories, preferredPlatforms, excludedCategories } = req.body;
-
     try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { preferredCategories, preferredPlatforms, excludedCategories } = req.body;
+
       // First try to find existing preferences
       const existingPreferences = await db.query.userPreferences.findFirst({
         where: eq(userPreferences.userId, req.user.id),
@@ -419,11 +425,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(result);
     } catch (error) {
-      console.error('Error saving preferences:', error);
-      res.status(500).json({ 
-        message: "Failed to save preferences",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -495,11 +497,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(recommendations);
     } catch (error) {
-      console.error('Error in recommendations:', error);
-      res.status(500).json({
-        message: "Failed to get recommendations",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -521,11 +519,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(deletedVideo);
     } catch (error) {
-      console.error('Error deleting video:', error);
-      res.status(500).json({
-        message: "Failed to delete video",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -553,11 +547,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(deletedCategory);
     } catch (error) {
-      console.error('Error deleting category:', error);
-      res.status(500).json({
-        message: "Failed to delete category",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -589,11 +579,7 @@ export function registerRoutes(app: express.Application): Server {
 
       res.json(deletedSubcategory);
     } catch (error) {
-      console.error('Error deleting subcategory:', error);
-      res.status(500).json({
-        message: "Failed to delete subcategory",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
