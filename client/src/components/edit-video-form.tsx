@@ -321,9 +321,23 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       return response.json();
     },
     onSuccess: () => {
-      // Invalidate both the videos list and the individual video queries
-      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-      queryClient.invalidateQueries({ queryKey: [`/api/videos/${video.id}`] });
+      // More specific query invalidation
+      queryClient.invalidateQueries({ 
+        queryKey: ["/api/videos"],
+        exact: true
+      });
+      // Invalidate the specific video
+      queryClient.invalidateQueries({ 
+        queryKey: [`/api/videos/${video.id}`],
+        exact: true
+      });
+      // Don't invalidate categories unless necessary
+      if (form.formState.dirtyFields.categoryId || form.formState.dirtyFields.subcategoryId) {
+        queryClient.invalidateQueries({ 
+          queryKey: ["/api/categories"],
+          exact: true
+        });
+      }
       toast({
         title: "Success",
         description: "Video updated successfully",
