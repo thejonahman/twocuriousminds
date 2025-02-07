@@ -10,7 +10,6 @@ import { SiTiktok } from "react-icons/si";
 import { useState, useCallback, useRef } from "react";
 import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
 import { Video } from "@/lib/types";
 
@@ -30,7 +29,14 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
       console.log('Attempting to delete video:', videoId);
-      const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
+      const response = await fetch(`/api/videos/${videoId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
       console.log('Delete response status:', response.status);
 
       if (!response.ok) {
@@ -71,7 +77,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     setDialogOpen(false);
     setTimeout(() => {
       setSelectedVideo(null);
-    }, 300); 
+    }, 300);
   }, []);
 
   const getPlatformIcon = (platform: string) => {
@@ -107,7 +113,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
           <Link href={`/video/${video.id}`}>
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted/50 relative group">
-                <div 
+                <div
                   className={`absolute inset-0 flex items-center justify-center ${
                     video.thumbnailUrl && !failedThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
                   } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
@@ -125,7 +131,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                 )}
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent h-1/2 transition-opacity opacity-0 group-hover:opacity-100" />
                 <div className="absolute top-2 right-2 z-10">
-                  <Badge 
+                  <Badge
                     variant={video.watched ? "secondary" : "outline"}
                     className="flex items-center gap-1.5 bg-background/95 backdrop-blur-sm shadow-sm"
                   >
@@ -159,8 +165,8 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
               </div>
               {showEditButton && (
                 <div className="flex items-center gap-2">
-                  <Button 
-                    variant="ghost" 
+                  <Button
+                    variant="ghost"
                     size="icon"
                     onClick={(e) => {
                       e.preventDefault();
@@ -223,8 +229,8 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
             <DialogTitle>Edit Video</DialogTitle>
           </DialogHeader>
           {selectedVideo && (
-            <EditVideoForm 
-              video={selectedVideo} 
+            <EditVideoForm
+              video={selectedVideo}
               onClose={handleDialogClose}
               scrollPosition={scrollPositionRef.current}
             />

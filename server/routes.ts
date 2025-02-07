@@ -642,6 +642,11 @@ export function registerRoutes(app: express.Application): Server {
       const videoId = parseInt(req.params.id);
       console.log('Processing delete request for video:', videoId);
 
+      if (isNaN(videoId)) {
+        console.error('Invalid video ID:', req.params.id);
+        return res.status(400).json({ message: "Invalid video ID" });
+      }
+
       // Soft delete the video by setting isDeleted to true
       const [deletedVideo] = await db
         .update(videos)
@@ -655,7 +660,7 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       console.log('Successfully deleted video:', videoId);
-      res.json({ message: "Video deleted successfully" });
+      res.status(200).json({ message: "Video deleted successfully", id: videoId });
     } catch (error) {
       console.error('Error deleting video:', error);
       handleDatabaseError(error, res);
