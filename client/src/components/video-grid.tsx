@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2, Loader2 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { useState, useCallback, useRef } from "react";
 import { EditVideoForm } from "./edit-video-form";
@@ -20,6 +20,7 @@ interface VideoGridProps {
 
 export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
+  const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const scrollPositionRef = useRef(0);
@@ -93,10 +94,31 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     }
   };
 
+  const handleThumbnailLoading = (videoId: number) => {
+    setLoadingThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.add(videoId);
+      return newSet;
+    });
+  };
+
+  const handleThumbnailLoaded = (videoId: number) => {
+    setLoadingThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(videoId);
+      return newSet;
+    });
+  };
+
   const handleThumbnailError = (videoId: number) => {
     setFailedThumbnails(prev => {
       const newSet = new Set(prev);
       newSet.add(videoId);
+      return newSet;
+    });
+    setLoadingThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(videoId);
       return newSet;
     });
   };
@@ -115,10 +137,14 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
               <div className="w-full h-full bg-muted/50 relative group">
                 <div
                   className={`absolute inset-0 flex items-center justify-center ${
-                    video.thumbnailUrl && !failedThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
+                    video.thumbnailUrl && !failedThumbnails.has(video.id) && !loadingThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
                   } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
                 >
-                  {getPlatformIcon(video.platform)}
+                  {loadingThumbnails.has(video.id) ? (
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  ) : (
+                    getPlatformIcon(video.platform)
+                  )}
                 </div>
                 {(video.thumbnailUrl !== null && video.thumbnailUrl !== undefined) && !failedThumbnails.has(video.id) && (
                   <img
@@ -126,6 +152,8 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                     alt={video.title}
                     className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"
+                    onLoadStart={() => handleThumbnailLoading(video.id)}
+                    onLoad={() => handleThumbnailLoaded(video.id)}
                     onError={() => handleThumbnailError(video.id)}
                   />
                 )}

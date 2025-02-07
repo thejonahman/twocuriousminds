@@ -105,10 +105,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         platform: form.getValues("platform"),
         title: form.getValues("title"),
         description: form.getValues("description") || "",
-        videoId: video.id 
+        videoId: video.id
       };
 
-      const response = await apiRequest("POST", `/api/thumbnails/generate`, formData);
+      const response = await fetch('/api/thumbnails/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+        credentials: 'include'
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -120,10 +127,13 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     },
     onSuccess: (thumbnailUrl) => {
       setThumbnailUrl(thumbnailUrl);
+      // Update the cache immediately
       queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
         if (!oldData) return oldData;
         return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl } : v);
       });
+      // Also invalidate the query to ensure we get fresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
         description: "Thumbnail generated successfully",
@@ -450,8 +460,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   return (
     <Form {...form}>
-      <form 
-        onSubmit={form.handleSubmit(onSubmit)} 
+      <form
+        onSubmit={form.handleSubmit(onSubmit)}
         className="space-y-6 max-h-[80vh] overflow-y-auto px-4"
         ref={formRef}
       >
