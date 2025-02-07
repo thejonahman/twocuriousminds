@@ -321,7 +321,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate both the videos list and the individual video queries
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/videos/${video.id}`] });
       toast({
         title: "Success",
         description: "Video updated successfully",
