@@ -321,23 +321,24 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       return response.json();
     },
     onSuccess: () => {
-      // Invalidate queries in a way that preserves cache structure
+      // Invalidate and refetch all video-related queries
       queryClient.invalidateQueries({
         queryKey: ["/api/videos"],
-        refetchType: "all"
+        refetchType: "active"
       });
 
+      // If category or subcategory changed, invalidate those queries
       if (form.formState.dirtyFields.categoryId || form.formState.dirtyFields.subcategoryId) {
         queryClient.invalidateQueries({
           queryKey: ["/api/categories"],
-          refetchType: "all"
+          refetchType: "active"
         });
 
-        // Also invalidate subcategories if category changed
         if (form.formState.dirtyFields.categoryId) {
+          const categoryId = form.getValues("categoryId");
           queryClient.invalidateQueries({
-            queryKey: [`/api/categories/${form.getValues("categoryId")}/subcategories`],
-            refetchType: "all"
+            queryKey: [`/api/categories/${categoryId}/subcategories`],
+            refetchType: "active"
           });
         }
       }
