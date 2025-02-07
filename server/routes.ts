@@ -118,6 +118,7 @@ export function registerRoutes(app: express.Application): Server {
       const missingFields = [];
       if (!url) missingFields.push('url');
       if (!platform) missingFields.push('platform');
+      if (!videoId) missingFields.push('videoId');
 
       if (missingFields.length > 0) {
         console.log('Missing fields:', missingFields);
@@ -140,21 +141,32 @@ export function registerRoutes(app: express.Application): Server {
         });
       }
 
-      // If videoId is provided, update the video's thumbnailUrl
-      if (videoId) {
-        try {
-          await db.update(videos)
-            .set({ thumbnailUrl })
-            .where(eq(videos.id, videoId));
-          console.log('Updated video thumbnailUrl in database for video:', videoId);
-        } catch (dbError) {
-          console.error('Error updating video thumbnail in database:', dbError);
-          // Continue execution to at least return the generated thumbnail
-        }
-      }
+      // Update the video's thumbnailUrl in the database
+      try {
+        const [updatedVideo] = await db
+          .update(videos)
+          .set({ thumbnailUrl })
+          .where(eq(videos.id, videoId))
+          .returning();
 
-      console.log('Successfully generated thumbnail');
-      res.json({ thumbnailUrl });
+        if (!updatedVideo) {
+          console.error('Video not found for thumbnail update:', videoId);
+          return res.status(404).json({ message: "Video not found" });
+        }
+
+        console.log('Successfully updated video thumbnail:', {
+          videoId,
+          thumbnailUrl: thumbnailUrl.substring(0, 100) + '...' // Log truncated URL for brevity
+        });
+
+        res.json({ thumbnailUrl });
+      } catch (dbError) {
+        console.error('Error updating video thumbnail in database:', dbError);
+        res.status(500).json({
+          message: "Failed to save thumbnail",
+          error: dbError instanceof Error ? dbError.message : 'Unknown database error'
+        });
+      }
     } catch (error) {
       console.error('Error generating thumbnail:', error);
       res.status(500).json({

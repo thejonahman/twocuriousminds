@@ -104,7 +104,8 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         url: form.getValues("url"),
         platform: form.getValues("platform"),
         title: form.getValues("title"),
-        description: form.getValues("description") || ""
+        description: form.getValues("description") || "",
+        videoId: video.id 
       };
 
       const response = await apiRequest("POST", `/api/thumbnails/generate`, formData);
@@ -119,6 +120,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     },
     onSuccess: (thumbnailUrl) => {
       setThumbnailUrl(thumbnailUrl);
+      queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
+        if (!oldData) return oldData;
+        return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl } : v);
+      });
       toast({
         title: "Success",
         description: "Thumbnail generated successfully",
