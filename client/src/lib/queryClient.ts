@@ -12,6 +12,8 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  console.log(`Making ${method} request to ${url}`, data);
+
   const res = await fetch(url, {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
@@ -19,6 +21,7 @@ export async function apiRequest(
     credentials: "include",
   });
 
+  console.log(`Response status: ${res.status}`);
   await throwIfResNotOk(res);
   return res;
 }
@@ -47,7 +50,7 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      staleTime: 0, // Changed from Infinity to 0 to ensure fresh data after mutations
       retry: false,
     },
     mutations: {
