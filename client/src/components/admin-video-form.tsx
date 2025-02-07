@@ -11,10 +11,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 
-// Form validation schema
+// Form validation schema remains the same
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -51,6 +51,7 @@ export function AdminVideoForm() {
   const [newSubtopicName, setNewSubtopicName] = useState("");
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
   const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
+  const [currentVideoId, setCurrentVideoId] = useState<number | null>(null);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -71,6 +72,110 @@ export function AdminVideoForm() {
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
     staleTime: 30000,
+  });
+
+  const addVideoMutation = useMutation({
+    mutationFn: async (data: VideoFormData) => {
+      const response = await apiRequest("POST", "/api/videos", {
+        ...data,
+        thumbnailUrl: thumbnailUrl
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to add video");
+      }
+
+      const videoData = await response.json();
+      setCurrentVideoId(videoData.id);
+
+      if (thumbnailUrl) {
+        try {
+          const thumbnailResponse = await fetch(`/api/videos/${videoData.id}/thumbnail`, {
+            method: "POST",
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ thumbnailUrl }),
+            credentials: "include",
+          });
+
+          if (!thumbnailResponse.ok) {
+            console.error('Failed to upload thumbnail');
+            throw new Error('Failed to upload thumbnail');
+          }
+        } catch (error) {
+          console.error('Thumbnail upload error:', error);
+          throw error;
+        }
+      }
+
+      return videoData;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      form.reset();
+      setThumbnailUrl(null);
+      setCurrentVideoId(null);
+      toast({
+        title: "Success",
+        description: "Video added successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const generateThumbnailMutation = useMutation({
+    mutationFn: async ({ title, description }: { title: string; description?: string }) => {
+      const response = await fetch("/api/thumbnails/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          title, 
+          description,
+          videoId: currentVideoId, // Send the video ID if we have one
+          url: form.getValues("url"),
+          platform: form.getValues("platform")
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to generate thumbnail");
+      }
+
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setThumbnailUrl(data.thumbnailUrl);
+      setIsGeneratingThumbnail(false);
+
+      // If we have a current video ID, invalidate the videos query to refresh the data
+      if (currentVideoId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      }
+
+      toast({
+        title: "Success",
+        description: "Thumbnail generated successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to generate thumbnail",
+        description: error.message,
+        variant: "destructive",
+      });
+      setIsGeneratingThumbnail(false);
+    },
   });
 
   const deleteCategoryMutation = useMutation({
@@ -105,90 +210,6 @@ export function AdminVideoForm() {
         variant: "destructive"
       });
     }
-  });
-
-  const addVideoMutation = useMutation({
-    mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("POST", "/api/videos", {
-        ...data,
-        thumbnailPreview: thumbnailUrl ? true : false
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to add video");
-      }
-
-      const videoData = await response.json();
-
-      if (thumbnailUrl) {
-        const thumbnailResponse = await fetch(`/api/videos/${videoData.id}/thumbnail`, {
-          method: "POST",
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ thumbnailUrl }),
-          credentials: "include",
-        });
-
-        if (!thumbnailResponse.ok) {
-          console.error('Failed to upload thumbnail');
-        }
-      }
-
-      return videoData;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-      form.reset();
-      setThumbnailUrl(null);
-      toast({
-        title: "Success",
-        description: "Video added successfully",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const generateThumbnailMutation = useMutation({
-    mutationFn: async ({ title, description }: { title: string; description?: string }) => {
-      const response = await fetch("/api/thumbnails/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ title, description }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to generate thumbnail");
-      }
-
-      return response.json();
-    },
-    onSuccess: (data) => {
-      setThumbnailUrl(data.imageUrl);
-      setIsGeneratingThumbnail(false);
-      toast({
-        title: "Success",
-        description: "Thumbnail generated successfully",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Failed to generate thumbnail",
-        description: error.message,
-        variant: "destructive",
-      });
-      setIsGeneratingThumbnail(false);
-    },
   });
 
   const addTopicMutation = useMutation({

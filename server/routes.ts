@@ -112,7 +112,7 @@ export function registerRoutes(app: express.Application): Server {
 
       console.log('Received thumbnail generation request:', req.body);
 
-      const { url, platform, title, description } = req.body;
+      const { url, platform, title, description, videoId } = req.body;
 
       // Validate each field individually for better error messages
       const missingFields = [];
@@ -138,6 +138,19 @@ export function registerRoutes(app: express.Application): Server {
           message: "Failed to generate thumbnail",
           details: "Could not generate thumbnail for the given URL"
         });
+      }
+
+      // If videoId is provided, update the video's thumbnailUrl
+      if (videoId) {
+        try {
+          await db.update(videos)
+            .set({ thumbnailUrl })
+            .where(eq(videos.id, videoId));
+          console.log('Updated video thumbnailUrl in database for video:', videoId);
+        } catch (dbError) {
+          console.error('Error updating video thumbnail in database:', dbError);
+          // Continue execution to at least return the generated thumbnail
+        }
       }
 
       console.log('Successfully generated thumbnail');
