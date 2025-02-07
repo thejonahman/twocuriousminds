@@ -611,7 +611,7 @@ export function registerRoutes(app: express.Application): Server {
 
       if (!existingSubcategory) {
         console.log('Subcategory not found:', subcategoryId);
-        return res.status(404).json({ 
+        return res.status(404).json({
           message: "Subcategory not found",
           details: "The specified subcategory does not exist"
         });
@@ -632,49 +632,26 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  app.post("/api/videos", express.json({ limit: '10mb' }), async (req, res) => {
+  app.delete("/api/videos/:id", async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
         return res.status(403).json({ message: "Unauthorized" });
       }
 
-      console.log('Received video data:', req.body);
+      const videoId = parseInt(req.params.id);
 
-      const { title, description, url, categoryId, subcategoryId, platform, thumbnailPreview } = req.body;
-
-      // Validate required fields with specific messages
-      const missingFields = [];
-      if (!title) missingFields.push('title');
-      if (!url) missingFields.push('url');
-      if (!categoryId) missingFields.push('category');
-      if (!platform) missingFields.push('platform');
-
-      if (missingFields.length > 0) {
-        console.log('Missing fields:', missingFields);
-        return res.status(400).json({
-          message: "Missing required fields",
-          details: `Missing: ${missingFields.join(', ')}`
-        });
-      }
-
-      // Get thumbnail URL if preview is not pending
-      const thumbnailUrl = thumbnailPreview ? null : await getThumbnailUrl(url, platform, title, description);
-
-      // Insert new video
-      const [video] = await db.insert(videos)
-        .values({
-          title,
-          description: description || '',
-          url,
-          thumbnailUrl,
-          categoryId: parseInt(categoryId),
-          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
-          platform,
-          isDeleted: false, // Add isDeleted field
-        })
+      // Soft delete the video by setting isDeleted to true
+      const [deletedVideo] = await db
+        .update(videos)
+        .set({ isDeleted: true })
+        .where(eq(videos.id, videoId))
         .returning();
 
-      res.json(video);
+      if (!deletedVideo) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      res.json({ message: "Video deleted successfully" });
     } catch (error) {
       handleDatabaseError(error, res);
     }
