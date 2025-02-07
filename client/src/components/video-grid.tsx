@@ -34,6 +34,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to delete video");
       }
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -51,19 +52,17 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     },
   });
 
-  // Store scroll position when dialog opens
   const handleDialogOpen = useCallback((video: Video) => {
     scrollPositionRef.current = window.scrollY;
     setSelectedVideo(video);
     setDialogOpen(true);
   }, []);
 
-  // Handle dialog close
   const handleDialogClose = useCallback(() => {
     setDialogOpen(false);
     setTimeout(() => {
       setSelectedVideo(null);
-    }, 300); // Wait for dialog animation to complete
+    }, 300); 
   }, []);
 
   const getPlatformIcon = (platform: string) => {
@@ -87,9 +86,11 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     });
   };
 
-  const handleDelete = (videoId: number) => {
+  const handleDelete = useCallback((videoId: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     deleteMutation.mutate(videoId);
-  };
+  }, [deleteMutation]);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" ref={gridRef}>
@@ -167,7 +168,10 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         variant="ghost"
                         size="icon"
                         className="text-destructive hover:text-destructive/90"
-                        onClick={(e) => e.preventDefault()}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -180,12 +184,9 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={(e) => {
-                            e.preventDefault();
-                            handleDelete(video.id);
-                          }}
+                          onClick={(e) => handleDelete(video.id, e)}
                           className="bg-destructive hover:bg-destructive/90"
                         >
                           Delete
@@ -203,7 +204,6 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
         </Card>
       ))}
 
-      {/* Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
