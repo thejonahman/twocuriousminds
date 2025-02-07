@@ -31,13 +31,20 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     mutationFn: async (videoId: number) => {
       console.log('Attempting to delete video:', videoId);
       const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
+      console.log('Delete response status:', response.status);
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('Delete response error:', errorData);
         throw new Error(errorData.message || "Failed to delete video");
       }
-      return response.json();
+
+      const data = await response.json();
+      console.log('Delete response data:', data);
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('Delete mutation success:', data);
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
@@ -88,9 +95,8 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     });
   };
 
-  const handleDelete = useCallback((videoId: number, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDelete = useCallback((videoId: number) => {
+    console.log('Delete handler called for video:', videoId);
     deleteMutation.mutate(videoId);
   }, [deleteMutation]);
 
@@ -192,7 +198,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                             e.preventDefault();
                             e.stopPropagation();
                             console.log('Delete button clicked for video:', video.id);
-                            deleteMutation.mutate(video.id);
+                            handleDelete(video.id);
                           }}
                           className="bg-destructive hover:bg-destructive/90"
                         >
