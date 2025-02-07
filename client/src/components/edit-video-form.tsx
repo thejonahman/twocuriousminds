@@ -107,8 +107,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         description: form.getValues("description") || ""
       };
 
-      console.log('Sending thumbnail generation request:', formData);
-
       const response = await apiRequest("POST", `/api/thumbnails/generate`, formData);
 
       if (!response.ok) {
@@ -321,13 +319,11 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       return response.json();
     },
     onSuccess: () => {
-      // Invalidate and refetch all video-related queries
       queryClient.invalidateQueries({
         queryKey: ["/api/videos"],
         refetchType: "active"
       });
 
-      // If category or subcategory changed, invalidate those queries
       if (form.formState.dirtyFields.categoryId || form.formState.dirtyFields.subcategoryId) {
         queryClient.invalidateQueries({
           queryKey: ["/api/categories"],
@@ -449,7 +445,11 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" ref={formRef}>
+      <form 
+        onSubmit={form.handleSubmit(onSubmit)} 
+        className="space-y-6 max-h-[80vh] overflow-y-auto px-4"
+        ref={formRef}
+      >
         <div className="space-y-4">
           <FormField
             control={form.control}
@@ -760,7 +760,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           />
         </div>
 
-        <div className="pt-4 border-t">
+        <div className="pt-4 border-t sticky bottom-0 bg-background px-4 py-4 -mx-4">
           <Button
             type="submit"
             className="w-full relative"
