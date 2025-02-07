@@ -29,6 +29,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
+      console.log('Attempting to delete video:', videoId);
       const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
       if (!response.ok) {
         const errorData = await response.json();
@@ -44,6 +45,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
       });
     },
     onError: (error: Error) => {
+      console.error('Delete mutation error:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -176,7 +178,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent>
+                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete Video</AlertDialogTitle>
                         <AlertDialogDescription>
@@ -186,7 +188,12 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                       <AlertDialogFooter>
                         <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={(e) => handleDelete(video.id, e)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            console.log('Delete button clicked for video:', video.id);
+                            deleteMutation.mutate(video.id);
+                          }}
                           className="bg-destructive hover:bg-destructive/90"
                         >
                           Delete

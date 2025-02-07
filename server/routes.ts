@@ -635,10 +635,12 @@ export function registerRoutes(app: express.Application): Server {
   app.delete("/api/videos/:id", async (req, res) => {
     try {
       if (!req.user?.isAdmin) {
+        console.log('Unauthorized delete attempt');
         return res.status(403).json({ message: "Unauthorized" });
       }
 
       const videoId = parseInt(req.params.id);
+      console.log('Processing delete request for video:', videoId);
 
       // Soft delete the video by setting isDeleted to true
       const [deletedVideo] = await db
@@ -648,11 +650,14 @@ export function registerRoutes(app: express.Application): Server {
         .returning();
 
       if (!deletedVideo) {
+        console.log('Video not found for deletion:', videoId);
         return res.status(404).json({ message: "Video not found" });
       }
 
+      console.log('Successfully deleted video:', videoId);
       res.json({ message: "Video deleted successfully" });
     } catch (error) {
+      console.error('Error deleting video:', error);
       handleDatabaseError(error, res);
     }
   });
