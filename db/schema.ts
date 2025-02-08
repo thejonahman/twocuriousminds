@@ -51,15 +51,75 @@ export const videos = pgTable("videos", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Relations setup
+export const discussionGroups = pgTable("discussion_groups", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  videoId: integer("video_id").references(() => videos.id),
+  creatorId: integer("creator_id").notNull().references(() => users.id),
+  isPrivate: boolean("is_private").default(true).notNull(),
+  inviteCode: text("invite_code").notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const groupMembers = pgTable("group_members", {
+  id: serial("id").primaryKey(),
+  groupId: integer("group_id").notNull().references(() => discussionGroups.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  role: text("role").notNull().default("member"),
+  notificationsEnabled: boolean("notifications_enabled").default(true),
+  joinedAt: timestamp("joined_at").defaultNow(),
+});
+
+export const groupMessages = pgTable("group_messages", {
+  id: serial("id").primaryKey(),
+  groupId: integer("group_id").notNull().references(() => discussionGroups.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const userNotifications = pgTable("user_notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  groupId: integer("group_id").notNull().references(() => discussionGroups.id),
+  messageId: integer("message_id").references(() => groupMessages.id),
+  type: text("type").notNull(),
+  read: boolean("read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const userRelations = relations(users, ({ many }) => ({
   preferences: many(userPreferences),
+  createdGroups: many(discussionGroups, { relationName: "creator" }),
+  groupMemberships: many(groupMembers),
+  groupMessages: many(groupMessages),
+  notifications: many(userNotifications),
 }));
 
-export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
-  user: one(users, {
-    fields: [userPreferences.userId],
+export const discussionGroupRelations = relations(discussionGroups, ({ one, many }) => ({
+  creator: one(users, {
+    fields: [discussionGroups.creatorId],
     references: [users.id],
+  }),
+  video: one(videos, {
+    fields: [discussionGroups.videoId],
+    references: [videos.id],
+  }),
+  members: many(groupMembers),
+  messages: many(groupMessages),
+}));
+
+export const groupMemberRelations = relations(groupMembers, ({ one }) => ({
+  user: one(users, {
+    fields: [groupMembers.userId],
+    references: [users.id],
+  }),
+  group: one(discussionGroups, {
+    fields: [groupMembers.groupId],
+    references: [discussionGroups.id],
   }),
 }));
 
@@ -87,7 +147,14 @@ export const subcategoryRelations = relations(subcategories, ({ one, many }) => 
   videos: many(videos),
 }));
 
-// Zod schemas
+export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
+  user: one(users, {
+    fields: [userPreferences.userId],
+    references: [users.id],
+  }),
+}));
+
+
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3).max(50),
   email: z.string().email(),
@@ -104,3 +171,27 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export const insertUserPreferencesSchema = createInsertSchema(userPreferences);
 export const selectUserPreferencesSchema = createSelectSchema(userPreferences);
+
+export const insertDiscussionGroupSchema = createInsertSchema(discussionGroups, {
+  name: z.string().min(1, "Name is required"),
+  description: z.string().optional(),
+  isPrivate: z.boolean().default(true),
+});
+
+export const insertGroupMemberSchema = createInsertSchema(groupMembers, {
+  role: z.enum(["admin", "member"]).default("member"),
+  notificationsEnabled: z.boolean().default(true),
+});
+
+export const insertGroupMessageSchema = createInsertSchema(groupMessages, {
+  content: z.string().min(1, "Message content is required"),
+});
+
+export const insertUserNotificationSchema = createInsertSchema(userNotifications, {
+  type: z.enum(["new_message", "group_invite"]),
+});
+
+export type InsertDiscussionGroup = z.infer<typeof insertDiscussionGroupSchema>;
+export type InsertGroupMember = z.infer<typeof insertGroupMemberSchema>;
+export type InsertGroupMessage = z.infer<typeof insertGroupMessageSchema>;
+export type InsertUserNotification = z.infer<typeof insertUserNotificationSchema>;

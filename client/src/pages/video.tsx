@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
+import { DiscussionGroup } from "@/components/discussion-group";
 
 export default function Video() {
   const { id } = useParams();
@@ -176,6 +177,7 @@ export default function Video() {
             </div>
           </div>
           <DelphiBubble videoId={video.id} />
+          <DiscussionGroup videoId={video.id} videoTitle={video.title} />
         </div>
 
         <div className="lg:sticky lg:top-4 space-y-4">

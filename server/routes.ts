@@ -1,11 +1,13 @@
 import { createServer, type Server } from "http";
 import express from 'express';
+import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
 import fetch from "node-fetch";
-import { videos, categories, userPreferences, subcategories } from "@db/schema";
+import { videos, categories, userPreferences, subcategories, discussionGroups, groupMembers, groupMessages, userNotifications } from "@db/schema";
 import { setupAuth } from "./auth";
 import multer from 'multer';
+import crypto from 'crypto';
 
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -33,6 +35,9 @@ const handleMulterError = (err: any, req: express.Request, res: express.Response
   }
   next(err);
 };
+
+// Store active WebSocket connections
+const connectedClients = new Map<number, WebSocket>();
 
 export function registerRoutes(app: express.Application): Server {
   // Setup auth first
@@ -692,7 +697,225 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  return createServer(app);
+  const httpServer = createServer(app);
+
+  // Set up WebSocket server
+  const wss = new WebSocketServer({ 
+    server: httpServer, 
+    path: '/ws',
+    verifyClient: (info, cb) => {
+      // Skip verification for Vite HMR
+      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        cb(true);
+        return;
+      }
+
+      // Verify user session
+      const session = (info.req as any).session;
+      if (!session?.passport?.user) {
+        cb(false, 401, 'Unauthorized');
+        return;
+      }
+      cb(true);
+    }
+  });
+
+  wss.on('connection', (ws, req) => {
+    const userId = (req as any).session?.passport?.user?.id;
+    if (userId) {
+      connectedClients.set(userId, ws);
+
+      ws.on('message', async (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+
+          if (message.type === 'group_message') {
+            const { groupId, content } = message;
+
+            // Save message to database
+            const [savedMessage] = await db.insert(groupMessages)
+              .values({
+                groupId,
+                userId,
+                content,
+              })
+              .returning();
+
+            // Get group members for notifications
+            const members = await db.query.groupMembers.findMany({
+              where: and(
+                eq(groupMembers.groupId, groupId),
+                ne(groupMembers.userId, userId),
+                eq(groupMembers.notificationsEnabled, true)
+              ),
+            });
+
+            // Create notifications and send to connected clients
+            for (const member of members) {
+              // Save notification
+              await db.insert(userNotifications)
+                .values({
+                  userId: member.userId,
+                  groupId,
+                  messageId: savedMessage.id,
+                  type: 'new_message',
+                });
+
+              // Send to connected client if online
+              const clientWs = connectedClients.get(member.userId);
+              if (clientWs?.readyState === WebSocket.OPEN) {
+                clientWs.send(JSON.stringify({
+                  type: 'new_message',
+                  data: {
+                    ...savedMessage,
+                    groupId,
+                  },
+                }));
+              }
+            }
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+        }
+      });
+
+      ws.on('close', () => {
+        connectedClients.delete(userId);
+      });
+    }
+  });
+
+  // Discussion group routes
+  app.post("/api/groups", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { name, description, videoId, isPrivate = true } = req.body;
+
+      // Validate input
+      if (!name || !videoId) {
+        return res.status(400).json({ message: "Name and video ID are required" });
+      }
+
+      // Generate unique invite code
+      const inviteCode = crypto.randomBytes(6).toString('hex');
+
+      // Create discussion group
+      const [group] = await db.insert(discussionGroups)
+        .values({
+          name,
+          description,
+          videoId,
+          creatorId: req.user.id,
+          isPrivate,
+          inviteCode,
+        })
+        .returning();
+
+      // Add creator as admin member
+      await db.insert(groupMembers)
+        .values({
+          groupId: group.id,
+          userId: req.user.id,
+          role: 'admin',
+        });
+
+      res.json(group);
+    } catch (error) {
+      handleDatabaseError(error, res);
+    }
+  });
+
+  app.post("/api/groups/:inviteCode/join", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const { inviteCode } = req.params;
+
+      // Find group by invite code
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.inviteCode, inviteCode),
+      });
+
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      // Check if user is already a member
+      const existingMember = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, group.id),
+          eq(groupMembers.userId, req.user.id)
+        ),
+      });
+
+      if (existingMember) {
+        return res.status(400).json({ message: "Already a member" });
+      }
+
+      // Add user to group
+      const [member] = await db.insert(groupMembers)
+        .values({
+          groupId: group.id,
+          userId: req.user.id,
+          role: 'member',
+        })
+        .returning();
+
+      // Notify group creator
+      await db.insert(userNotifications)
+        .values({
+          userId: group.creatorId,
+          groupId: group.id,
+          type: 'new_member',
+        });
+
+      res.json({ group, member });
+    } catch (error) {
+      handleDatabaseError(error, res);
+    }
+  });
+
+  app.get("/api/groups/:groupId/messages", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const groupId = parseInt(req.params.groupId);
+
+      // Verify user is a member
+      const member = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user.id)
+        ),
+      });
+
+      if (!member) {
+        return res.status(403).json({ message: "Not a member of this group" });
+      }
+
+      // Get messages with user info
+      const messages = await db.query.groupMessages.findMany({
+        where: eq(groupMessages.groupId, groupId),
+        orderBy: [asc(groupMessages.createdAt)],
+        with: {
+          user: true,
+        },
+      });
+
+      res.json(messages);
+    } catch (error) {
+      handleDatabaseError(error, res);
+    }
+  });
+
+  return httpServer;
 }
 
 async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
