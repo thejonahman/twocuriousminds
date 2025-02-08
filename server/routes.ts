@@ -199,7 +199,6 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-
   // Regular PATCH endpoint for updating other video fields
   app.patch("/api/videos/:id", async (req, res) => {
     try {
