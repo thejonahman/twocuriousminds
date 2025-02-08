@@ -6,6 +6,7 @@ import fetch from "node-fetch";
 import { videos, categories, userPreferences, subcategories } from "@db/schema";
 import { setupAuth } from "./auth";
 import multer from 'multer';
+import { createHash } from 'crypto';
 
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -81,7 +82,14 @@ export function registerRoutes(app: express.Application): Server {
       // Convert the uploaded file to base64
       const base64Image = req.file.buffer.toString('base64');
       const mimeType = req.file.mimetype;
-      const thumbnailUrl = `data:${mimeType};base64,${base64Image}`;
+      const etag = createHash('md5').update(base64Image).digest('hex');
+      const thumbnailUrl = `data:${mimeType};base64,${base64Image};etag=${etag}`;
+
+      // Add cache control headers
+      res.set({
+        'Cache-Control': 'public, max-age=31536000',
+        'ETag': `"${etag}"`
+      });
 
       // Update video with new thumbnail
       const [updatedVideo] = await db
@@ -140,6 +148,21 @@ export function registerRoutes(app: express.Application): Server {
           details: "Could not generate thumbnail for the given URL"
         });
       }
+
+      // Extract ETag from thumbnailUrl if present
+      const etag = thumbnailUrl.split(';etag=')[1] || createHash('md5').update(thumbnailUrl).digest('hex');
+
+      // Check if the client has a cached version
+      const ifNoneMatch = req.get('If-None-Match');
+      if (ifNoneMatch === `"${etag}"`) {
+        return res.status(304).end();
+      }
+
+      // Add cache control headers
+      res.set({
+        'Cache-Control': 'public, max-age=31536000',
+        'ETag': `"${etag}"`
+      });
 
       // Update the video's thumbnailUrl in the database
       try {
@@ -765,7 +788,10 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
           </svg>
         `.trim().replace(/\n\s+/g, ' ');
 
-        return `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
+        // Generate ETag for the SVG content
+        const etag = createHash('md5').update(svgContent).digest('hex');
+        const base64Content = Buffer.from(svgContent).toString('base64');
+        return `data:image/svg+xml;base64,${base64Content};etag=${etag}`;
       }
       default:
         console.error('Unsupported platform:', platform);

@@ -7,7 +7,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2, Loader2 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
@@ -18,6 +18,14 @@ interface VideoGridProps {
   showEditButton?: boolean;
 }
 
+interface CacheMetadata {
+  etag: string;
+  timestamp: number;
+}
+
+const CACHE_NAME = 'video-thumbnails-v1';
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
 export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
   const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
@@ -26,6 +34,91 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const scrollPositionRef = useRef(0);
   const queryClient = useQueryClient();
   const gridRef = useRef<HTMLDivElement>(null);
+  const cacheRef = useRef<Cache | null>(null);
+
+  // Initialize cache
+  useEffect(() => {
+    if ('caches' in window) {
+      caches.open(CACHE_NAME).then(cache => {
+        cacheRef.current = cache;
+      });
+    }
+  }, []);
+
+  const getCacheMetadata = useCallback(async (url: string): Promise<CacheMetadata | null> => {
+    if (!cacheRef.current) return null;
+
+    try {
+      const response = await cacheRef.current.match(url);
+      if (!response) return null;
+
+      const etag = response.headers.get('etag');
+      const timestamp = parseInt(response.headers.get('x-cache-timestamp') || '0');
+
+      if (!etag || !timestamp) return null;
+
+      return { etag, timestamp };
+    } catch (error) {
+      console.error('Error reading cache metadata:', error);
+      return null;
+    }
+  }, []);
+
+  const setCacheMetadata = useCallback(async (url: string, etag: string) => {
+    if (!cacheRef.current) return;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) return;
+
+      const headers = new Headers(response.headers);
+      headers.set('etag', etag);
+      headers.set('x-cache-timestamp', Date.now().toString());
+
+      const cachedResponse = new Response(await response.blob(), {
+        headers
+      });
+
+      await cacheRef.current.put(url, cachedResponse);
+    } catch (error) {
+      console.error('Error setting cache metadata:', error);
+    }
+  }, []);
+
+  const handleThumbnailLoading = useCallback((videoId: number) => {
+    setLoadingThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.add(videoId);
+      return newSet;
+    });
+  }, []);
+
+  const handleThumbnailLoaded = useCallback(async (videoId: number, thumbnailUrl: string) => {
+    setLoadingThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(videoId);
+      return newSet;
+    });
+
+    // Extract ETag from data URL if present
+    const etagMatch = thumbnailUrl.match(/;etag=([^;]+)/);
+    if (etagMatch && etagMatch[1]) {
+      await setCacheMetadata(thumbnailUrl, etagMatch[1]);
+    }
+  }, [setCacheMetadata]);
+
+  const handleThumbnailError = useCallback((videoId: number) => {
+    setFailedThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.add(videoId);
+      return newSet;
+    });
+    setLoadingThumbnails(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(videoId);
+      return newSet;
+    });
+  }, []);
 
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
@@ -94,34 +187,6 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     }
   };
 
-  const handleThumbnailLoading = (videoId: number) => {
-    setLoadingThumbnails(prev => {
-      const newSet = new Set(prev);
-      newSet.add(videoId);
-      return newSet;
-    });
-  };
-
-  const handleThumbnailLoaded = (videoId: number) => {
-    setLoadingThumbnails(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(videoId);
-      return newSet;
-    });
-  };
-
-  const handleThumbnailError = (videoId: number) => {
-    setFailedThumbnails(prev => {
-      const newSet = new Set(prev);
-      newSet.add(videoId);
-      return newSet;
-    });
-    setLoadingThumbnails(prev => {
-      const newSet = new Set(prev);
-      newSet.delete(videoId);
-      return newSet;
-    });
-  };
 
   const handleDelete = useCallback((videoId: number) => {
     console.log('Delete handler called for video:', videoId);
@@ -153,7 +218,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                     className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"
                     onLoadStart={() => handleThumbnailLoading(video.id)}
-                    onLoad={() => handleThumbnailLoaded(video.id)}
+                    onLoad={() => handleThumbnailLoaded(video.id, video.thumbnailUrl!)}
                     onError={() => handleThumbnailError(video.id)}
                   />
                 )}
