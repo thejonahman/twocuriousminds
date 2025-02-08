@@ -12,10 +12,12 @@ interface Video {
   id: number;
   title: string;
   url: string;
-  thumbnailUrl: string;
+  thumbnailUrl: string | null;
   platform: string;
   watched: boolean;
   description: string;
+  categoryId: number;
+  subcategoryId?: number;
   category: {
     id: number;
     name: string;
@@ -29,6 +31,7 @@ interface Video {
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [, setLocation] = useLocation();
   const search = useSearch();
   const params = new URLSearchParams(search);
   const initialCategoryId = params.get('category');
@@ -38,6 +41,24 @@ export default function Home() {
     queryKey: ["/api/videos"],
   });
 
+  // Handle URL updates when category changes
+  const handleCategoryChange = (categoryId: string) => {
+    const newParams = new URLSearchParams(search);
+    newParams.set('category', categoryId);
+    // Clear subcategory when changing category
+    newParams.delete('subcategory');
+    setLocation(`/?${newParams.toString()}`);
+  };
+
+  // Handle URL updates when clicking on a subtopic
+  const handleSubtopicClick = (categoryId: string, subcategoryId: string) => {
+    const newParams = new URLSearchParams(search);
+    newParams.set('category', categoryId);
+    newParams.set('subcategory', subcategoryId);
+    setLocation(`/?${newParams.toString()}`);
+  };
+
+  // Scroll to subcategory section when URL parameters change
   useEffect(() => {
     if (initialSubcategoryId && videos) {
       const element = document.getElementById(`subcategory-${initialSubcategoryId}`);
@@ -98,7 +119,7 @@ export default function Home() {
     return acc;
   }, {} as Record<number, { 
     name: string; 
-    subcategories: Record<number, { name: string; videos: Video[], displayOrder?: number }>;
+    subcategories: Record<number, { name: string; videos: Video[]; displayOrder?: number }>;
   }>) : null;
 
   const sortedCategories = videosByCategory ? Object.entries(videosByCategory).sort(([,a], [,b]) => 
@@ -150,6 +171,7 @@ export default function Home() {
         <Tabs 
           defaultValue={initialCategoryId || sortedCategories[0]?.[0]} 
           className="space-y-10"
+          onValueChange={handleCategoryChange}
         >
           <div className="space-y-8">
             <div className="text-center">
@@ -162,7 +184,7 @@ export default function Home() {
                 {sortedCategories.map(([id, category]) => (
                   <TabsTrigger 
                     key={id} 
-                    value={id} 
+                    value={id}
                     className="text-base py-3 px-5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md rounded-lg transition-all duration-200"
                   >
                     {category.name}
@@ -172,8 +194,8 @@ export default function Home() {
             </div>
           </div>
 
-          {sortedCategories.map(([id, category]) => (
-            <TabsContent key={id} value={id} className="space-y-10">
+          {sortedCategories.map(([categoryId, category]) => (
+            <TabsContent key={categoryId} value={categoryId} className="space-y-10">
               <div className="grid grid-cols-1 lg:grid-cols-[260px,1fr] gap-10">
                 <aside className="lg:border-r lg:pr-8">
                   <div className="lg:sticky lg:top-24 space-y-6">
@@ -191,8 +213,10 @@ export default function Home() {
                         .map(([subId, subcategory]) => (
                           <button
                             key={subId}
-                            onClick={() => document.getElementById(`subcategory-${subId}`)?.scrollIntoView({ behavior: 'smooth' })}
-                            className="w-full text-left px-5 py-3.5 rounded-xl hover:bg-accent/50 hover:shadow-sm transition-all duration-200 flex items-center justify-between group"
+                            onClick={() => handleSubtopicClick(categoryId, subId)}
+                            className={`w-full text-left px-5 py-3.5 rounded-xl hover:bg-accent/50 hover:shadow-sm transition-all duration-200 flex items-center justify-between group ${
+                              initialSubcategoryId === subId ? 'bg-accent/50 shadow-sm' : ''
+                            }`}
                           >
                             <span className="text-sm font-medium">{subcategory.name}</span>
                             <Badge variant="secondary" className="bg-primary/5 group-hover:bg-primary/10 transition-colors">
@@ -216,7 +240,9 @@ export default function Home() {
                       <div 
                         key={subId} 
                         id={`subcategory-${subId}`} 
-                        className="scroll-mt-24 space-y-8 p-8 rounded-2xl bg-accent/5 border border-accent/10 hover:border-accent/20 transition-colors shadow-sm hover:shadow-md"
+                        className={`scroll-mt-24 space-y-8 p-8 rounded-2xl bg-accent/5 border border-accent/10 hover:border-accent/20 transition-colors shadow-sm hover:shadow-md ${
+                          initialSubcategoryId === subId ? 'ring-2 ring-primary/20' : ''
+                        }`}
                       >
                         <div className="flex items-center gap-3 pb-6 border-b">
                           <h2 className="text-2xl font-semibold tracking-tight">{subcategory.name}</h2>
