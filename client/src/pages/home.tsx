@@ -122,9 +122,27 @@ export default function Home() {
     subcategories: Record<number, { name: string; videos: Video[]; displayOrder?: number }>;
   }>) : null;
 
-  const sortedCategories = videosByCategory ? Object.entries(videosByCategory).sort(([,a], [,b]) => 
-    a.name.localeCompare(b.name)
-  ) : [];
+  // Assuming categories array is fetched from somewhere else.  This needs to be implemented.
+  const categories =  [
+    { name: "Learn about ADHD", displayOrder: -1 },
+    { name: "Another Category", displayOrder: 1 },
+    // Add other categories here...
+  ];
+
+  const sortedCategories = videosByCategory ? Object.entries(videosByCategory).sort(([,a], [,b]) => {
+    // First sort by display_order if available
+    const categoryA = categories?.find(cat => cat.name === a.name);
+    const categoryB = categories?.find(cat => cat.name === b.name);
+
+    const orderA = categoryA?.displayOrder ?? 0;
+    const orderB = categoryB?.displayOrder ?? 0;
+
+    if (orderA !== orderB) {
+      return orderA - orderB;
+    }
+    // If display_order is the same, sort by name
+    return a.name.localeCompare(b.name);
+  }) : [];
 
   return (
     <div className="space-y-12">
