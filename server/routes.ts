@@ -2,7 +2,7 @@ import { createServer, type Server } from "http";
 import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
-import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
+import { sql, eq, and, or, ne, inArray, notInArray, desc, asc, select } from "drizzle-orm";
 import fetch from "node-fetch";
 import { videos, categories, userPreferences, subcategories, discussionGroups, groupMembers, groupMessages, userNotifications } from "@db/schema";
 import { setupAuth } from "./auth";
@@ -697,93 +697,41 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  const httpServer = createServer(app);
-
-  // Set up WebSocket server
-  const wss = new WebSocketServer({ 
-    server: httpServer, 
-    path: '/ws',
-    verifyClient: (info, cb) => {
-      // Skip verification for Vite HMR
-      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
-        cb(true);
-        return;
+  // NEW GET /api/groups route
+  app.get("/api/groups", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
       }
 
-      // Verify user session
-      const session = (info.req as any).session;
-      if (!session?.passport?.user) {
-        cb(false, 401, 'Unauthorized');
-        return;
-      }
-      cb(true);
+      const videoId = req.query.videoId ? parseInt(req.query.videoId as string) : undefined;
+
+      // Get groups the user is a member of
+      const memberGroups = await db.select({
+        id: discussionGroups.id,
+        name: discussionGroups.name,
+        description: discussionGroups.description,
+        videoId: discussionGroups.videoId,
+        creatorId: discussionGroups.creatorId,
+        isPrivate: discussionGroups.isPrivate,
+        inviteCode: discussionGroups.inviteCode,
+        createdAt: discussionGroups.createdAt,
+      })
+      .from(groupMembers)
+      .where(eq(groupMembers.userId, req.user.id))
+      .innerJoin(discussionGroups, eq(groupMembers.groupId, discussionGroups.id));
+
+      // Filter groups for this video if videoId is provided
+      const groups = videoId
+        ? memberGroups.filter(group => group.videoId === videoId)
+        : memberGroups;
+
+      res.json(groups);
+    } catch (error) {
+      handleDatabaseError(error, res);
     }
   });
 
-  wss.on('connection', (ws, req) => {
-    const userId = (req as any).session?.passport?.user?.id;
-    if (userId) {
-      connectedClients.set(userId, ws);
-
-      ws.on('message', async (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-
-          if (message.type === 'group_message') {
-            const { groupId, content } = message;
-
-            // Save message to database
-            const [savedMessage] = await db.insert(groupMessages)
-              .values({
-                groupId,
-                userId,
-                content,
-              })
-              .returning();
-
-            // Get group members for notifications
-            const members = await db.query.groupMembers.findMany({
-              where: and(
-                eq(groupMembers.groupId, groupId),
-                ne(groupMembers.userId, userId),
-                eq(groupMembers.notificationsEnabled, true)
-              ),
-            });
-
-            // Create notifications and send to connected clients
-            for (const member of members) {
-              // Save notification
-              await db.insert(userNotifications)
-                .values({
-                  userId: member.userId,
-                  groupId,
-                  messageId: savedMessage.id,
-                  type: 'new_message',
-                });
-
-              // Send to connected client if online
-              const clientWs = connectedClients.get(member.userId);
-              if (clientWs?.readyState === WebSocket.OPEN) {
-                clientWs.send(JSON.stringify({
-                  type: 'new_message',
-                  data: {
-                    ...savedMessage,
-                    groupId,
-                  },
-                }));
-              }
-            }
-          }
-        } catch (error) {
-          console.error('WebSocket message error:', error);
-        }
-      });
-
-      ws.on('close', () => {
-        connectedClients.delete(userId);
-      });
-    }
-  });
 
   // Discussion group routes
   app.post("/api/groups", async (req, res) => {
@@ -915,6 +863,94 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
+  const httpServer = createServer(app);
+
+  // Set up WebSocket server
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/ws',
+    verifyClient: (info, cb) => {
+      // Skip verification for Vite HMR
+      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        cb(true);
+        return;
+      }
+
+      // Verify user session
+      const session = (info.req as any).session;
+      if (!session?.passport?.user) {
+        cb(false, 401, 'Unauthorized');
+        return;
+      }
+      cb(true);
+    }
+  });
+
+  wss.on('connection', (ws, req) => {
+    const userId = (req as any).session?.passport?.user?.id;
+    if (userId) {
+      connectedClients.set(userId, ws);
+
+      ws.on('message', async (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+
+          if (message.type === 'group_message') {
+            const { groupId, content } = message;
+
+            // Save message to database
+            const [savedMessage] = await db.insert(groupMessages)
+              .values({
+                groupId,
+                userId,
+                content,
+              })
+              .returning();
+
+            // Get group members for notifications
+            const members = await db.query.groupMembers.findMany({
+              where: and(
+                eq(groupMembers.groupId, groupId),
+                ne(groupMembers.userId, userId),
+                eq(groupMembers.notificationsEnabled, true)
+              ),
+            });
+
+            // Create notifications and send to connected clients
+            for (const member of members) {
+              // Save notification
+              await db.insert(userNotifications)
+                .values({
+                  userId: member.userId,
+                  groupId,
+                  messageId: savedMessage.id,
+                  type: 'new_message',
+                });
+
+              // Send to connected client if online
+              const clientWs = connectedClients.get(member.userId);
+              if (clientWs?.readyState === WebSocket.OPEN) {
+                clientWs.send(JSON.stringify({
+                  type: 'new_message',
+                  data: {
+                    ...savedMessage,
+                    groupId,
+                  },
+                }));
+              }
+            }
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+        }
+      });
+
+      ws.on('close', () => {
+        connectedClients.delete(userId);
+      });
+    }
+  });
+
   return httpServer;
 }
 
@@ -972,7 +1008,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
         const svgContent = `
           <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
             <defs>
-              <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="bg" x1="0%" y1="0%" x2="100%">
                 <stop offset="0%" style="stop-color:${bestMatch.color};stop-opacity:1" />
                 <stop offset="100%" style="stop-color:#1F2937;stop-opacity:1" />
               </linearGradient>

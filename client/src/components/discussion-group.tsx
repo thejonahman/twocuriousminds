@@ -76,15 +76,19 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   }, [user, queryClient]);
 
   // Get current group for this video
-  const { data: group, isLoading: groupLoading } = useQuery({
-    queryKey: ["/api/groups", videoId],
-    enabled: !!user,
+  const { data: groups, isLoading: groupLoading } = useQuery({
+    queryKey: [`/api/groups`, videoId],
+    queryFn: () => fetch(`/api/groups?videoId=${videoId}`).then(r => r.json()),
+    enabled: !!user && !!videoId,
   });
+
+  // Get the first group for this video (there should only be one)
+  const group = groups?.[0];
 
   // Get messages if group exists
   const { data: messages, isLoading: messagesLoading } = useQuery<Message[]>({
     queryKey: [`/api/groups/${group?.id}/messages`],
-    enabled: !!group,
+    enabled: !!group?.id,
   });
 
   // Create group mutation
@@ -111,7 +115,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     },
     onSuccess: () => {
       setCreateDialogOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["/api/groups", videoId] });
+      queryClient.invalidateQueries({ queryKey: [`/api/groups`] });
       toast({
         title: "Group created",
         description: "You can now start discussing this video with others!",
