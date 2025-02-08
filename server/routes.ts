@@ -6,7 +6,6 @@ import fetch from "node-fetch";
 import { videos, categories, userPreferences, subcategories } from "@db/schema";
 import { setupAuth } from "./auth";
 import multer from 'multer';
-import { createHash } from 'crypto';
 
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -82,14 +81,7 @@ export function registerRoutes(app: express.Application): Server {
       // Convert the uploaded file to base64
       const base64Image = req.file.buffer.toString('base64');
       const mimeType = req.file.mimetype;
-      const etag = createHash('md5').update(base64Image).digest('hex');
-      const thumbnailUrl = `data:${mimeType};base64,${base64Image};etag=${etag}`;
-
-      // Add cache control headers
-      res.set({
-        'Cache-Control': 'public, max-age=31536000',
-        'ETag': `"${etag}"`
-      });
+      const thumbnailUrl = `data:${mimeType};base64,${base64Image}`;
 
       // Update video with new thumbnail
       const [updatedVideo] = await db
@@ -149,21 +141,6 @@ export function registerRoutes(app: express.Application): Server {
         });
       }
 
-      // Extract ETag from thumbnailUrl if present
-      const etag = thumbnailUrl.split(';etag=')[1] || createHash('md5').update(thumbnailUrl).digest('hex');
-
-      // Check if the client has a cached version
-      const ifNoneMatch = req.get('If-None-Match');
-      if (ifNoneMatch === `"${etag}"`) {
-        return res.status(304).end();
-      }
-
-      // Add cache control headers
-      res.set({
-        'Cache-Control': 'public, max-age=31536000',
-        'ETag': `"${etag}"`
-      });
-
       // Update the video's thumbnailUrl in the database
       try {
         const [updatedVideo] = await db
@@ -198,6 +175,7 @@ export function registerRoutes(app: express.Application): Server {
       });
     }
   });
+
 
   // Regular PATCH endpoint for updating other video fields
   app.patch("/api/videos/:id", async (req, res) => {
@@ -787,10 +765,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
           </svg>
         `.trim().replace(/\n\s+/g, ' ');
 
-        // Generate ETag for the SVG content
-        const etag = createHash('md5').update(svgContent).digest('hex');
-        const base64Content = Buffer.from(svgContent).toString('base64');
-        return `data:image/svg+xml;base64,${base64Content};etag=${etag}`;
+        return `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
       }
       default:
         console.error('Unsupported platform:', platform);

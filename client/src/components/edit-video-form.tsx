@@ -7,9 +7,20 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { EyeOff, Plus, Upload, RefreshCw } from 'lucide-react';
 
@@ -89,51 +100,39 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const generateThumbnailMutation = useMutation({
     mutationFn: async () => {
       setIsGeneratingThumbnail(true);
-      try {
-        const formData = {
-          url: form.getValues("url"),
-          platform: form.getValues("platform"),
-          title: form.getValues("title"),
-          description: form.getValues("description") || "",
-          videoId: video.id
-        };
+      const formData = {
+        url: form.getValues("url"),
+        platform: form.getValues("platform"),
+        title: form.getValues("title"),
+        description: form.getValues("description") || "",
+        videoId: video.id
+      };
 
-        console.log('Sending thumbnail generation request:', formData);
+      const response = await fetch('/api/thumbnails/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+        credentials: 'include'
+      });
 
-        const response = await fetch('/api/thumbnails/generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(formData),
-          credentials: 'include'
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || "Failed to generate thumbnail");
-        }
-
-        const data = await response.json();
-        return data.thumbnailUrl;
-      } catch (error) {
-        console.error('Error in generateThumbnail:', error);
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "An unexpected error occurred during thumbnail generation",
-          variant: "destructive",
-        });
-        throw error;
-      } finally {
-        setIsGeneratingThumbnail(false);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to generate thumbnail");
       }
+
+      const data = await response.json();
+      return data.thumbnailUrl;
     },
     onSuccess: (thumbnailUrl) => {
       setThumbnailUrl(thumbnailUrl);
+      // Update the cache immediately
       queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
         if (!oldData) return oldData;
         return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl } : v);
       });
+      // Also invalidate the query to ensure we get fresh data
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
@@ -141,60 +140,52 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       });
     },
     onError: (error: Error) => {
-      console.error('Thumbnail generation error:', error);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsGeneratingThumbnail(false);
     }
   });
 
   const uploadThumbnailMutation = useMutation({
     mutationFn: async (file: File) => {
       setIsUploadingThumbnail(true);
-      try {
-        const formData = new FormData();
-        formData.append('thumbnail', file);
+      const formData = new FormData();
+      formData.append('thumbnail', file);
 
-        console.log('Processing thumbnail upload:', {
-          fileSize: file.size,
-          contentType: file.type
-        });
+      const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
+        method: 'PATCH',
+        body: formData,
+      });
 
-        const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
-          method: 'PATCH',
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.message || "Failed to upload thumbnail");
-        }
-
-        const data = await response.json();
-        return data.thumbnailUrl;
-      } catch (error) {
-        console.error('Error in uploadThumbnail:', error);
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "An unexpected error occurred during thumbnail upload",
-          variant: "destructive",
-        });
-        throw error;
-      } finally {
-        setIsUploadingThumbnail(false);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to upload thumbnail");
       }
+
+      const data = await response.json();
+      return data.thumbnailUrl;
     },
     onSuccess: (thumbnailUrl) => {
       setThumbnailUrl(thumbnailUrl);
-      queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
-        if (!oldData) return oldData;
-        return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl } : v);
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
         description: "Thumbnail uploaded successfully",
       });
     },
     onError: (error: Error) => {
-      console.error('Thumbnail upload error:', error);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsUploadingThumbnail(false);
     }
   });
 
@@ -602,7 +593,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                         <Plus className="h-4 w-4" />
                       </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="sm:max-w-[425px]">
                       <DialogHeader>
                         <DialogTitle>Add New Topic</DialogTitle>
                       </DialogHeader>
@@ -803,16 +794,4 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       </form>
     </Form>
   );
-}
-
-async function apiRequest(method: string, url: string, body?: any) {
-  const response = await fetch(url, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'include'
-  });
-  return response
 }
