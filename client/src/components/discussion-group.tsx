@@ -47,6 +47,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const [groupDescription, setGroupDescription] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [showInviteGuide, setShowInviteGuide] = useState(false);
 
   // Connect to WebSocket
   useEffect(() => {
@@ -75,13 +76,13 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   }, [user, queryClient]);
 
   // Get current group for this video
-  const { data: group } = useQuery({
+  const { data: group, isLoading: groupLoading } = useQuery({
     queryKey: ["/api/groups", videoId],
     enabled: !!user,
   });
 
   // Get messages if group exists
-  const { data: messages } = useQuery<Message[]>({
+  const { data: messages, isLoading: messagesLoading } = useQuery<Message[]>({
     queryKey: [`/api/groups/${group?.id}/messages`],
     enabled: !!group,
   });
@@ -156,9 +157,10 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       const inviteUrl = `${window.location.origin}/join/${group.inviteCode}`;
       try {
         await navigator.clipboard.writeText(inviteUrl);
+        setShowInviteGuide(true);
         toast({
           title: "Copied!",
-          description: "Invite link copied to clipboard",
+          description: "Share this link with friends to invite them to the discussion",
         });
       } catch (err) {
         toast({
@@ -188,13 +190,23 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     );
   }
 
+  if (groupLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Loading discussion...</CardTitle>
+        </CardHeader>
+      </Card>
+    );
+  }
+
   return (
     <Card className="mt-6">
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
-            Discussion Group
+            {group ? "Discussion Group" : "Start a Discussion"}
           </CardTitle>
           {!group && (
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
@@ -233,40 +245,69 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
               </DialogContent>
             </Dialog>
           )}
-          {group && (
-            <Button variant="outline" size="sm" onClick={copyInviteLink}>
-              <Share2 className="mr-2 h-4 w-4" />
-              Share
-            </Button>
-          )}
         </div>
       </CardHeader>
 
       {group && (
         <>
           <CardContent className="space-y-4">
-            <div className="h-[300px] space-y-4 overflow-y-auto p-4">
-              {messages?.map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex flex-col ${
-                    message.userId === user.id ? "items-end" : "items-start"
-                  }`}
-                >
+            {showInviteGuide && (
+              <div className="rounded-lg bg-muted p-4 mb-4">
+                <h4 className="font-semibold mb-2">👥 Invite your friends!</h4>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Share the copied link with friends to invite them to this discussion.
+                  They can join instantly when they open the link!
+                </p>
+                <Button variant="outline" size="sm" onClick={copyInviteLink}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Copy invite link again
+                </Button>
+              </div>
+            )}
+
+            {!showInviteGuide && (
+              <div className="flex justify-end mb-4">
+                <Button variant="outline" size="sm" onClick={copyInviteLink}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Invite others
+                </Button>
+              </div>
+            )}
+
+            <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
+              {messagesLoading ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-muted-foreground">Loading messages...</p>
+                </div>
+              ) : messages?.length === 0 ? (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-muted-foreground">
+                    No messages yet. Start the conversation!
+                  </p>
+                </div>
+              ) : (
+                messages?.map((message) => (
                   <div
-                    className={`rounded-lg px-4 py-2 ${
-                      message.userId === user.id
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                    key={message.id}
+                    className={`flex flex-col ${
+                      message.userId === user.id ? "items-end" : "items-start"
                     }`}
                   >
-                    <p className="text-sm font-semibold">
-                      {message.user.username}
-                    </p>
-                    <p>{message.content}</p>
+                    <div
+                      className={`rounded-lg px-4 py-2 ${
+                        message.userId === user.id
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted"
+                      }`}
+                    >
+                      <p className="text-sm font-semibold">
+                        {message.user.username}
+                      </p>
+                      <p>{message.content}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
               <div ref={messagesEndRef} />
             </div>
           </CardContent>
