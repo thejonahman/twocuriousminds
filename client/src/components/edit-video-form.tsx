@@ -602,7 +602,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                         <Plus className="h-4 w-4" />
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
+                    <DialogContent>
                       <DialogHeader>
                         <DialogTitle>Add New Topic</DialogTitle>
                       </DialogHeader>
