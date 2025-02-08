@@ -49,7 +49,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [showInviteGuide, setShowInviteGuide] = useState(false);
 
-  // Connect to WebSocket
+  // Update WebSocket handlers
   useEffect(() => {
     if (user) {
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -60,11 +60,30 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       };
 
       ws.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === "new_message") {
-          // Invalidate and refetch messages
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${message.data.groupId}/messages`] });
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === "new_message") {
+            // Invalidate and refetch messages
+            queryClient.invalidateQueries({ queryKey: [`/api/groups/${message.data.groupId}/messages`] });
+          } else if (message.type === "error") {
+            toast({
+              title: "Error",
+              description: message.message,
+              variant: "destructive",
+            });
+          }
+        } catch (error) {
+          console.error("Error parsing WebSocket message:", error);
         }
+      };
+
+      ws.onerror = (error) => {
+        console.error("WebSocket error:", error);
+        toast({
+          title: "Connection Error",
+          description: "Failed to connect to chat server",
+          variant: "destructive",
+        });
       };
 
       setSocket(ws);
@@ -130,26 +149,30 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     },
   });
 
-  // Send message mutation
+  // Update send message mutation
   const sendMessage = useMutation({
     mutationFn: async () => {
-      if (socket?.readyState === WebSocket.OPEN && group) {
-        socket.send(JSON.stringify({
-          type: "group_message",
-          groupId: group.id,
-          content: messageInput,
-        }));
-        return true;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        throw new Error("Not connected to chat server");
       }
-      throw new Error("WebSocket not connected");
+      if (!group) {
+        throw new Error("No active discussion group");
+      }
+
+      socket.send(JSON.stringify({
+        type: "group_message",
+        groupId: group.id,
+        content: messageInput,
+      }));
+      return true;
     },
     onSuccess: () => {
       setMessageInput("");
     },
-    onError: () => {
+    onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to send message",
+        description: error instanceof Error ? error.message : "Failed to send message",
         variant: "destructive",
       });
     },

@@ -849,13 +849,19 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       // Get messages with user info
-      const messages = await db.query.groupMessages.findMany({
-        where: eq(groupMessages.groupId, groupId),
-        orderBy: [asc(groupMessages.createdAt)],
-        with: {
-          user: true,
+      const messages = await db.select({
+        id: groupMessages.id,
+        content: groupMessages.content,
+        userId: groupMessages.userId,
+        createdAt: groupMessages.createdAt,
+        user: {
+          username: sql`users.username`,
         },
-      });
+      })
+      .from(groupMessages)
+      .where(eq(groupMessages.groupId, groupId))
+      .innerJoin('users', eq(groupMessages.userId, sql`users.id`))
+      .orderBy(asc(groupMessages.createdAt));
 
       res.json(messages);
     } catch (error) {
@@ -898,6 +904,22 @@ export function registerRoutes(app: express.Application): Server {
           if (message.type === 'group_message') {
             const { groupId, content } = message;
 
+            // Verify user is a member of the group
+            const member = await db.query.groupMembers.findFirst({
+              where: and(
+                eq(groupMembers.groupId, groupId),
+                eq(groupMembers.userId, userId)
+              ),
+            });
+
+            if (!member) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Not a member of this group'
+              }));
+              return;
+            }
+
             // Save message to database
             const [savedMessage] = await db.insert(groupMessages)
               .values({
@@ -907,41 +929,50 @@ export function registerRoutes(app: express.Application): Server {
               })
               .returning();
 
+            // Get user info for the message
+            const user = await db.execute(sql`
+              SELECT username FROM users WHERE id = ${userId}
+            `);
+
+            const messageWithUser = {
+              ...savedMessage,
+              user: {
+                username: user.rows[0].username
+              }
+            };
+
             // Get group members for notifications
             const members = await db.query.groupMembers.findMany({
               where: and(
                 eq(groupMembers.groupId, groupId),
-                ne(groupMembers.userId, userId),
-                eq(groupMembers.notificationsEnabled, true)
+                ne(groupMembers.userId, userId)
               ),
             });
 
-            // Create notifications and send to connected clients
+            // Send to all connected members including sender
             for (const member of members) {
-              // Save notification
-              await db.insert(userNotifications)
-                .values({
-                  userId: member.userId,
-                  groupId,
-                  messageId: savedMessage.id,
-                  type: 'new_message',
-                });
-
-              // Send to connected client if online
               const clientWs = connectedClients.get(member.userId);
               if (clientWs?.readyState === WebSocket.OPEN) {
                 clientWs.send(JSON.stringify({
                   type: 'new_message',
-                  data: {
-                    ...savedMessage,
-                    groupId,
-                  },
+                  data: messageWithUser,
                 }));
               }
             }
+
+            // Also send back to the sender
+            ws.send(JSON.stringify({
+              type: 'new_message',
+              data: messageWithUser,
+            }));
+
           }
         } catch (error) {
           console.error('WebSocket message error:', error);
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to process message'
+          }));
         }
       });
 
