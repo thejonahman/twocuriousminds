@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { DelphiBubble } from "@/components/delphi-bubble";
 import { DiscussionGroup } from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
-import { Share2, Link, Mail, Copy, Check } from "lucide-react";
+import { Share2, Copy, Check, Mail } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -90,19 +90,28 @@ export default function Video() {
 
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-6">
-        <Skeleton className="w-full h-[500px] rounded-lg" />
-        <Skeleton className="w-full h-[500px] rounded-lg" />
+      <div className="container mx-auto py-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-6">
+          <div className="space-y-6">
+            <Skeleton className="w-full h-[500px] rounded-lg" />
+            <Skeleton className="w-full h-[200px] rounded-lg" />
+          </div>
+          <Skeleton className="w-full h-[500px] rounded-lg" />
+        </div>
       </div>
     );
   }
 
   if (!video) {
-    return <div>Video not found</div>;
+    return (
+      <div className="container mx-auto py-6 text-center">
+        <p className="text-muted-foreground">Video not found</p>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto py-6 space-y-6">
       <button
         onClick={handleBack}
         className="flex items-center gap-3 px-4 py-2.5 text-sm rounded-lg hover:bg-accent transition-colors group"
@@ -176,20 +185,20 @@ export default function Video() {
               <p className="text-muted-foreground">{video.description}</p>
             </div>
           </div>
+
           <DelphiBubble videoId={video.id} />
+
           <div className="rounded-xl border bg-card shadow-sm">
             <DiscussionGroup videoId={video.id} />
           </div>
         </div>
 
         <div className="lg:sticky lg:top-4 space-y-4">
-          <div className="rounded-xl border bg-accent/5 p-6">
-            <RecommendationSidebar
-              currentVideoId={video.id}
-              categoryId={video.categoryId}
-              subcategoryId={video.subcategoryId}
-            />
-          </div>
+          <RecommendationSidebar
+            currentVideoId={video.id}
+            categoryId={video.categoryId}
+            subcategoryId={video.subcategoryId}
+          />
         </div>
       </div>
     </div>
