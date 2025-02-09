@@ -177,7 +177,7 @@ export default function Video() {
             </div>
           </div>
           <DelphiBubble videoId={video.id} />
-          <DiscussionGroup videoId={video.id} videoTitle={video.title} />
+          <DiscussionGroup videoId={video.id} />
         </div>
 
         <div className="lg:sticky lg:top-4 space-y-4">
