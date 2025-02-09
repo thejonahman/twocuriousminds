@@ -50,7 +50,6 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const [showInviteGuide, setShowInviteGuide] = useState(false);
   const [connected, setConnected] = useState(false);
 
-
   // Get current group for this video
   const { data: groups, isLoading: groupLoading } = useQuery({
     queryKey: [`/api/groups`, videoId],
@@ -58,7 +57,6 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     enabled: !!user && !!videoId,
   });
 
-  // Get the first group for this video (there should only be one)
   const group = groups?.[0];
 
   // Get messages if group exists
@@ -71,6 +69,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   useEffect(() => {
     if (!user || !group?.id) return;
 
+    // Create WebSocket connection with credentials
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
@@ -79,16 +78,22 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       setSocket(ws);
       setConnected(true);
       toast({
-        title: "Connected",
-        description: "Connected to chat server",
+        title: "Connected to Chat",
+        description: "You can now participate in the discussion",
       });
     });
 
     ws.addEventListener('message', (event) => {
       try {
         const message = JSON.parse(event.data);
+        console.log('Received message:', message);
 
-        if (message.type === 'new_message') {
+        if (message.type === 'connected') {
+          toast({
+            title: "Connected",
+            description: message.message,
+          });
+        } else if (message.type === 'new_message') {
           queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
         } else if (message.type === 'error') {
           toast({
@@ -108,12 +113,14 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       setConnected(false);
       toast({
         title: "Disconnected",
-        description: "Lost connection to chat server",
+        description: "Lost connection to chat server. Please refresh the page.",
         variant: "destructive",
       });
     });
 
     ws.addEventListener('error', () => {
+      console.error('WebSocket connection error');
+      setConnected(false);
       toast({
         title: "Connection Error",
         description: "Failed to connect to chat server",

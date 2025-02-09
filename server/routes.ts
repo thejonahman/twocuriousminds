@@ -83,7 +83,7 @@ export function registerRoutes(app: express.Application): Server {
     createTableIfMissing: true,
   });
 
-  // Create session middleware
+  // Create session middleware with secure settings
   const sessionMiddleware = session({
     store: sessionStore,
     secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -100,7 +100,7 @@ export function registerRoutes(app: express.Application): Server {
   // Add session middleware
   app.use(sessionMiddleware);
 
-  // Configure WebSocket server
+  // Configure WebSocket server with proper session handling
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -111,7 +111,7 @@ export function registerRoutes(app: express.Application): Server {
         return;
       }
 
-      // Apply session middleware
+      // Apply session middleware and verify authentication
       sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
         if (err) {
           console.error('Session middleware error:', err);
@@ -120,29 +120,48 @@ export function registerRoutes(app: express.Application): Server {
         }
 
         const req = info.req as SessionRequest;
+
+        // Debug session state
+        console.log('WebSocket auth attempt:', {
+          hasSession: !!req.session,
+          hasPassport: !!req.session?.passport,
+          userId: req.session?.passport?.user?.id
+        });
+
         if (!req.session?.passport?.user?.id) {
-          console.log('WebSocket auth failed: No user ID');
+          console.log('WebSocket auth failed: No user ID in session');
           cb(false, 401, 'Unauthorized');
           return;
         }
 
+        console.log('WebSocket auth successful for user:', req.session.passport.user.id);
         cb(true);
       });
     }
   });
 
+  // Store active WebSocket connections
+  const connectedClients = new Map<number, WebSocket>();
+
   // Handle WebSocket connections
   wss.on('connection', async (ws, req: SessionRequest) => {
     const userId = req.session?.passport?.user?.id;
     if (!userId) {
+      console.log('WebSocket connection rejected: Missing user ID');
       ws.close(1008, 'Unauthorized');
       return;
     }
 
-    console.log('WebSocket connected, user:', userId);
+    console.log('WebSocket connected for user:', userId);
     connectedClients.set(userId, ws);
 
-    // Simple ping/pong for keepalive
+    // Send immediate connection confirmation
+    ws.send(JSON.stringify({ 
+      type: 'connected',
+      message: 'Successfully connected to chat server'
+    }));
+
+    // Keep connection alive with ping/pong
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.ping();
@@ -150,13 +169,13 @@ export function registerRoutes(app: express.Application): Server {
     }, 30000);
 
     ws.on('close', () => {
-      console.log('WebSocket disconnected, user:', userId);
+      console.log('WebSocket disconnected for user:', userId);
       connectedClients.delete(userId);
       clearInterval(pingInterval);
     });
 
     ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
+      console.error('WebSocket error for user:', userId, error);
       connectedClients.delete(userId);
       clearInterval(pingInterval);
     });
@@ -231,9 +250,6 @@ export function registerRoutes(app: express.Application): Server {
         }
       }
     });
-
-    // Send connection confirmation
-    ws.send(JSON.stringify({ type: 'connected' }));
   });
 
   // Handle file uploads first - BEFORE any JSON parsing middleware
