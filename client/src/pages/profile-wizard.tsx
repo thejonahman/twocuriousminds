@@ -17,6 +17,12 @@ interface Category {
   description: string | null;
 }
 
+interface Preferences {
+  preferredCategories: number[];
+  excludedCategories: number[];
+  preferredPlatforms: string[];
+}
+
 export default function ProfileWizard() {
   const [step, setStep] = useState(1);
   const [selectedCategories, setSelectedCategories] = useState<number[]>([]);
@@ -26,10 +32,28 @@ export default function ProfileWizard() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
+  // Query to fetch categories
+  const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+    queryFn: async () => {
+      const res = await fetch('/api/categories');
+      if (!res.ok) throw new Error('Failed to fetch categories');
+      return res.json();
+    },
+  });
+
   // Query to fetch existing preferences
-  const { data: existingPreferences, isLoading: preferencesLoading } = useQuery({
+  const { data: existingPreferences, isLoading: preferencesLoading } = useQuery<Preferences>({
     queryKey: ["/api/preferences"],
-    enabled: !!user, // Only run if user is authenticated
+    enabled: !!user,
+    queryFn: async () => {
+      const res = await fetch('/api/preferences');
+      if (!res.ok) {
+        if (res.status === 404) return null;
+        throw new Error('Failed to fetch preferences');
+      }
+      return res.json();
+    },
   });
 
   // Effect to check for existing preferences and redirect if found
@@ -51,22 +75,15 @@ export default function ProfileWizard() {
     }
   }, [existingPreferences, preferencesLoading, navigate, toast]);
 
-  const { data: categories } = useQuery<Category[]>({
-    queryKey: ["/api/categories"],
-  });
-
   const mutation = useMutation({
-    mutationFn: async (preferences: {
-      preferredCategories: number[];
-      excludedCategories: number[];
-      preferredPlatforms: string[];
-    }) => {
+    mutationFn: async (preferences: Preferences) => {
       const res = await apiRequest("POST", "/api/preferences", preferences);
       if (!res.ok) {
         const error = await res.text();
         throw new Error(error || 'Failed to save preferences');
       }
-      return res.json();
+      const data = await res.json();
+      return data;
     },
     onSuccess: () => {
       toast({
@@ -84,14 +101,14 @@ export default function ProfileWizard() {
     },
   });
 
-  // If still loading preferences or user is redirecting, show loading state
-  if (preferencesLoading) {
+  // If still loading preferences or categories, show loading state
+  if (preferencesLoading || categoriesLoading) {
     return (
       <div className="container max-w-2xl py-8">
         <Card>
           <CardHeader>
-            <CardTitle>Loading Preferences</CardTitle>
-            <CardDescription>Please wait while we check your preferences...</CardDescription>
+            <CardTitle>Loading</CardTitle>
+            <CardDescription>Please wait while we load your preferences...</CardDescription>
           </CardHeader>
           <CardContent>
             <Progress value={100} className="w-full" />
@@ -151,7 +168,7 @@ export default function ProfileWizard() {
         <CardHeader>
           <CardTitle>Set Up Your Profile</CardTitle>
           <CardDescription>
-            Let's personalize your experience, {user?.username}
+            Let's personalize your experience{user?.username ? `, ${user.username}` : ''}
           </CardDescription>
           <Progress value={step * 33.33} className="mt-2" />
         </CardHeader>
@@ -160,7 +177,7 @@ export default function ProfileWizard() {
             <div className="space-y-4">
               <h3 className="font-medium">What content interests you?</h3>
               <div className="grid grid-cols-2 gap-2">
-                {categories?.map((category) => (
+                {categories.map((category) => (
                   <div key={category.id} className="flex items-center gap-2">
                     <Badge
                       variant={selectedCategories.includes(category.id) ? "default" : "outline"}
@@ -178,7 +195,7 @@ export default function ProfileWizard() {
             <div className="space-y-4">
               <h3 className="font-medium">Any topics you want to avoid?</h3>
               <div className="grid grid-cols-2 gap-2">
-                {categories?.map((category) => (
+                {categories.map((category) => (
                   <div key={category.id} className="flex items-center gap-2">
                     <Badge
                       variant={excludedCategories.includes(category.id) ? "destructive" : "outline"}
