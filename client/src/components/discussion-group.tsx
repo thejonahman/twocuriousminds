@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Send, MessageSquare, Plus, UserPlus } from "lucide-react";
+import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 interface Message {
@@ -52,15 +52,16 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [inviteCode, setInviteCode] = useState("");
   const [connected, setConnected] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
+  const [groupMessages, setGroupMessages] = useState<Message[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<number>();
 
-  // Fetch messages
+  // Fetch general messages
   const { data: messages = [], refetch: refetchMessages } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     queryFn: () => fetch(`/api/messages?videoId=${videoId}`).then(r => r.json()),
-    enabled: !!user && !!videoId,
+    enabled: !!user && !!videoId && !currentGroup,
   });
 
   // Setup WebSocket
@@ -79,7 +80,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       ws.onopen = () => {
         console.log('WebSocket connected');
         setConnected(true);
-        // Clear any pending reconnection attempts
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
         }
@@ -88,7 +88,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       ws.onclose = () => {
         console.log('WebSocket disconnected');
         setConnected(false);
-        // Try to reconnect after 5 seconds
         reconnectTimeoutRef.current = window.setTimeout(() => {
           if (user) {
             connectWebSocket();
@@ -103,17 +102,26 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
           switch (data.type) {
             case 'new_message':
-              refetchMessages();
+              if (!currentGroup) {
+                refetchMessages();
+              }
+              break;
+            case 'new_group_message':
+              if (currentGroup) {
+                setGroupMessages(prev => [...prev, data.data]);
+              }
               break;
             case 'group_created':
               setCurrentGroup(data.data);
+              setGroupMessages([]);
               toast({
                 title: "Success",
-                description: `Group "${data.data.name}" created! Invite code: ${data.data.inviteCode}`,
+                description: `Group "${data.data.name}" created! Share this invite code with friends: ${data.data.inviteCode}`,
               });
               break;
             case 'group_joined':
               setCurrentGroup(data.data);
+              setGroupMessages([]);
               toast({
                 title: "Success",
                 description: `Joined group "${data.data.name}"!`,
@@ -165,11 +173,19 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       return;
     }
 
-    socketRef.current.send(JSON.stringify({
-      type: 'message',
-      videoId,
-      content: messageInput,
-    }));
+    if (currentGroup) {
+      socketRef.current.send(JSON.stringify({
+        type: 'group_message',
+        groupId: currentGroup.id,
+        content: messageInput,
+      }));
+    } else {
+      socketRef.current.send(JSON.stringify({
+        type: 'message',
+        videoId,
+        content: messageInput,
+      }));
+    }
 
     setMessageInput('');
   };
@@ -213,19 +229,41 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     setInviteCode('');
   };
 
+  // Leave group
+  const leaveGroup = () => {
+    setCurrentGroup(null);
+    setGroupMessages([]);
+  };
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length]);
+  }, [messages.length, groupMessages.length]);
 
   if (!user) return null;
 
   return (
     <Card className="mt-6">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MessageSquare className="h-5 w-5" />
-          {currentGroup ? currentGroup.name : "Discussion Group"}
+        <CardTitle className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {currentGroup ? (
+              <>
+                <Users className="h-5 w-5" />
+                {currentGroup.name}
+              </>
+            ) : (
+              <>
+                <MessageSquare className="h-5 w-5" />
+                Discussion
+              </>
+            )}
+          </div>
+          {currentGroup && (
+            <Button variant="outline" size="sm" onClick={leaveGroup}>
+              Leave Group
+            </Button>
+          )}
         </CardTitle>
       </CardHeader>
 
@@ -298,12 +336,12 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {messages.length === 0 && (
+          {(currentGroup ? groupMessages : messages).length === 0 && (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
           )}
-          {messages.map((message) => (
+          {(currentGroup ? groupMessages : messages).map((message) => (
             <div
               key={message.id}
               className={`flex flex-col ${
@@ -339,7 +377,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
           <Input
             value={messageInput}
             onChange={(e) => setMessageInput(e.target.value)}
-            placeholder="Type your message..."
+            placeholder={`Type your message${currentGroup ? ' to group' : ''}...`}
             className="flex-1"
           />
           <Button
