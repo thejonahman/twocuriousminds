@@ -174,6 +174,17 @@ export const messageRelations = relations(messages, ({ one }) => ({
   }),
 }));
 
+export const groupMessageRelations = relations(groupMessages, ({ one }) => ({
+  user: one(users, {
+    fields: [groupMessages.userId],
+    references: [users.id],
+  }),
+  group: one(discussionGroups, {
+    fields: [groupMessages.groupId],
+    references: [discussionGroups.id],
+  }),
+}));
+
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3).max(50),
   email: z.string().email(),

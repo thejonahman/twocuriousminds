@@ -395,7 +395,8 @@ export function registerRoutes(app: Express): Server {
             columns: {
               username: true
             }
-          }
+          },
+          group: true
         }
       });
 

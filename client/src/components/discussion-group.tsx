@@ -91,6 +91,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
   // Initialize messages state with query data
   useEffect(() => {
+    console.log("Query Messages:", queryMessages);
     if (queryMessages.length > 0 && !currentGroup) {
       setMessages(queryMessages);
     }
@@ -98,6 +99,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
   // Initialize group messages when joining a group
   useEffect(() => {
+    console.log("Query Group Messages:", queryGroupMessages);
     if (queryGroupMessages.length > 0 && currentGroup) {
       setGroupMessages(queryGroupMessages);
     }
@@ -140,6 +142,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
           switch (data.type) {
             case 'new_message':
+              console.log("New Message Received:", data.data);
               if (!currentGroup) {
                 setMessages(prev => [...prev, data.data]);
               }
@@ -161,6 +164,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               }
               break;
             case 'group_created':
+              console.log("Group Created:", data.data);
               setCurrentGroup(data.data);
               setGroupMessages([]);
               toast({
@@ -169,6 +173,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               });
               break;
             case 'group_joined':
+              console.log("Group Joined:", data.data);
               setCurrentGroup(data.data);
               setGroupMessages([]);
               toast({
@@ -212,6 +217,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   }, [user, toast]);
 
   const sendMessage = () => {
+    console.log("Sending Message:", messageInput);
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
         title: "Error",
@@ -239,6 +245,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   };
 
   const createGroup = () => {
+    console.log("Creating Group:", groupNameInput);
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
         title: "Error",
@@ -258,6 +265,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   };
 
   const joinGroup = () => {
+    console.log("Joining Group:", inviteCode);
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
         title: "Error",
@@ -276,6 +284,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   };
 
   const leaveGroup = () => {
+    console.log("Leaving Group");
     setCurrentGroup(null);
     setGroupMessages([]);
   };
