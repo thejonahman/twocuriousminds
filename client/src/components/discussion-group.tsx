@@ -75,18 +75,33 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     );
   }
 
+  // Query for video messages
   const { data: queryMessages = [] } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     queryFn: () => fetch(`/api/messages?videoId=${videoId}`).then(r => r.json()),
     enabled: !!user && !!videoId && !currentGroup,
   });
 
+  // Query for group messages when in a group
+  const { data: queryGroupMessages = [] } = useQuery<Message[]>({
+    queryKey: ['/api/group-messages', currentGroup?.id],
+    queryFn: () => fetch(`/api/group-messages?groupId=${currentGroup?.id}`).then(r => r.json()),
+    enabled: !!user && !!currentGroup?.id,
+  });
+
   // Initialize messages state with query data
   useEffect(() => {
-    if (queryMessages.length > 0) {
+    if (queryMessages.length > 0 && !currentGroup) {
       setMessages(queryMessages);
     }
-  }, [queryMessages]);
+  }, [queryMessages, currentGroup]);
+
+  // Initialize group messages when joining a group
+  useEffect(() => {
+    if (queryGroupMessages.length > 0 && currentGroup) {
+      setGroupMessages(queryGroupMessages);
+    }
+  }, [queryGroupMessages, currentGroup]);
 
   useEffect(() => {
     if (!user) return;

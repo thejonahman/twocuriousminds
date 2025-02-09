@@ -379,6 +379,36 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add group messages endpoint
+  app.get("/api/group-messages", requireAuth, async (req, res) => {
+    try {
+      const groupId = parseInt(req.query.groupId as string);
+      if (!groupId) {
+        return res.status(400).json({ message: "Group ID is required" });
+      }
+
+      const messagesList = await db.query.groupMessages.findMany({
+        where: eq(groupMessages.groupId, groupId),
+        orderBy: [desc(groupMessages.createdAt)],
+        with: {
+          user: {
+            columns: {
+              username: true
+            }
+          }
+        }
+      });
+
+      res.json(messagesList);
+    } catch (error) {
+      console.error('Error fetching group messages:', error);
+      res.status(500).json({ 
+        message: "Database error occurred",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   // Preferences endpoints
   app.get("/api/preferences", requireAuth, async (req, res) => {
     try {
