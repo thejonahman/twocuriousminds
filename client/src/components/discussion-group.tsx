@@ -57,14 +57,18 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
 
       ws.onopen = () => {
         console.log("Connected to WebSocket");
+        toast({
+          title: "Connected",
+          description: "You're now connected to the chat server",
+        });
       };
 
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          if (message.type === "new_message") {
+          if (message.type === "new_message" && message.data.groupId === group?.id) {
             // Invalidate and refetch messages
-            queryClient.invalidateQueries({ queryKey: [`/api/groups/${message.data.groupId}/messages`] });
+            queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
           } else if (message.type === "error") {
             toast({
               title: "Error",
@@ -81,9 +85,19 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
         console.error("WebSocket error:", error);
         toast({
           title: "Connection Error",
-          description: "Failed to connect to chat server",
+          description: "Failed to connect to chat server. Retrying...",
           variant: "destructive",
         });
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket connection closed");
+        // Attempt to reconnect after a delay
+        setTimeout(() => {
+          if (ws.readyState === WebSocket.CLOSED) {
+            setSocket(null);
+          }
+        }, 3000);
       };
 
       setSocket(ws);
@@ -92,7 +106,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
         ws.close();
       };
     }
-  }, [user, queryClient]);
+  }, [user, socket === null]); // Re-run if socket is null (to reconnect)
 
   // Get current group for this video
   const { data: groups, isLoading: groupLoading } = useQuery({

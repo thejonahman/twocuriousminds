@@ -717,9 +717,9 @@ export function registerRoutes(app: express.Application): Server {
         inviteCode: discussionGroups.inviteCode,
         createdAt: discussionGroups.createdAt,
       })
-      .from(groupMembers)
-      .where(eq(groupMembers.userId, req.user.id))
-      .innerJoin(discussionGroups, eq(groupMembers.groupId, discussionGroups.id));
+        .from(groupMembers)
+        .where(eq(groupMembers.userId, req.user.id))
+        .innerJoin(discussionGroups, eq(groupMembers.groupId, discussionGroups.id));
 
       // Filter groups for this video if videoId is provided
       const groups = videoId
@@ -858,10 +858,10 @@ export function registerRoutes(app: express.Application): Server {
           username: sql`users.username`,
         },
       })
-      .from(groupMessages)
-      .where(eq(groupMessages.groupId, groupId))
-      .innerJoin('users', eq(groupMessages.userId, sql`users.id`))
-      .orderBy(asc(groupMessages.createdAt));
+        .from(groupMessages)
+        .where(eq(groupMessages.groupId, groupId))
+        .innerJoin('users', eq(groupMessages.userId, sql`users.id`))
+        .orderBy(asc(groupMessages.createdAt));
 
       res.json(messages);
     } catch (error) {
@@ -875,25 +875,52 @@ export function registerRoutes(app: express.Application): Server {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
-    verifyClient: (info, cb) => {
+    verifyClient: async (info, cb) => {
       // Skip verification for Vite HMR
       if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
         cb(true);
         return;
       }
 
-      // Verify user session
-      const session = (info.req as any).session;
-      if (!session?.passport?.user) {
-        cb(false, 401, 'Unauthorized');
-        return;
+      try {
+        // Parse the session from the cookie
+        const sessionParser = express.session({
+          store: new (require('connect-pg-simple')(express.session))({
+            conObject: {
+              connectionString: process.env.DATABASE_URL,
+            },
+          }),
+          secret: process.env.SESSION_SECRET || 'your-secret-key',
+          resave: false,
+          saveUninitialized: false,
+          cookie: {
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            httpOnly: true,
+          },
+        });
+
+        // Apply session middleware to the upgrade request
+        await new Promise((resolve) => {
+          sessionParser(info.req, {} as any, resolve);
+        });
+
+        // Check if user is authenticated
+        if (!info.req.session?.passport?.user) {
+          cb(false, 401, 'Unauthorized');
+          return;
+        }
+
+        cb(true);
+      } catch (error) {
+        console.error('WebSocket authentication error:', error);
+        cb(false, 500, 'Internal Server Error');
       }
-      cb(true);
     }
   });
 
   wss.on('connection', (ws, req) => {
-    const userId = (req as any).session?.passport?.user?.id;
+    const userId = req.session?.passport?.user?.id;
     if (userId) {
       connectedClients.set(userId, ws);
 
@@ -965,7 +992,6 @@ export function registerRoutes(app: express.Application): Server {
               type: 'new_message',
               data: messageWithUser,
             }));
-
           }
         } catch (error) {
           console.error('WebSocket message error:', error);
@@ -995,7 +1021,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
           return null;
         }
         // Try multiple resolutions in order of preference
-        const resolutions = ['maxresdefault', 'sddefault', 'hqdefault', 'default'];
+        const resolutions =['maxresdefault', 'sddefault', 'hqdefault', 'default'];
         for (const resolution of resolutions) {
           const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/${resolution}.jpg`;
           try {
