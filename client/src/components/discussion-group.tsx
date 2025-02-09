@@ -50,8 +50,10 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const [showInviteGuide, setShowInviteGuide] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout>();
   const maxReconnectAttempts = 5;
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
 
   // Get current group for this video
   const { data: groups, isLoading: groupLoading } = useQuery({
@@ -78,19 +80,22 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     const connectWebSocket = () => {
       try {
         setIsConnecting(true);
+        setConnectionStatus('connecting');
+
+        // Ensure we're using the same protocol as the page
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
-        let heartbeatInterval: NodeJS.Timeout;
-
+        // Connection opened
         ws.addEventListener('open', () => {
           console.log("WebSocket connected");
           setSocket(ws);
           setIsConnecting(false);
           setReconnectAttempts(0);
+          setConnectionStatus('connected');
 
-          // Set up heartbeat to keep connection alive
-          heartbeatInterval = setInterval(() => {
+          // Set up heartbeat
+          heartbeatIntervalRef.current = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'ping' }));
             }
@@ -102,11 +107,18 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
           });
         });
 
+        // Listen for messages
         ws.addEventListener('message', (event) => {
           try {
             const message = JSON.parse(event.data);
+            console.log('Received message:', message);
+
             if (message.type === "new_message") {
               queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
+            } else if (message.type === "connected") {
+              console.log('Connection confirmed with user ID:', message.userId);
+            } else if (message.type === "pong") {
+              console.log('Heartbeat acknowledged');
             } else if (message.type === "error") {
               toast({
                 title: "Error",
@@ -119,13 +131,14 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
           }
         });
 
+        // Handle errors
         ws.addEventListener('error', (error) => {
           console.error("WebSocket error:", error);
           setIsConnecting(false);
+          setConnectionStatus('disconnected');
 
-          // Clear heartbeat on error
-          if (heartbeatInterval) {
-            clearInterval(heartbeatInterval);
+          if (heartbeatIntervalRef.current) {
+            clearInterval(heartbeatIntervalRef.current);
           }
 
           toast({
@@ -133,22 +146,19 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
             description: "Failed to connect to chat server",
             variant: "destructive",
           });
-
-          // Close socket to trigger reconnection
-          ws.close();
         });
 
+        // Handle connection close
         ws.addEventListener('close', () => {
           console.log("WebSocket connection closed");
           setSocket(null);
           setIsConnecting(false);
+          setConnectionStatus('disconnected');
 
-          // Clear heartbeat on close
-          if (heartbeatInterval) {
-            clearInterval(heartbeatInterval);
+          // Clear intervals
+          if (heartbeatIntervalRef.current) {
+            clearInterval(heartbeatIntervalRef.current);
           }
-
-          // Clear any existing reconnection timeout
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
           }
@@ -181,6 +191,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       } catch (error) {
         console.error("Error creating WebSocket:", error);
         setIsConnecting(false);
+        setConnectionStatus('disconnected');
         return null;
       }
     };
@@ -192,11 +203,14 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+      }
       if (ws) {
         ws.close();
       }
     };
-  }, [user, group?.id, isConnecting, reconnectAttempts, toast, queryClient]);
+  }, [user, group?.id, isConnecting, reconnectAttempts, queryClient, toast]);
 
   // Scroll to bottom of messages
   useEffect(() => {

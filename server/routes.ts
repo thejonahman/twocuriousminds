@@ -48,6 +48,26 @@ interface SessionRequest extends IncomingMessage {
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
 
+// Handle database errors
+function handleDatabaseError(error: unknown, res: express.Response) {
+  console.error('Database error:', error);
+
+  // Check for connection errors
+  if (error instanceof Error && error.message.includes('endpoint is disabled')) {
+    return res.status(503).json({
+      message: "Database connection temporarily unavailable",
+      error: "Please try again in a few moments"
+    });
+  }
+
+  // Handle other database errors
+  return res.status(500).json({
+    message: "Database error occurred",
+    error: error instanceof Error ? error.message : "Unknown error"
+  });
+}
+
+// Make sure we return the HTTP server
 export function registerRoutes(app: express.Application): Server {
   // Create HTTP server first
   const httpServer = createServer(app);
@@ -80,10 +100,7 @@ export function registerRoutes(app: express.Application): Server {
   // Add session middleware
   app.use(sessionMiddleware);
 
-  // Add multer error handling middleware
-  app.use(handleMulterError);
-
-  // Set up WebSocket server with session handling
+  // Configure WebSocket server
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -95,15 +112,7 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       try {
-        // Parse cookies from the upgrade request
-        const cookies = info.req.headers.cookie;
-        if (!cookies) {
-          console.log('WebSocket auth failed: No cookies present');
-          cb(false, 401, 'Unauthorized');
-          return;
-        }
-
-        // Apply session middleware to the upgrade request
+        // Apply session middleware to parse cookies
         await new Promise<void>((resolve, reject) => {
           sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
             if (err) {
@@ -115,10 +124,18 @@ export function registerRoutes(app: express.Application): Server {
           });
         });
 
-        // Check if user is authenticated
         const req = info.req as SessionRequest;
+
+        // Debug log session state
+        console.log('WebSocket connection attempt:', {
+          hasSession: !!req.session,
+          hasPassport: !!req.session?.passport,
+          hasUser: !!req.session?.passport?.user,
+          cookies: info.req.headers.cookie,
+        });
+
         if (!req.session?.passport?.user) {
-          console.log('WebSocket auth failed: No user in session');
+          console.log('WebSocket auth failed: Missing user session data');
           cb(false, 401, 'Unauthorized');
           return;
         }
@@ -153,9 +170,17 @@ export function registerRoutes(app: express.Application): Server {
       connectedClients.delete(userId);
     });
 
+    // Handle incoming messages
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
+        console.log('Received message:', { type: message.type, userId });
+
+        // Handle ping messages to keep connection alive
+        if (message.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong' }));
+          return;
+        }
 
         if (message.type === 'group_message') {
           const { groupId, content } = message;
@@ -169,6 +194,7 @@ export function registerRoutes(app: express.Application): Server {
           });
 
           if (!member) {
+            console.log('Message rejected: User not in group:', { userId, groupId });
             ws.send(JSON.stringify({
               type: 'error',
               message: 'Not a member of this group'
@@ -185,6 +211,8 @@ export function registerRoutes(app: express.Application): Server {
             })
             .returning();
 
+          console.log('Message saved:', { messageId: savedMessage.id, groupId });
+
           // Get user info for the message
           const user = await db.execute(sql`
             SELECT username FROM users WHERE id = ${userId}
@@ -197,10 +225,12 @@ export function registerRoutes(app: express.Application): Server {
             }
           };
 
-          // Get all group members and broadcast message
+          // Get all group members to broadcast message
           const members = await db.query.groupMembers.findMany({
             where: eq(groupMembers.groupId, groupId),
           });
+
+          console.log('Broadcasting to members:', members.length);
 
           // Broadcast to all connected members
           for (const member of members) {
@@ -226,6 +256,12 @@ export function registerRoutes(app: express.Application): Server {
         }));
       }
     });
+
+    // Send initial connection confirmation
+    ws.send(JSON.stringify({
+      type: 'connected',
+      userId
+    }));
   });
 
   // Handle file uploads first - BEFORE any JSON parsing middleware
@@ -986,12 +1022,11 @@ export function registerRoutes(app: express.Application): Server {
         });
 
       res.json({ group, member });
-    } catch (error) {
-      handleDatabaseError(error, res);
+    } catch (error) {      handleDatabaseError(error, res);
     }
   });
 
-  // Fix the SQL query in the messages endpoint
+  // Fix the messages endpoint URL and improve session handling
   app.get("/api/groups/:groupId/messages", async (req, res) => {
     try {
       if (!req.user) {
@@ -1000,15 +1035,27 @@ export function registerRoutes(app: express.Application): Server {
 
       const groupId = parseInt(req.params.groupId);
 
+      // Verify user is member of the group
+      const member = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user.id)
+        ),
+      });
+
+      if (!member) {
+        return res.status(403).json({ message: "Not a member of this group" });
+      }
+
       // Get messages with user info
       const messages = await db.execute(sql`
         SELECT 
-          group_messages.*,
-          json_build_object('username', users.username) as "user"
-        FROM group_messages 
-        INNER JOIN users ON group_messages.user_id = users.id
-        WHERE group_messages.group_id = ${groupId}
-        ORDER BY group_messages.created_at ASC
+          m.*,
+          json_build_object('username', u.username) as user
+        FROM group_messages m
+        JOIN users u ON m.user_id = u.id
+        WHERE m.group_id = ${groupId}
+        ORDER BY m.created_at ASC
       `);
 
       res.json(messages.rows);
@@ -1020,8 +1067,8 @@ export function registerRoutes(app: express.Application): Server {
   function handleDatabaseError(error: any, res: express.Response) {
     console.error('Database error:', error);
 
-    // Check for connection errors
-    if (error.code === 'XX000' && error.message.includes('endpoint is disabled')) {
+    // Check for connection errors    if (error.code === 'XX000' && error.message.includes('endpoint is disabled')) {
+    if (error instanceof Error && error.message.includes('endpoint is disabled')) {
       return res.status(503).json({
         message: "Database connection temporarily unavailable",
         error: "Please try again in a few moments"
@@ -1116,6 +1163,8 @@ export function registerRoutes(app: express.Application): Server {
       return null;
     }
   }
+  // Return the HTTP server
+  return httpServer;
 }
 
 function handleMulterError(err: Error, req: express.Request, res: express.Response, next: express.NextFunction) {
