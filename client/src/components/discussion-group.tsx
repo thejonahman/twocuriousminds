@@ -100,7 +100,8 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   // Initialize group messages when joining a group
   useEffect(() => {
     console.log("Query Group Messages:", queryGroupMessages);
-    if (queryGroupMessages.length > 0 && currentGroup) {
+    console.log("Current Group:", currentGroup);
+    if (currentGroup) {
       setGroupMessages(queryGroupMessages);
     }
   }, [queryGroupMessages, currentGroup]);
@@ -149,7 +150,9 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               break;
             case 'new_group_message':
               console.log('Received group message:', data.data);
+              console.log('Current group:', currentGroup);
               if (currentGroup && data.data.groupId === currentGroup.id) {
+                console.log('Adding new message to group messages');
                 const newMessage: Message = {
                   id: data.data.id,
                   content: data.data.content,
@@ -160,7 +163,14 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                     username: data.data.user.username
                   }
                 };
-                setGroupMessages(prev => [...prev, newMessage]);
+                setGroupMessages(prev => {
+                  console.log('Previous messages:', prev);
+                  console.log('Adding new message:', newMessage);
+                  return [...prev, newMessage];
+                });
+              } else {
+                console.log('Message not added:',
+                  currentGroup ? 'Group ID mismatch' : 'No current group');
               }
               break;
             case 'group_created':
@@ -262,6 +272,8 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     }));
 
     setGroupNameInput('');
+    // Clear messages when creating a new group
+    setMessages([]);
   };
 
   const joinGroup = () => {
@@ -281,12 +293,18 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     }));
 
     setInviteCode('');
+    // Clear messages when joining a group
+    setMessages([]);
   };
 
   const leaveGroup = () => {
     console.log("Leaving Group");
     setCurrentGroup(null);
     setGroupMessages([]);
+    // Restore video messages when leaving group
+    if (queryMessages.length > 0) {
+      setMessages(queryMessages);
+    }
   };
 
   useEffect(() => {
