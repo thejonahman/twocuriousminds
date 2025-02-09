@@ -42,11 +42,11 @@ async function getUserByUsername(username: string) {
 }
 
 export function setupAuth(app: Express) {
-  // Create session store with automatic table creation
+  // Create session store without automatic table creation
   const store = new PostgresSessionStore({
     pool,
-    createTableIfMissing: true,
-    tableName: 'sessions'
+    createTableIfMissing: false, // Don't try to create table
+    tableName: 'session'  // Use the existing table name
   });
 
   // Configure session middleware
