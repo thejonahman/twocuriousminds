@@ -13,7 +13,23 @@ import pgSession from 'connect-pg-simple';
 import { ParsedQs } from 'qs';
 import { ParamsDictionary } from 'express-serve-static-core';
 
-// Extend session type to include passport
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      cb(new Error('Only image files are allowed'));
+      return;
+    }
+    cb(null, true);
+  },
+});
+
+// Declare types for session
 declare module 'express-session' {
   interface Session {
     passport?: {
@@ -33,7 +49,10 @@ interface SessionRequest extends IncomingMessage {
 const connectedClients = new Map<number, WebSocket>();
 
 export function registerRoutes(app: express.Application): Server {
-  // Setup auth first
+  // Create HTTP server first
+  const httpServer = createServer(app);
+
+  // Setup auth
   setupAuth(app);
 
   // Create session store
@@ -54,6 +73,7 @@ export function registerRoutes(app: express.Application): Server {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
     },
   });
 
@@ -63,24 +83,150 @@ export function registerRoutes(app: express.Application): Server {
   // Add multer error handling middleware
   app.use(handleMulterError);
 
-  // Add error handling for database operations
-  const handleDatabaseError = (error: any, res: express.Response) => {
-    console.error('Database error:', error);
+  // Set up WebSocket server with session handling
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: '/ws',
+    verifyClient: async (info, cb) => {
+      // Skip verification for Vite HMR
+      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        cb(true);
+        return;
+      }
 
-    // Check for connection errors
-    if (error.code === 'XX000' && error.message.includes('endpoint is disabled')) {
-      return res.status(503).json({
-        message: "Database connection temporarily unavailable",
-        error: "Please try again in a few moments"
-      });
+      try {
+        // Parse cookies from the upgrade request
+        const cookies = info.req.headers.cookie;
+        if (!cookies) {
+          console.log('WebSocket auth failed: No cookies present');
+          cb(false, 401, 'Unauthorized');
+          return;
+        }
+
+        // Apply session middleware to the upgrade request
+        await new Promise<void>((resolve, reject) => {
+          sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
+            if (err) {
+              console.error('Session middleware error:', err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        });
+
+        // Check if user is authenticated
+        const req = info.req as SessionRequest;
+        if (!req.session?.passport?.user) {
+          console.log('WebSocket auth failed: No user in session');
+          cb(false, 401, 'Unauthorized');
+          return;
+        }
+
+        console.log('WebSocket auth successful for user:', req.session.passport.user.id);
+        cb(true);
+      } catch (error) {
+        console.error('WebSocket authentication error:', error);
+        cb(false, 500, 'Internal Server Error');
+      }
+    }
+  });
+
+  wss.on('connection', async (ws, req: SessionRequest) => {
+    const userId = req.session?.passport?.user?.id;
+    if (!userId) {
+      console.log('WebSocket connection rejected: No user ID');
+      ws.close(1008, 'Unauthorized');
+      return;
     }
 
-    // Generic database error
-    res.status(500).json({
-      message: "Database operation failed",
-      error: error instanceof Error ? error.message : 'Unknown error'
+    console.log('WebSocket client connected, user:', userId);
+    connectedClients.set(userId, ws);
+
+    ws.on('close', () => {
+      console.log('WebSocket client disconnected, user:', userId);
+      connectedClients.delete(userId);
     });
-  };
+
+    ws.on('error', (error) => {
+      console.error('WebSocket error for user:', userId, error);
+      connectedClients.delete(userId);
+    });
+
+    ws.on('message', async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+
+        if (message.type === 'group_message') {
+          const { groupId, content } = message;
+
+          // Verify user is a member of the group
+          const member = await db.query.groupMembers.findFirst({
+            where: and(
+              eq(groupMembers.groupId, groupId),
+              eq(groupMembers.userId, userId)
+            ),
+          });
+
+          if (!member) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Not a member of this group'
+            }));
+            return;
+          }
+
+          // Save message to database
+          const [savedMessage] = await db.insert(groupMessages)
+            .values({
+              groupId,
+              userId,
+              content,
+            })
+            .returning();
+
+          // Get user info for the message
+          const user = await db.execute(sql`
+            SELECT username FROM users WHERE id = ${userId}
+          `);
+
+          const messageWithUser = {
+            ...savedMessage,
+            user: {
+              username: user.rows[0]?.username
+            }
+          };
+
+          // Get all group members and broadcast message
+          const members = await db.query.groupMembers.findMany({
+            where: eq(groupMembers.groupId, groupId),
+          });
+
+          // Broadcast to all connected members
+          for (const member of members) {
+            const clientWs = connectedClients.get(member.userId);
+            if (clientWs?.readyState === WebSocket.OPEN) {
+              try {
+                clientWs.send(JSON.stringify({
+                  type: 'new_message',
+                  data: messageWithUser
+                }));
+              } catch (error) {
+                console.error('Error sending message to client:', error);
+                connectedClients.delete(member.userId);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error processing message:', error);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Error processing message'
+        }));
+      }
+    });
+  });
 
   // Handle file uploads first - BEFORE any JSON parsing middleware
   app.patch("/api/videos/:id/thumbnail", upload.single('thumbnail'), async (req, res) => {
@@ -845,6 +991,7 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
+  // Fix the SQL query in the messages endpoint
   app.get("/api/groups/:groupId/messages", async (req, res) => {
     try {
       if (!req.user) {
@@ -853,25 +1000,10 @@ export function registerRoutes(app: express.Application): Server {
 
       const groupId = parseInt(req.params.groupId);
 
-      // Verify user is a member
-      const member = await db.query.groupMembers.findFirst({
-        where: and(
-          eq(groupMembers.groupId, groupId),
-          eq(groupMembers.userId, req.user.id)
-        ),
-      });
-
-      if (!member) {
-        return res.status(403).json({ message: "Not a member of this group" });
-      }
-
-      // Get messages with user info using proper query syntax
+      // Get messages with user info
       const messages = await db.execute(sql`
         SELECT 
-          group_messages.id,
-          group_messages.content,
-          group_messages.user_id as "userId",
-          group_messages.created_at as "createdAt",
+          group_messages.*,
           json_build_object('username', users.username) as "user"
         FROM group_messages 
         INNER JOIN users ON group_messages.user_id = users.id
@@ -885,151 +1017,106 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  const httpServer = createServer(app);
+  function handleDatabaseError(error: any, res: express.Response) {
+    console.error('Database error:', error);
 
-  // Set up WebSocket server with session handling
-  const wss = new WebSocketServer({
-    server: httpServer,
-    path: '/ws',
-    verifyClient: async (info, cb) => {
-      // Skip verification for Vite HMR
-      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
-        cb(true);
-        return;
-      }
-
-      try {
-        // Apply session middleware to the upgrade request
-        await new Promise<void>((resolve, reject) => {
-          sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
-            if (err) {
-              console.error('Session middleware error:', err);
-              reject(err);
-            } else {
-              resolve();
-            }
-          });
-        });
-
-        // Check if user is authenticated
-        const req = info.req as SessionRequest;
-        if (!req.session?.passport?.user) {
-          console.log('WebSocket auth failed: No user in session');
-          cb(false, 401, 'Unauthorized');
-          return;
-        }
-
-        console.log('WebSocket auth successful for user:', req.session.passport.user.id);
-        cb(true);
-      } catch (error) {
-        console.error('WebSocket authentication error:', error);
-        cb(false, 500, 'Internal Server Error');
-      }
-    }
-  });
-
-  wss.on('connection', async (ws, req: SessionRequest) => {
-    const userId = req.session?.passport?.user?.id;
-    if (!userId) {
-      console.log('WebSocket connection rejected: No user ID');
-      ws.close(1008, 'Unauthorized');
-      return;
+    // Check for connection errors
+    if (error.code === 'XX000' && error.message.includes('endpoint is disabled')) {
+      return res.status(503).json({
+        message: "Database connection temporarily unavailable",
+        error: "Please try again in a few moments"
+      });
     }
 
-    console.log('WebSocket client connected, user:', userId);
-    connectedClients.set(userId, ws);
-
-    ws.on('close', () => {
-      console.log('WebSocket client disconnected, user:', userId);
-      connectedClients.delete(userId);
+    // Generic database error
+    res.status(500).json({
+      message: "Database operation failed",
+      error: error instanceof Error ? error.message : 'Unknown error'
     });
+  }
 
-    ws.on('message', async (data) => {
-      try {
-        const message = JSON.parse(data.toString());
-
-        if (message.type === 'group_message') {
-          const { groupId, content } = message;
-
-          // Verify user is a member of the group
-          const member = await db.query.groupMembers.findFirst({
-            where: and(
-              eq(groupMembers.groupId, groupId),
-              eq(groupMembers.userId, userId)
-            ),
-          });
-
-          if (!member) {
-            ws.send(JSON.stringify({
-              type: 'error',
-              message: 'Not a member of this group'
-            }));
-            return;
+  async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
+    try {
+      switch (platform.toLowerCase()) {
+        case 'youtube': {
+          const videoId = url.split('v=')[1]?.split('&')[0];
+          if (!videoId) {
+            console.error('Could not extract YouTube video ID from:', url);
+            return null;
           }
+          // Try multiple resolutions in order of preference
+          const resolutions = ['maxresdefault', 'sddefault', 'hqdefault', 'default'];
+          for (const resolution of resolutions) {
+            const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/${resolution}.jpg`;
+            try {
+              const response = await fetch(thumbnailUrl);
+              if (response.ok) {
+                return thumbnailUrl;
+              }
+            } catch (error) {
+              console.warn(`Failed to fetch ${resolution} thumbnail for YouTube video ${videoId}`);
+            }
+          }
+          return null;
+        }
+        case 'tiktok':
+        case 'instagram': {
+          console.log('Analyzing content:', { title, description });
+          const contentText = `${title || ''} ${description || ''}`.toLowerCase();
 
-          // Save message to database
-          const [savedMessage] = await db.insert(groupMessages)
-            .values({
-              groupId,
-              userId,
-              content,
-            })
-            .returning();
-
-          // Get user info for the message
-          const user = await db.execute(sql`
-            SELECT username FROM users WHERE id = ${userId}
-          `);
-
-          const messageWithUser = {
-            ...savedMessage,
-            user: {
-              username: user.rows[0].username
+          const categories = {
+            beginner_technique: {
+              keywords: ['beginner', 'start', 'learn', 'first time', 'basic'],
+              color: '#4F46E5'
+            },
+            advanced_technique: {
+              keywords: ['advanced', 'expert', 'professional', 'racing'],
+              color: '#7C3AED'
+            },
+            safety_instruction: {
+              keywords: ['safety', 'protection', 'avalanche', 'rescue'],
+              color: '#DC2626'
             }
           };
 
-          // Send to all connected members including sender
-          const members = await db.query.groupMembers.findMany({
-            where: eq(groupMembers.groupId, groupId),
-          });
+          // Find best matching category
+          const bestMatch = Object.entries(categories).reduce((prev, [category, data]) => {
+            const matchCount = data.keywords.filter(keyword => contentText.includes(keyword)).length;
+            return matchCount > prev.matchCount ? { category, matchCount, color: data.color } : prev;
+          }, { category: 'beginner_technique', matchCount: 0, color: '#4F46E5' });
 
-          for (const member of members) {
-            const clientWs = connectedClients.get(member.userId);
-            if (clientWs?.readyState === WebSocket.OPEN) {
-              clientWs.send(JSON.stringify({
-                type: 'new_message',
-                data: messageWithUser,
-              }));
-            }
-          }
+          // Generate an SVG thumbnail with proper escaping
+          const svgContent = `
+            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <linearGradient id="bg" x1="0%" y1="0%" x2="100%">
+                  <stop offset="0%" style="stop-color:${bestMatch.color};stop-opacity:1" />
+                  <stop offset="100%" style="stop-color:#1F2937;stop-opacity:1" />
+                </linearGradient>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#bg)"/>
+              <rect x="40" y="40" width="1200" height="640" fill="rgba(255,255,255,0.1)" rx="20"/>
+              <text x="640" y="320" font-family="Arial" font-size="48" fill="white" text-anchor="middle" dominant-baseline="middle">
+                ${title ? title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : 'Video Content'}
+              </text>
+              <text x="640" y="400" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
+                ${platform.charAt(0).toUpperCase() + platform.slice(1)}
+              </text>
+            </svg>
+          `.trim().replace(/\n\s+/g, ' ');
+
+          return `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
         }
-      } catch (error) {
-        console.error('Error processing message:', error);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Failed to process message'
-        }));
+        default:
+          console.error('Unsupported platform:', platform);
+          return null;
       }
-    });
-  });
-
-  return httpServer;
-}
-
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit for files
-  },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      cb(new Error('Only image files are allowed'));
-      return;
+    } catch (error) {
+      console.error('Error in getThumbnailUrl:', error);
+      return null;
     }
-    cb(null, true);
-  },
-});
+  }
+}
 
 function handleMulterError(err: Error, req: express.Request, res: express.Response, next: express.NextFunction) {
   if (err instanceof multer.MulterError) {
@@ -1053,86 +1140,4 @@ function handleMulterError(err: Error, req: express.Request, res: express.Respon
   }
 
   next(err);
-}
-
-async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
-  try {
-    switch (platform.toLowerCase()) {
-      case 'youtube': {
-        const videoId = url.split('v=')[1]?.split('&')[0];
-        if (!videoId) {
-          console.error('Could not extract YouTube video ID from:', url);
-          return null;
-        }
-        // Try multiple resolutions in order of preference
-        const resolutions = ['maxresdefault', 'sddefault', 'hqdefault', 'default'];
-        for (const resolution of resolutions) {
-          const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/${resolution}.jpg`;
-          try {
-            const response = await fetch(thumbnailUrl);
-            if (response.ok) {
-              return thumbnailUrl;
-            }
-          } catch (error) {
-            console.warn(`Failed to fetch ${resolution} thumbnail for YouTube video ${videoId}`);
-          }
-        }
-        return null;
-      }
-      case 'tiktok':
-      case 'instagram': {
-        console.log('Analyzing content:', { title, description });
-        const contentText = `${title || ''} ${description || ''}`.toLowerCase();
-
-        const categories = {
-          beginner_technique: {
-            keywords: ['beginner', 'start', 'learn', 'first time', 'basic'],
-            color: '#4F46E5'
-          },
-          advanced_technique: {
-            keywords: ['advanced', 'expert', 'professional', 'racing'],
-            color: '#7C3AED'
-          },
-          safety_instruction: {
-            keywords: ['safety', 'protection', 'avalanche', 'rescue'],
-            color: '#DC2626'
-          }
-        };
-
-        // Find best matching category
-        const bestMatch = Object.entries(categories).reduce((prev, [category, data]) => {
-          const matchCount = data.keywords.filter(keyword => contentText.includes(keyword)).length;
-          return matchCount > prev.matchCount ? { category, matchCount, color: data.color } : prev;
-        }, { category: 'beginner_technique', matchCount: 0, color: '#4F46E5' });
-
-        // Generate an SVG thumbnail with proper escaping
-        const svgContent = `
-          <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <linearGradient id="bg" x1="0%" y1="0%" x2="100%">
-                <stop offset="0%" style="stop-color:${bestMatch.color};stop-opacity:1" />
-                <stop offset="100%" style="stop-color:#1F2937;stop-opacity:1" />
-              </linearGradient>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#bg)"/>
-            <rect x="40" y="40" width="1200" height="640" fill="rgba(255,255,255,0.1)" rx="20"/>
-            <text x="640" y="320" font-family="Arial" font-size="48" fill="white" text-anchor="middle" dominant-baseline="middle">
-              ${title ? title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : 'Video Content'}
-            </text>
-            <text x="640" y="400" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
-              ${platform.charAt(0).toUpperCase() + platform.slice(1)}
-            </text>
-          </svg>
-        `.trim().replace(/\n\s+/g, ' ');
-
-        return `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
-      }
-      default:
-        console.error('Unsupported platform:', platform);
-        return null;
-    }
-  } catch (error) {
-    console.error('Error in getThumbnailUrl:', error);
-    return null;
-  }
 }

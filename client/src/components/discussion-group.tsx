@@ -81,21 +81,31 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
-        ws.onopen = () => {
+        let heartbeatInterval: NodeJS.Timeout;
+
+        ws.addEventListener('open', () => {
           console.log("WebSocket connected");
           setSocket(ws);
           setIsConnecting(false);
           setReconnectAttempts(0);
+
+          // Set up heartbeat to keep connection alive
+          heartbeatInterval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'ping' }));
+            }
+          }, 30000);
+
           toast({
             title: "Connected",
             description: "You're now connected to the chat server",
           });
-        };
+        });
 
-        ws.onmessage = (event) => {
+        ws.addEventListener('message', (event) => {
           try {
             const message = JSON.parse(event.data);
-            if (message.type === "new_message" && message.data.groupId === group.id) {
+            if (message.type === "new_message") {
               queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
             } else if (message.type === "error") {
               toast({
@@ -107,37 +117,56 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
           } catch (error) {
             console.error("Error parsing message:", error);
           }
-        };
+        });
 
-        ws.onerror = (error) => {
+        ws.addEventListener('error', (error) => {
           console.error("WebSocket error:", error);
+          setIsConnecting(false);
+
+          // Clear heartbeat on error
+          if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+          }
+
           toast({
             title: "Connection Error",
             description: "Failed to connect to chat server",
             variant: "destructive",
           });
-          ws.close();
-        };
 
-        ws.onclose = () => {
+          // Close socket to trigger reconnection
+          ws.close();
+        });
+
+        ws.addEventListener('close', () => {
           console.log("WebSocket connection closed");
           setSocket(null);
           setIsConnecting(false);
 
+          // Clear heartbeat on close
+          if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+          }
+
+          // Clear any existing reconnection timeout
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
           }
 
-          // Only attempt reconnect if not at max attempts
+          // Attempt reconnection if under max attempts
           if (reconnectAttempts < maxReconnectAttempts) {
             const nextAttempt = reconnectAttempts + 1;
             setReconnectAttempts(nextAttempt);
-
-            // Exponential backoff
             const delay = Math.min(1000 * Math.pow(2, nextAttempt), 10000);
 
+            toast({
+              title: "Connection Lost",
+              description: `Reconnecting in ${delay / 1000} seconds...`,
+              variant: "destructive",
+            });
+
             reconnectTimeoutRef.current = setTimeout(() => {
-              connectWebSocket(); // Attempt to reconnect
+              connectWebSocket();
             }, delay);
           } else {
             toast({
@@ -146,7 +175,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
               variant: "destructive",
             });
           }
-        };
+        });
 
         return ws;
       } catch (error) {
@@ -158,6 +187,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
 
     const ws = connectWebSocket();
 
+    // Cleanup function
     return () => {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
