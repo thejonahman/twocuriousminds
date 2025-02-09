@@ -57,14 +57,30 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<number>();
 
-  // Fetch general messages
+  console.log("DiscussionGroup rendering, user:", user, "videoId:", videoId); // Debug log
+
+  // If there's no user, show a message instead of returning null
+  if (!user) {
+    return (
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Discussion</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-center text-muted-foreground">
+            Please sign in to participate in discussions
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const { data: messages = [], refetch: refetchMessages } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     queryFn: () => fetch(`/api/messages?videoId=${videoId}`).then(r => r.json()),
     enabled: !!user && !!videoId && !currentGroup,
   });
 
-  // Setup WebSocket
   useEffect(() => {
     if (!user) return;
 
@@ -162,7 +178,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     };
   }, [user, toast]);
 
-  // Send message
   const sendMessage = () => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
@@ -190,7 +205,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     setMessageInput('');
   };
 
-  // Create group
   const createGroup = () => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
@@ -210,7 +224,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     setGroupNameInput('');
   };
 
-  // Join group
   const joinGroup = () => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
@@ -229,21 +242,17 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     setInviteCode('');
   };
 
-  // Leave group
   const leaveGroup = () => {
     setCurrentGroup(null);
     setGroupMessages([]);
   };
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, groupMessages.length]);
 
-  if (!user) return null;
-
   return (
-    <Card className="mt-6">
+    <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
