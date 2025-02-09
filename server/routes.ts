@@ -900,9 +900,10 @@ export function registerRoutes(app: express.Application): Server {
 
       try {
         // Apply session middleware to the upgrade request
-        await new Promise<void>((resolve) => {
-          sessionMiddleware(info.req as express.Request, {} as express.Response, () => {
-            resolve();
+        await new Promise<void>((resolve, reject) => {
+          sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
+            if (err) reject(err);
+            else resolve();
           });
         });
 

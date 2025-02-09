@@ -69,7 +69,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     enabled: !!group?.id,
   });
 
-  // Connect WebSocket
+  // WebSocket connection management
   useEffect(() => {
     if (!user || !group?.id || isConnecting || reconnectAttempts >= maxReconnectAttempts) {
       return;
@@ -105,12 +105,17 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
               });
             }
           } catch (error) {
-            console.warn("error parsing message", error);
+            console.error("Error parsing message:", error);
           }
         };
 
         ws.onerror = (error) => {
           console.error("WebSocket error:", error);
+          toast({
+            title: "Connection Error",
+            description: "Failed to connect to chat server",
+            variant: "destructive",
+          });
           ws.close();
         };
 
@@ -132,7 +137,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
             const delay = Math.min(1000 * Math.pow(2, nextAttempt), 10000);
 
             reconnectTimeoutRef.current = setTimeout(() => {
-              setIsConnecting(false);
+              connectWebSocket(); // Attempt to reconnect
             }, delay);
           } else {
             toast({
