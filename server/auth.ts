@@ -10,14 +10,14 @@ import { db, pool } from "@db";
 import { eq } from "drizzle-orm";
 import { fromZodError } from "zod-validation-error";
 
+const scryptAsync = promisify(scrypt);
+const PostgresSessionStore = connectPg(session);
+
 declare global {
   namespace Express {
     interface User extends SelectUser {}
   }
 }
-
-const scryptAsync = promisify(scrypt);
-const PostgresSessionStore = connectPg(session);
 
 async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
@@ -27,21 +27,9 @@ async function hashPassword(password: string) {
 
 async function comparePasswords(supplied: string, stored: string) {
   try {
-    // Handle bcrypt passwords from existing database
-    if (stored.startsWith('$2b$')) {
-      // Return false for now as we'll update these passwords
-      return false;
-    }
-
     const [hashedPassword, salt] = stored.split(".");
     const buf = (await scryptAsync(supplied, salt, 32)) as Buffer;
     const storedBuf = Buffer.from(hashedPassword, "hex");
-
-    if (buf.length !== storedBuf.length) {
-      console.error(`Buffer length mismatch: ${buf.length} vs ${storedBuf.length}`);
-      return false;
-    }
-
     return timingSafeEqual(buf, storedBuf);
   } catch (error) {
     console.error("Password comparison error:", error);
@@ -54,80 +42,99 @@ async function getUserByUsername(username: string) {
 }
 
 export function setupAuth(app: Express) {
-  const store = new PostgresSessionStore({ pool, createTableIfMissing: true });
-  const sessionSettings: session.SessionOptions = {
-    secret: process.env.REPL_ID!,
+  // Create session store with automatic table creation
+  const store = new PostgresSessionStore({
+    pool,
+    createTableIfMissing: true,
+    tableName: 'sessions'
+  });
+
+  // Configure session middleware
+  const sessionMiddleware = session({
+    store,
+    secret: process.env.REPL_ID || 'fallback-secret-key',
     resave: false,
     saveUninitialized: false,
-    store,
     cookie: {
-      secure: app.get("env") === "production",
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 24 * 60 * 60 * 1000 // 24 hours
     },
-  };
+  });
 
-  if (app.get("env") === "production") {
-    app.set("trust proxy", 1);
-  }
-
-  app.use(session(sessionSettings));
+  // Set up session handling
+  app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 
-  passport.use(
-    new LocalStrategy(async (username, password, done) => {
-      try {
-        console.log(`Attempting login for user: ${username}`);
-        const [user] = await getUserByUsername(username);
+  // Configure local strategy for username/password auth
+  passport.use(new LocalStrategy(async (username, password, done) => {
+    try {
+      console.log(`Attempting login for user: ${username}`);
+      const [user] = await getUserByUsername(username);
 
-        if (!user) {
-          console.log(`User not found: ${username}`);
-          return done(null, false);
-        }
-
-        const isValid = await comparePasswords(password, user.password);
-        console.log(`Password validation result: ${isValid}`);
-
-        if (!isValid) {
-          return done(null, false);
-        }
-
-        return done(null, user);
-      } catch (error) {
-        console.error("Login error:", error);
-        return done(error);
+      if (!user) {
+        console.log(`User not found: ${username}`);
+        return done(null, false);
       }
-    }),
-  );
 
-  passport.serializeUser((user, done) => done(null, user.id));
+      const isValid = await comparePasswords(password, user.password);
+      console.log(`Password validation result: ${isValid}`);
 
+      if (!isValid) {
+        return done(null, false);
+      }
+
+      return done(null, user);
+    } catch (error) {
+      console.error("Login error:", error);
+      return done(error);
+    }
+  }));
+
+  // Serialize user into the session
+  passport.serializeUser((user, done) => {
+    console.log('Serializing user:', user.id);
+    done(null, user.id);
+  });
+
+  // Deserialize user from the session
   passport.deserializeUser(async (id: number, done) => {
     try {
+      console.log('Deserializing user:', id);
       const [user] = await db
         .select()
         .from(users)
         .where(eq(users.id, id))
         .limit(1);
+
+      if (!user) {
+        console.log('User not found during deserialization:', id);
+        return done(null, false);
+      }
+
       done(null, user);
     } catch (error) {
+      console.error('Deserialization error:', error);
       done(error);
     }
   });
 
+  // Auth endpoints
   app.post("/api/register", async (req, res, next) => {
-    const result = insertUserSchema.safeParse(req.body);
-    if (!result.success) {
-      const error = fromZodError(result.error);
-      return res.status(400).send(error.toString());
-    }
-
-    const [existingUser] = await getUserByUsername(result.data.username);
-    if (existingUser) {
-      return res.status(400).send("Username already exists");
-    }
-
     try {
+      const result = insertUserSchema.safeParse(req.body);
+      if (!result.success) {
+        const error = fromZodError(result.error);
+        return res.status(400).send(error.toString());
+      }
+
+      const [existingUser] = await getUserByUsername(result.data.username);
+      if (existingUser) {
+        return res.status(400).send("Username already exists");
+      }
+
       const hashedPassword = await hashPassword(result.data.password);
       const [user] = await db
         .insert(users)
@@ -158,7 +165,15 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    console.log('GET /api/user - isAuthenticated:', req.isAuthenticated());
+    console.log('Session:', req.session);
+    console.log('User:', req.user);
+
+    if (!req.isAuthenticated()) {
+      return res.sendStatus(401);
+    }
     res.json(req.user);
   });
+
+  return sessionMiddleware;
 }

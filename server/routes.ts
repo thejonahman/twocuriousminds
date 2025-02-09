@@ -1,69 +1,47 @@
 import { createServer, type Server } from "http";
-import express from 'express';
-import session from 'express-session';
+import express, { type Express } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
 import multer from 'multer';
 import { videos, messages, users } from "@db/schema";
 import { setupAuth } from "./auth";
-import pgSession from 'connect-pg-simple';
 
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
 
-export function registerRoutes(app: express.Application): Server {
+export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
 
-  // Setup auth
-  setupAuth(app);
+  // Setup auth and get session middleware
+  const sessionMiddleware = setupAuth(app);
 
-  // Setup session store
-  const sessionStore = new (pgSession(session))({
-    conObject: {
-      connectionString: process.env.DATABASE_URL,
-    },
-    createTableIfMissing: true,
-  });
-
-  // Session middleware
-  const sessionMiddleware = session({
-    store: sessionStore,
-    secret: process.env.SESSION_SECRET || 'your-secret-key',
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      httpOnly: true,
-      maxAge: 24 * 60 * 60 * 1000
-    },
-  });
-
-  app.use(sessionMiddleware);
-  app.use(express.json());
-
-  // Basic WebSocket setup
+  // Setup WebSocket server
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws'
   });
 
-  // Simple connection handler
+  // Handle WebSocket connections
   wss.on('connection', (ws, req: any) => {
-    const userId = req.session?.passport?.user?.id;
+    console.log('WebSocket connection attempt');
 
-    if (!userId) {
+    // Get user ID from session
+    if (!req.session?.passport?.user) {
+      console.log('WebSocket - No authenticated user');
       ws.close(1008, 'Unauthorized');
       return;
     }
 
-    connectedClients.set(userId, ws);
+    const userId = req.session.passport.user;
     console.log('WebSocket connected for user:', userId);
+
+    connectedClients.set(userId, ws);
 
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
+        console.log('Received message:', message);
 
         if (message.type === 'message') {
           const { videoId, content } = message;
@@ -106,21 +84,46 @@ export function registerRoutes(app: express.Application): Server {
     });
 
     ws.on('close', () => {
+      console.log('WebSocket disconnected for user:', userId);
       connectedClients.delete(userId);
     });
 
-    ws.on('error', () => {
+    ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
       connectedClients.delete(userId);
     });
   });
 
-  // Messages endpoint
-  app.get("/api/messages", async (req, res) => {
+  // Public endpoints - no auth required
+  app.get("/api/videos", async (req, res) => {
     try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
+      const allVideos = await db.query.videos.findMany({
+        with: {
+          category: true,
+          subcategory: true
+        }
+      });
+      res.json(allVideos);
+    } catch (error) {
+      console.error('Error fetching videos:', error);
+      res.status(500).json({
+        message: "Error fetching videos",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
 
+  // Protected endpoints - require authentication
+  const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.isAuthenticated()) {
+      return next();
+    }
+    res.status(401).json({ message: "Not authenticated" });
+  };
+
+  // Messages endpoint
+  app.get("/api/messages", requireAuth, async (req, res) => {
+    try {
       const videoId = parseInt(req.query.videoId as string);
       if (!videoId) {
         return res.status(400).json({ message: "Video ID is required" });

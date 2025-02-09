@@ -37,15 +37,20 @@ export default function Home() {
   const initialCategoryId = params.get('category');
   const initialSubcategoryId = params.get('subcategory');
 
-  const { data: videos, isLoading } = useQuery<Video[]>({
+  const { data: videos, isLoading, error } = useQuery<Video[]>({
     queryKey: ["/api/videos"],
+    retry: 3,
+    refetchOnWindowFocus: false,
+    refetchOnMount: true,
+    meta: {
+      credentials: 'include', // Add credentials for authentication
+    },
   });
 
   // Handle URL updates when category changes
   const handleCategoryChange = (categoryId: string) => {
     const newParams = new URLSearchParams(search);
     newParams.set('category', categoryId);
-    // Clear subcategory when changing category
     newParams.delete('subcategory');
     setLocation(`/?${newParams.toString()}`);
   };
@@ -85,64 +90,78 @@ export default function Home() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-destructive">Error loading videos. Please try again later.</p>
+      </div>
+    );
+  }
+
+  if (!videos || videos.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-muted-foreground">No videos found</p>
+      </div>
+    );
+  }
+
   // Filter videos based on search query
-  const filteredVideos = videos?.filter((video) => {
-    if (!searchQuery) return true;
-
-    const searchTerms = searchQuery.toLowerCase().split(" ");
-    const searchableText = `${video.title} ${video.description || ""} ${video.category.name} ${video.subcategory?.name || ""}`.toLowerCase();
-
-    return searchTerms.every(term => searchableText.includes(term));
-  });
+  const filteredVideos = searchQuery
+    ? videos.filter(video => {
+        const searchTerms = searchQuery.toLowerCase().split(" ");
+        const searchableText = `${video.title} ${video.description || ""} ${video.category.name} ${video.subcategory?.name || ""}`.toLowerCase();
+        return searchTerms.every(term => searchableText.includes(term));
+      })
+    : videos;
 
   // Group videos by category and subcategory
-  const videosByCategory = !searchQuery ? filteredVideos?.reduce((acc, video) => {
-    const categoryId = video.category.id;
-    if (!acc[categoryId]) {
-      acc[categoryId] = {
-        name: video.category.name,
-        subcategories: {},
-      };
-    }
+  const videosByCategory = !searchQuery
+    ? videos.reduce<Record<string, {
+        name: string;
+        subcategories: Record<string, {
+          name: string;
+          videos: Video[];
+          displayOrder?: number
+        }>;
+      }>>((acc, video) => {
+        const categoryId = String(video.category.id);
+        if (!acc[categoryId]) {
+          acc[categoryId] = {
+            name: video.category.name,
+            subcategories: {},
+          };
+        }
 
-    if (video.subcategory) {
-      const subcategoryId = video.subcategory.id;
-      if (!acc[categoryId].subcategories[subcategoryId]) {
-        acc[categoryId].subcategories[subcategoryId] = {
-          name: video.subcategory.name,
-          videos: [],
-          displayOrder: video.subcategory.displayOrder,
-        };
-      }
-      acc[categoryId].subcategories[subcategoryId].videos.push(video);
-    }
-    return acc;
-  }, {} as Record<number, { 
-    name: string; 
-    subcategories: Record<number, { name: string; videos: Video[]; displayOrder?: number }>;
-  }>) : null;
+        if (video.subcategory) {
+          const subcategoryId = String(video.subcategory.id);
+          if (!acc[categoryId].subcategories[subcategoryId]) {
+            acc[categoryId].subcategories[subcategoryId] = {
+              name: video.subcategory.name,
+              videos: [],
+              displayOrder: video.subcategory.displayOrder,
+            };
+          }
+          acc[categoryId].subcategories[subcategoryId].videos.push(video);
+        }
+        return acc;
+      }, {})
+    : null;
 
-  // Assuming categories array is fetched from somewhere else.  This needs to be implemented.
-  const categories =  [
-    { name: "Learn about ADHD", displayOrder: -1 },
-    { name: "Another Category", displayOrder: 1 },
-    // Add other categories here...
+  const categories = [
+    { id: "1", name: "Learn about ADHD", displayOrder: -1 },
+    { id: "2", name: "Another Category", displayOrder: 1 },
   ];
 
-  const sortedCategories = videosByCategory ? Object.entries(videosByCategory).sort(([,a], [,b]) => {
-    // First sort by display_order if available
-    const categoryA = categories?.find(cat => cat.name === a.name);
-    const categoryB = categories?.find(cat => cat.name === b.name);
-
-    const orderA = categoryA?.displayOrder ?? 0;
-    const orderB = categoryB?.displayOrder ?? 0;
-
-    if (orderA !== orderB) {
-      return orderA - orderB;
-    }
-    // If display_order is the same, sort by name
-    return a.name.localeCompare(b.name);
-  }) : [];
+  const sortedCategories = videosByCategory
+    ? Object.entries(videosByCategory).sort(([,a], [,b]) => {
+        const categoryA = categories.find(cat => cat.name === a.name);
+        const categoryB = categories.find(cat => cat.name === b.name);
+        const orderA = categoryA?.displayOrder ?? 0;
+        const orderB = categoryB?.displayOrder ?? 0;
+        return orderA !== orderB ? orderA - orderB : a.name.localeCompare(b.name);
+      })
+    : [];
 
   return (
     <div className="space-y-12">
@@ -179,15 +198,15 @@ export default function Home() {
             <h2 className="text-2xl font-semibold flex items-center gap-2">
               Search Results
               <Badge variant="secondary" className="ml-2">
-                {filteredVideos?.length} videos
+                {filteredVideos.length} videos
               </Badge>
             </h2>
           </div>
-          <VideoGrid videos={filteredVideos || []} />
+          <VideoGrid videos={filteredVideos} />
         </div>
       ) : (
-        <Tabs 
-          defaultValue={initialCategoryId || sortedCategories[0]?.[0]} 
+        <Tabs
+          defaultValue={initialCategoryId || sortedCategories[0]?.[0]}
           className="space-y-10"
           onValueChange={handleCategoryChange}
         >
@@ -200,8 +219,8 @@ export default function Home() {
             <div className="sticky top-0 z-10 -mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8 py-3 backdrop-blur-lg bg-background/80 border-b">
               <TabsList className="h-auto flex-wrap justify-start w-full p-1.5 bg-muted/50 backdrop-blur supports-[backdrop-filter]:bg-background/60 rounded-xl">
                 {sortedCategories.map(([id, category]) => (
-                  <TabsTrigger 
-                    key={id} 
+                  <TabsTrigger
+                    key={id}
                     value={id}
                     className="text-base py-3 px-5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-md rounded-lg transition-all duration-200"
                   >
@@ -255,9 +274,9 @@ export default function Home() {
                       return a.name.localeCompare(b.name);
                     })
                     .map(([subId, subcategory]) => (
-                      <div 
-                        key={subId} 
-                        id={`subcategory-${subId}`} 
+                      <div
+                        key={subId}
+                        id={`subcategory-${subId}`}
                         className={`scroll-mt-24 space-y-8 p-8 rounded-2xl bg-accent/5 border border-accent/10 hover:border-accent/20 transition-colors shadow-sm hover:shadow-md ${
                           initialSubcategoryId === subId ? 'ring-2 ring-primary/20' : ''
                         }`}

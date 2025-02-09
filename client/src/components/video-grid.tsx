@@ -23,6 +23,18 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  console.log('VideoGrid received videos:', videos);
+
+  if (!videos || videos.length === 0) {
+    console.log('No videos available:', { videos });
+    return (
+      <div className="text-center py-8">
+        <p className="text-muted-foreground">No videos found</p>
+      </div>
+    );
+  }
+
   const scrollPositionRef = useRef(0);
   const queryClient = useQueryClient();
   const gridRef = useRef<HTMLDivElement>(null);
