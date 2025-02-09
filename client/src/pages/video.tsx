@@ -4,6 +4,7 @@ import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DelphiBubble } from "@/components/delphi-bubble";
+import { DiscussionGroup } from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
 import { Share2, Link, Mail, Copy, Check } from "lucide-react";
 import {
@@ -14,7 +15,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { DiscussionGroup } from "@/components/discussion-group";
 
 export default function Video() {
   const { id } = useParams();
@@ -177,14 +177,13 @@ export default function Video() {
             </div>
           </div>
           <DelphiBubble videoId={video.id} />
-          <DiscussionGroup videoId={video.id} />
+          <div className="rounded-xl border bg-card shadow-sm">
+            <DiscussionGroup videoId={video.id} />
+          </div>
         </div>
 
         <div className="lg:sticky lg:top-4 space-y-4">
           <div className="rounded-xl border bg-accent/5 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold">Related Videos</h2>
-            </div>
             <RecommendationSidebar
               currentVideoId={video.id}
               categoryId={video.categoryId}
