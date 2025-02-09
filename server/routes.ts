@@ -388,5 +388,69 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Preferences endpoints
+  app.get("/api/preferences", requireAuth, async (req, res) => {
+    try {
+      // Get preferences from database for the authenticated user
+      const preferences = await db.query.preferences.findFirst({
+        where: eq(preferences.userId, req.user!.id)
+      });
+
+      if (!preferences) {
+        return res.status(404).json({
+          message: "No preferences found"
+        });
+      }
+
+      res.json(preferences);
+    } catch (error) {
+      console.error('Error fetching preferences:', error);
+      res.status(500).json({
+        message: "Error fetching preferences",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  app.post("/api/preferences", requireAuth, async (req, res) => {
+    try {
+      const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
+
+      if (!Array.isArray(preferredCategories) || !Array.isArray(excludedCategories) || !Array.isArray(preferredPlatforms)) {
+        return res.status(400).json({
+          message: "Invalid preferences format"
+        });
+      }
+
+      // Upsert preferences
+      const [preferences] = await db
+        .insert(preferences)
+        .values({
+          userId: req.user!.id,
+          preferredCategories,
+          excludedCategories,
+          preferredPlatforms
+        })
+        .onConflictDoUpdate({
+          target: [preferences.userId],
+          set: {
+            preferredCategories,
+            excludedCategories,
+            preferredPlatforms,
+            updatedAt: new Date()
+          }
+        })
+        .returning();
+
+      res.json(preferences);
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+      res.status(500).json({
+        message: "Error saving preferences",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   return httpServer;
 }
