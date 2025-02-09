@@ -53,6 +53,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [connected, setConnected] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const [groupMessages, setGroupMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<number>();
@@ -73,11 +74,18 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     );
   }
 
-  const { data: messages = [], refetch: refetchMessages } = useQuery<Message[]>({
+  const { data: queryMessages = [] } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     queryFn: () => fetch(`/api/messages?videoId=${videoId}`).then(r => r.json()),
     enabled: !!user && !!videoId && !currentGroup,
   });
+
+  // Initialize messages state with query data
+  useEffect(() => {
+    if (queryMessages.length > 0) {
+      setMessages(queryMessages);
+    }
+  }, [queryMessages]);
 
   useEffect(() => {
     if (!user) return;
