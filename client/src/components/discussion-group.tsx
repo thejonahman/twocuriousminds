@@ -19,7 +19,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Users, Share2, Send, MessageSquare, Bell, BellOff } from "lucide-react";
+import { Users, Share2, Send, MessageSquare } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface Message {
@@ -48,15 +48,26 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [showInviteGuide, setShowInviteGuide] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const maxReconnectAttempts = 5;
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
-  // Update WebSocket handlers
+  // Update WebSocket handlers with better connection management
   useEffect(() => {
-    if (user) {
+    if (!user || isConnecting || reconnectAttempts >= maxReconnectAttempts) {
+      return;
+    }
+
+    const connectWebSocket = () => {
+      setIsConnecting(true);
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
       ws.onopen = () => {
         console.log("Connected to WebSocket");
+        setIsConnecting(false);
+        setReconnectAttempts(0);
         toast({
           title: "Connected",
           description: "You're now connected to the chat server",
@@ -67,7 +78,6 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
         try {
           const message = JSON.parse(event.data);
           if (message.type === "new_message" && message.data.groupId === group?.id) {
-            // Invalidate and refetch messages
             queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
           } else if (message.type === "error") {
             toast({
@@ -85,28 +95,50 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
         console.error("WebSocket error:", error);
         toast({
           title: "Connection Error",
-          description: "Failed to connect to chat server. Retrying...",
+          description: "Failed to connect to chat server",
           variant: "destructive",
         });
       };
 
       ws.onclose = () => {
         console.log("WebSocket connection closed");
+        setSocket(null);
+        setIsConnecting(false);
+
+        // Clear any existing reconnection timeout
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+
         // Attempt to reconnect after a delay
-        setTimeout(() => {
-          if (ws.readyState === WebSocket.CLOSED) {
-            setSocket(null);
-          }
-        }, 3000);
+        if (reconnectAttempts < maxReconnectAttempts) {
+          setReconnectAttempts(prev => prev + 1);
+          reconnectTimeoutRef.current = setTimeout(() => {
+            setIsConnecting(false);
+          }, 5000 * (reconnectAttempts + 1)); // Exponential backoff
+        } else {
+          toast({
+            title: "Connection Failed",
+            description: "Unable to connect to chat server. Please refresh the page to try again.",
+            variant: "destructive",
+          });
+        }
       };
 
       setSocket(ws);
 
-      return () => {
-        ws.close();
-      };
-    }
-  }, [user, socket === null]); // Re-run if socket is null (to reconnect)
+      return ws;
+    };
+
+    const ws = connectWebSocket();
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      ws.close();
+    };
+  }, [user, isConnecting, reconnectAttempts, group?.id]);
 
   // Get current group for this video
   const { data: groups, isLoading: groupLoading } = useQuery({
@@ -189,6 +221,12 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
         description: error instanceof Error ? error.message : "Failed to send message",
         variant: "destructive",
       });
+
+      // If the error was due to connection, attempt to reconnect
+      if (socket?.readyState !== WebSocket.OPEN) {
+        setSocket(null);
+        setIsConnecting(false);
+      }
     },
   });
 

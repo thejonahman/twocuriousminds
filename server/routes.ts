@@ -1,40 +1,33 @@
-import { createServer, type Server } from "http";
+import { createServer, type Server, IncomingMessage } from "http";
 import express from 'express';
+import session from 'express-session';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
-import { sql, eq, and, or, ne, inArray, notInArray, desc, asc, select } from "drizzle-orm";
+import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
 import fetch from "node-fetch";
 import { videos, categories, userPreferences, subcategories, discussionGroups, groupMembers, groupMessages, userNotifications } from "@db/schema";
 import { setupAuth } from "./auth";
 import multer from 'multer';
 import crypto from 'crypto';
+import pgSession from 'connect-pg-simple';
+import { ParsedQs } from 'qs';
+import { ParamsDictionary } from 'express-serve-static-core';
 
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit for files
-  },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      cb(new Error('Only image files are allowed'));
-      return;
-    }
-    cb(null, true);
+// Extend session type to include passport
+declare module 'express-session' {
+  interface Session {
+    passport?: {
+      user?: {
+        id: number;
+        username: string;
+      };
+    };
   }
-});
+}
 
-// Error handler middleware for multer errors
-const handleMulterError = (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err instanceof multer.MulterError) {
-    console.error('Multer error:', err);
-    return res.status(413).json({
-      message: "Error uploading file",
-      error: err.message
-    });
-  }
-  next(err);
-};
+interface SessionRequest extends IncomingMessage {
+  session?: session.Session & Partial<session.SessionData>;
+}
 
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
@@ -42,6 +35,30 @@ const connectedClients = new Map<number, WebSocket>();
 export function registerRoutes(app: express.Application): Server {
   // Setup auth first
   setupAuth(app);
+
+  // Create session store
+  const sessionStore = new (pgSession(session))({
+    conObject: {
+      connectionString: process.env.DATABASE_URL,
+    },
+    createTableIfMissing: true,
+  });
+
+  // Create session middleware
+  const sessionMiddleware = session({
+    store: sessionStore,
+    secret: process.env.SESSION_SECRET || 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      httpOnly: true,
+    },
+  });
+
+  // Add session middleware
+  app.use(sessionMiddleware);
 
   // Add multer error handling middleware
   app.use(handleMulterError);
@@ -871,7 +888,7 @@ export function registerRoutes(app: express.Application): Server {
 
   const httpServer = createServer(app);
 
-  // Set up WebSocket server
+  // Set up WebSocket server with proper session handling
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -883,34 +900,22 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       try {
-        // Parse the session from the cookie
-        const sessionParser = express.session({
-          store: new (require('connect-pg-simple')(express.session))({
-            conObject: {
-              connectionString: process.env.DATABASE_URL,
-            },
-          }),
-          secret: process.env.SESSION_SECRET || 'your-secret-key',
-          resave: false,
-          saveUninitialized: false,
-          cookie: {
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            httpOnly: true,
-          },
-        });
-
         // Apply session middleware to the upgrade request
-        await new Promise((resolve) => {
-          sessionParser(info.req, {} as any, resolve);
+        await new Promise<void>((resolve) => {
+          sessionMiddleware(info.req as express.Request, {} as express.Response, () => {
+            resolve();
+          });
         });
 
         // Check if user is authenticated
-        if (!info.req.session?.passport?.user) {
+        const req = info.req as SessionRequest;
+        if (!req.session?.passport?.user) {
+          console.log('WebSocket auth failed: No user in session');
           cb(false, 401, 'Unauthorized');
           return;
         }
 
+        console.log('WebSocket auth successful for user:', req.session.passport.user.id);
         cb(true);
       } catch (error) {
         console.error('WebSocket authentication error:', error);
@@ -919,97 +924,120 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  wss.on('connection', (ws, req) => {
+  wss.on('connection', async (ws, req: SessionRequest) => {
     const userId = req.session?.passport?.user?.id;
-    if (userId) {
-      connectedClients.set(userId, ws);
-
-      ws.on('message', async (data) => {
-        try {
-          const message = JSON.parse(data.toString());
-
-          if (message.type === 'group_message') {
-            const { groupId, content } = message;
-
-            // Verify user is a member of the group
-            const member = await db.query.groupMembers.findFirst({
-              where: and(
-                eq(groupMembers.groupId, groupId),
-                eq(groupMembers.userId, userId)
-              ),
-            });
-
-            if (!member) {
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Not a member of this group'
-              }));
-              return;
-            }
-
-            // Save message to database
-            const [savedMessage] = await db.insert(groupMessages)
-              .values({
-                groupId,
-                userId,
-                content,
-              })
-              .returning();
-
-            // Get user info for the message
-            const user = await db.execute(sql`
-              SELECT username FROM users WHERE id = ${userId}
-            `);
-
-            const messageWithUser = {
-              ...savedMessage,
-              user: {
-                username: user.rows[0].username
-              }
-            };
-
-            // Get group members for notifications
-            const members = await db.query.groupMembers.findMany({
-              where: and(
-                eq(groupMembers.groupId, groupId),
-                ne(groupMembers.userId, userId)
-              ),
-            });
-
-            // Send to all connected members including sender
-            for (const member of members) {
-              const clientWs = connectedClients.get(member.userId);
-              if (clientWs?.readyState === WebSocket.OPEN) {
-                clientWs.send(JSON.stringify({
-                  type: 'new_message',
-                  data: messageWithUser,
-                }));
-              }
-            }
-
-            // Also send back to the sender
-            ws.send(JSON.stringify({
-              type: 'new_message',
-              data: messageWithUser,
-            }));
-          }
-        } catch (error) {
-          console.error('WebSocket message error:', error);
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Failed to process message'
-          }));
-        }
-      });
-
-      ws.on('close', () => {
-        connectedClients.delete(userId);
-      });
+    if (!userId) {
+      console.log('WebSocket connection rejected: No user ID');
+      ws.close(1008, 'Unauthorized');
+      return;
     }
+
+    console.log('WebSocket client connected, user:', userId);
+    connectedClients.set(userId, ws);
+
+    ws.on('message', async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+
+        if (message.type === 'group_message') {
+          const { groupId, content } = message;
+
+          // Verify user is a member of the group
+          const member = await db.query.groupMembers.findFirst({
+            where: and(
+              eq(groupMembers.groupId, groupId),
+              eq(groupMembers.userId, userId)
+            ),
+          });
+
+          if (!member) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Not a member of this group'
+            }));
+            return;
+          }
+
+          // Save message to database
+          const [savedMessage] = await db.insert(groupMessages)
+            .values({
+              groupId,
+              userId,
+              content,
+            })
+            .returning();
+
+          // Get user info for the message
+          const user = await db.execute(sql`
+            SELECT username FROM users WHERE id = ${userId}
+          `);
+
+          const messageWithUser = {
+            ...savedMessage,
+            user: {
+              username: user.rows[0].username
+            }
+          };
+
+          // Send to all connected members including sender
+          const members = await db.query.groupMembers.findMany({
+            where: eq(groupMembers.groupId, groupId),
+          });
+
+          for (const member of members) {
+            const clientWs = connectedClients.get(member.userId);
+            if (clientWs?.readyState === WebSocket.OPEN) {
+              clientWs.send(JSON.stringify({
+                type: 'new_message',
+                data: messageWithUser,
+              }));
+            }
+          }
+        }
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to process message'
+        }));
+      }
+    });
+
+    ws.on('close', () => {
+      console.log('WebSocket client disconnected, user:', userId);
+      connectedClients.delete(userId);
+    });
   });
 
   return httpServer;
 }
+
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit for files
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      cb(new Error('Only image files are allowed'));
+      return;
+    }
+    cb(null, true);
+  }
+});
+
+// Error handler middleware for multer errors
+const handleMulterError = (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    console.error('Multer error:', err);
+    return res.status(413).json({
+      message: "Error uploading file",
+      error: err.message
+    });
+  }
+  next(err);
+};
 
 async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
   try {
