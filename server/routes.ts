@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
 import multer from 'multer';
-import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories } from "@db/schema";
+import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth } from "./auth";
 import { nanoid } from 'nanoid';
 
@@ -392,17 +392,17 @@ export function registerRoutes(app: Express): Server {
   app.get("/api/preferences", requireAuth, async (req, res) => {
     try {
       // Get preferences from database for the authenticated user
-      const preferences = await db.query.preferences.findFirst({
-        where: eq(preferences.userId, req.user!.id)
-      });
+      const preferences = await db.select().from(userPreferences)
+        .where(eq(userPreferences.userId, req.user!.id))
+        .limit(1);
 
-      if (!preferences) {
+      if (!preferences?.length) {
         return res.status(404).json({
           message: "No preferences found"
         });
       }
 
-      res.json(preferences);
+      res.json(preferences[0]);
     } catch (error) {
       console.error('Error fetching preferences:', error);
       res.status(500).json({
@@ -422,17 +422,18 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Upsert preferences
-      const [preferences] = await db
-        .insert(preferences)
+      // Upsert preferences using raw SQL to handle the conflict properly
+      const [savedPreferences] = await db
+        .insert(userPreferences)
         .values({
           userId: req.user!.id,
           preferredCategories,
           excludedCategories,
-          preferredPlatforms
+          preferredPlatforms,
+          updatedAt: new Date()
         })
         .onConflictDoUpdate({
-          target: [preferences.userId],
+          target: userPreferences.userId,
           set: {
             preferredCategories,
             excludedCategories,
@@ -442,7 +443,7 @@ export function registerRoutes(app: Express): Server {
         })
         .returning();
 
-      res.json(preferences);
+      res.json(savedPreferences);
     } catch (error) {
       console.error('Error saving preferences:', error);
       res.status(500).json({
