@@ -1,17 +1,14 @@
-import { createServer, type Server, IncomingMessage } from "http";
+import { createServer, type Server } from "http";
 import express from 'express';
 import session from 'express-session';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
-import { sql, eq, and, or, ne, inArray, notInArray, desc, asc } from "drizzle-orm";
-import fetch from "node-fetch";
-import { videos, categories, userPreferences, subcategories, discussionGroups, groupMembers, groupMessages, userNotifications } from "@db/schema";
-import { setupAuth } from "./auth";
+import { sql, eq, and, asc, ne, or, notInArray, inArray, desc } from "drizzle-orm";
 import multer from 'multer';
-import crypto from 'crypto';
+import { videos, categories, subcategories, userPreferences, discussionGroups, groupMembers, groupMessages, userNotifications } from "@db/schema";
+import { setupAuth } from "./auth";
 import pgSession from 'connect-pg-simple';
-import { ParsedQs } from 'qs';
-import { ParamsDictionary } from 'express-serve-static-core';
+import crypto from 'crypto';
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -29,23 +26,7 @@ const upload = multer({
   },
 });
 
-// Declare types for session
-declare module 'express-session' {
-  interface Session {
-    passport?: {
-      user?: {
-        id: number;
-        username: string;
-      };
-    };
-  }
-}
-
-interface SessionRequest extends IncomingMessage {
-  session?: session.Session & Partial<session.SessionData>;
-}
-
-// Store active WebSocket connections and handle session
+// Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
 
 // Helper to handle database errors
@@ -63,7 +44,6 @@ function handleDatabaseError(error: unknown, res: express.Response) {
   });
 }
 
-// Make sure we return the HTTP server
 export function registerRoutes(app: express.Application): Server {
   const httpServer = createServer(app);
 
@@ -78,7 +58,7 @@ export function registerRoutes(app: express.Application): Server {
     createTableIfMissing: true,
   });
 
-  // Create session middleware with secure settings
+  // Create session middleware
   const sessionMiddleware = session({
     store: sessionStore,
     secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -95,7 +75,7 @@ export function registerRoutes(app: express.Application): Server {
   // Add session middleware
   app.use(sessionMiddleware);
 
-  // Configure WebSocket server AFTER http server and session middleware are created
+  // Configure WebSocket server
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -106,37 +86,31 @@ export function registerRoutes(app: express.Application): Server {
         return;
       }
 
-      // Apply session middleware and verify authentication
-      sessionMiddleware(info.req as express.Request, {} as express.Response, (err: any) => {
+      // Apply session middleware
+      sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
         if (err) {
           console.error('Session middleware error:', err);
           cb(false, 500, 'Internal Server Error');
           return;
         }
 
-        const req = info.req as SessionRequest;
+        const req = info.req as express.Request & { session?: any };
+        const userId = req.session?.passport?.user?.id;
 
-        // Debug session state
-        console.log('WebSocket auth attempt:', {
-          hasSession: !!req.session,
-          hasPassport: !!req.session?.passport,
-          userId: req.session?.passport?.user?.id
-        });
-
-        if (!req.session?.passport?.user?.id) {
+        if (!userId) {
           console.error('WebSocket auth failed: No user ID in session');
           cb(false, 401, 'Unauthorized');
           return;
         }
 
-        console.log('WebSocket auth successful for user:', req.session.passport.user.id);
+        console.log('WebSocket auth successful for user:', userId);
         cb(true);
       });
     }
   });
 
   // Handle WebSocket connections
-  wss.on('connection', async (ws, req: SessionRequest) => {
+  wss.on('connection', async (ws, req: express.Request & { session?: any }) => {
     const userId = req.session?.passport?.user?.id;
     if (!userId) {
       console.error('WebSocket connection rejected: Missing user ID');
@@ -153,7 +127,7 @@ export function registerRoutes(app: express.Application): Server {
       message: 'Successfully connected to chat server'
     }));
 
-    // Keep connection alive with ping/pong
+    // Keep connection alive
     const pingInterval = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.ping();
@@ -183,10 +157,7 @@ export function registerRoutes(app: express.Application): Server {
 
           // Verify group membership
           const member = await db.query.groupMembers.findFirst({
-            where: and(
-              eq(groupMembers.groupId, groupId),
-              eq(groupMembers.userId, userId)
-            ),
+            where: eq(groupMembers.userId, userId),
           });
 
           if (!member) {
@@ -198,7 +169,7 @@ export function registerRoutes(app: express.Application): Server {
             return;
           }
 
-          // Save and broadcast message
+          // Save message
           const [savedMessage] = await db.insert(groupMessages)
             .values({
               groupId,
@@ -207,8 +178,8 @@ export function registerRoutes(app: express.Application): Server {
             })
             .returning();
 
-          // Get username
-          const user = await db.execute(sql`
+          // Get username for the message
+          const userResult = await db.execute(sql`
             SELECT username FROM users WHERE id = ${userId}
           `);
 
@@ -217,7 +188,7 @@ export function registerRoutes(app: express.Application): Server {
             data: {
               ...savedMessage,
               user: {
-                username: user.rows[0]?.username
+                username: userResult.rows[0]?.username
               }
             }
           };
@@ -246,6 +217,44 @@ export function registerRoutes(app: express.Application): Server {
     });
   });
 
+  // API routes for messages
+  app.get("/api/groups/:groupId/messages", async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+
+      const groupId = parseInt(req.params.groupId);
+
+      // Verify group membership
+      const member = await db.query.groupMembers.findFirst({
+        where: eq(groupMembers.userId, req.user.id),
+      });
+
+      if (!member) {
+        return res.status(403).json({ message: "Not a member of this group" });
+      }
+
+      // Get messages with user info
+      const messages = await db.query.groupMessages.findMany({
+        where: eq(groupMessages.groupId, groupId),
+        orderBy: [asc(groupMessages.createdAt)],
+        with: {
+          user: {
+            columns: {
+              username: true,
+            },
+          },
+        },
+      });
+
+      res.json(messages);
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      handleDatabaseError(error, res);
+    }
+  });
+
   // Handle file uploads first - BEFORE any JSON parsing middleware
   app.patch("/api/videos/:id/thumbnail", upload.single('thumbnail'), async (req, res) => {
     try {
@@ -254,19 +263,15 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       const videoId = parseInt(req.params.id);
-      console.log('Processing thumbnail upload:', {
-        fileSize: req.file?.size,
-        contentLength: req.headers['content-length'],
-        contentType: req.headers['content-type']
-      });
+      const file = req.file;
 
-      if (!req.file) {
+      if (!file) {
         return res.status(400).json({ message: "No thumbnail file uploaded" });
       }
 
       // Convert the uploaded file to base64
-      const base64Image = req.file.buffer.toString('base64');
-      const mimeType = req.file.mimetype;
+      const base64Image = file.buffer.toString('base64');
+      const mimeType = file.mimetype;
       const thumbnailUrl = `data:${mimeType};base64,${base64Image}`;
 
       // Update video with new thumbnail
@@ -348,17 +353,11 @@ export function registerRoutes(app: express.Application): Server {
         res.json({ thumbnailUrl });
       } catch (dbError) {
         console.error('Error updating video thumbnail in database:', dbError);
-        res.status(500).json({
-          message: "Failed to save thumbnail",
-          error: dbError instanceof Error ? dbError.message : 'Unknown database error'
-        });
+        handleDatabaseError(dbError, res);
       }
     } catch (error) {
       console.error('Error generating thumbnail:', error);
-      res.status(500).json({
-        message: "Failed to generate thumbnail",
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      handleDatabaseError(error, res);
     }
   });
 
@@ -1008,69 +1007,11 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  // Fix the messages endpoint URL and improve session handling
-  app.get("/api/groups/:groupId/messages", async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-
-      const groupId = parseInt(req.params.groupId);
-
-      // Verify user is member of the group
-      const member = await db.query.groupMembers.findFirst({
-        where: and(
-          eq(groupMembers.groupId, groupId),
-          eq(groupMembers.userId, req.user.id)
-        ),
-      });
-
-      if (!member) {
-        return res.status(403).json({ message: "Not a member of this group" });
-      }
-
-      // Get messages for the group
-      const messages = await db.query.groupMessages.findMany({
-        where: eq(groupMessages.groupId, groupId),
-        orderBy: [asc(groupMessages.createdAt)],
-        with: {
-          user: {
-            columns: {
-              username: true,
-            },
-          },
-        },
-      });
-
-      res.json(messages);
-    } catch (error) {
-      handleDatabaseError(error, res);
-    }
-  });
+  async function getThumbnailUrl(url: string, platform: string, title: string, description: string): Promise<string | null> {
+    //Implementation for generating thumbnail URL
+    //This is a placeholder, replace with actual implementation
+    return `https://example.com/thumbnail?url=${encodeURIComponent(url)}&platform=${platform}&title=${encodeURIComponent(title)}&description=${encodeURIComponent(description)}`;
+  }
 
   return httpServer;
-}
-
-function handleMulterError(err: Error, req: express.Request, res: express.Response, next: express.NextFunction) {
-  if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        message: "File too large",
-        details: "Maximum file size is 5MB"
-      });
-    }
-    return res.status(400).json({
-      message: "File upload error",
-      details: err.message
-    });
-  }
-
-  if (err.message === 'Only image files are allowed') {
-    return res.status(400).json({
-      message: "Invalid file type",
-      details: "Only image files are allowed"
-    });
-  }
-
-  next(err);
 }
