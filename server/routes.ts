@@ -4,8 +4,9 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
 import multer from 'multer';
-import { videos, messages, users } from "@db/schema";
+import { videos, messages, users, discussionGroups, groupMessages, groupMembers } from "@db/schema";
 import { setupAuth } from "./auth";
+import { nanoid } from 'nanoid';
 
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
@@ -20,6 +21,21 @@ export function registerRoutes(app: Express): Server {
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws'
+  });
+
+  // Upgrade session handling for WebSocket
+  httpServer.on('upgrade', function (request, socket, head) {
+    sessionMiddleware(request as any, {} as any, () => {
+      if (!request.session?.passport?.user) {
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      wss.handleUpgrade(request, socket, head, function (ws) {
+        wss.emit('connection', ws, request);
+      });
+    });
   });
 
   // Handle WebSocket connections
@@ -43,40 +59,160 @@ export function registerRoutes(app: Express): Server {
         const message = JSON.parse(data.toString());
         console.log('Received message:', message);
 
-        if (message.type === 'message') {
-          const { videoId, content } = message;
+        switch (message.type) {
+          case 'message':
+            const { videoId, content } = message;
+            // Save message
+            const [savedMessage] = await db.insert(messages)
+              .values({
+                videoId,
+                userId,
+                content
+              })
+              .returning();
 
-          // Save message
-          const [savedMessage] = await db.insert(messages)
-            .values({
-              videoId,
-              userId,
-              content
-            })
-            .returning();
+            // Get username
+            const user = await db.query.users.findFirst({
+              where: eq(users.id, userId),
+              columns: {
+                username: true
+              }
+            });
 
-          // Get username
-          const user = await db.query.users.findFirst({
-            where: eq(users.id, userId),
-            columns: {
-              username: true
+            // Broadcast
+            const broadcastMessage = {
+              type: 'new_message',
+              data: {
+                ...savedMessage,
+                user: { username: user?.username }
+              }
+            };
+
+            connectedClients.forEach((client) => {
+              if (client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(broadcastMessage));
+              }
+            });
+            break;
+
+          case 'create_group':
+            const { name, description = '', videoId: groupVideoId } = message;
+            // Generate unique invite code
+            const inviteCode = nanoid(10);
+
+            // Create group
+            const [group] = await db.insert(discussionGroups)
+              .values({
+                name,
+                description,
+                videoId: groupVideoId,
+                creatorId: userId,
+                isPrivate: true,
+                inviteCode
+              })
+              .returning();
+
+            // Add creator as member
+            await db.insert(groupMembers)
+              .values({
+                groupId: group.id,
+                userId,
+                role: 'admin'
+              });
+
+            ws.send(JSON.stringify({
+              type: 'group_created',
+              data: {
+                ...group,
+                inviteCode
+              }
+            }));
+            break;
+
+          case 'join_group':
+            const { inviteCode: joinCode } = message;
+
+            // Find group
+            const groupToJoin = await db.query.discussionGroups.findFirst({
+              where: eq(discussionGroups.inviteCode, joinCode)
+            });
+
+            if (!groupToJoin) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Invalid invite code'
+              }));
+              return;
             }
-          });
 
-          // Broadcast
-          const broadcastMessage = {
-            type: 'new_message',
-            data: {
-              ...savedMessage,
-              user: { username: user?.username }
-            }
-          };
+            // Check if already a member
+            const existingMember = await db.query.groupMembers.findFirst({
+              where: and(
+                eq(groupMembers.groupId, groupToJoin.id),
+                eq(groupMembers.userId, userId)
+              )
+            });
 
-          connectedClients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify(broadcastMessage));
+            if (!existingMember) {
+              // Add as member
+              await db.insert(groupMembers)
+                .values({
+                  groupId: groupToJoin.id,
+                  userId,
+                  role: 'member'
+                });
             }
-          });
+
+            ws.send(JSON.stringify({
+              type: 'group_joined',
+              data: groupToJoin
+            }));
+            break;
+
+          case 'group_message':
+            const { groupId, content: groupContent } = message;
+
+            // Save group message
+            const [savedGroupMessage] = await db.insert(groupMessages)
+              .values({
+                groupId,
+                userId,
+                content: groupContent
+              })
+              .returning();
+
+            // Get sender info
+            const sender = await db.query.users.findFirst({
+              where: eq(users.id, userId),
+              columns: {
+                username: true
+              }
+            });
+
+            // Get group members
+            const members = await db.query.groupMembers.findMany({
+              where: eq(groupMembers.groupId, groupId),
+              columns: {
+                userId: true
+              }
+            });
+
+            // Broadcast to group members
+            const groupBroadcastMessage = {
+              type: 'new_group_message',
+              data: {
+                ...savedGroupMessage,
+                user: { username: sender?.username }
+              }
+            };
+
+            members.forEach(member => {
+              const client = connectedClients.get(member.userId);
+              if (client?.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(groupBroadcastMessage));
+              }
+            });
+            break;
         }
       } catch (error) {
         console.error('Message handling error:', error);

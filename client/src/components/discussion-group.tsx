@@ -10,7 +10,16 @@ import {
   CardTitle,
   CardFooter,
 } from "@/components/ui/card";
-import { Send, MessageSquare } from "lucide-react";
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Send, MessageSquare, Plus, UserPlus } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 interface Message {
@@ -23,6 +32,14 @@ interface Message {
   };
 }
 
+interface Group {
+  id: number;
+  name: string;
+  description: string;
+  inviteCode: string;
+  creatorId: number;
+}
+
 interface DiscussionGroupProps {
   videoId: number;
 }
@@ -31,7 +48,10 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const [messageInput, setMessageInput] = useState("");
+  const [groupNameInput, setGroupNameInput] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
   const [connected, setConnected] = useState(false);
+  const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -58,13 +78,43 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     ws.onclose = () => {
       console.log('WebSocket disconnected');
       setConnected(false);
+      // Try to reconnect after 5 seconds
+      setTimeout(() => {
+        if (user) {
+          const newWs = new WebSocket(`${protocol}//${window.location.host}/ws`);
+          socketRef.current = newWs;
+        }
+      }, 5000);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.type === 'new_message') {
-          refetchMessages();
+        switch (data.type) {
+          case 'new_message':
+            refetchMessages();
+            break;
+          case 'group_created':
+            setCurrentGroup(data.data);
+            toast({
+              title: "Success",
+              description: `Group "${data.data.name}" created! Invite code: ${data.data.inviteCode}`,
+            });
+            break;
+          case 'group_joined':
+            setCurrentGroup(data.data);
+            toast({
+              title: "Success",
+              description: `Joined group "${data.data.name}"!`,
+            });
+            break;
+          case 'error':
+            toast({
+              title: "Error",
+              description: data.message,
+              variant: "destructive",
+            });
+            break;
         }
       } catch (error) {
         console.error('Error processing message:', error);
@@ -98,6 +148,45 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     setMessageInput('');
   };
 
+  // Create group
+  const createGroup = () => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      toast({
+        title: "Error",
+        description: "Not connected to server",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    socketRef.current.send(JSON.stringify({
+      type: 'create_group',
+      name: groupNameInput,
+      videoId,
+    }));
+
+    setGroupNameInput('');
+  };
+
+  // Join group
+  const joinGroup = () => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      toast({
+        title: "Error",
+        description: "Not connected to server",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    socketRef.current.send(JSON.stringify({
+      type: 'join_group',
+      inviteCode,
+    }));
+
+    setInviteCode('');
+  };
+
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -110,16 +199,76 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5" />
-          Discussion Group
+          {currentGroup ? currentGroup.name : "Discussion Group"}
         </CardTitle>
       </CardHeader>
 
       <CardContent>
-        <div className="flex items-center gap-2 mb-4">
-          <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-sm text-muted-foreground">
-            {connected ? 'Connected' : 'Disconnected'}
-          </span>
+        <div className="flex items-center justify-between gap-2 mb-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm text-muted-foreground">
+              {connected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+
+          {!currentGroup && (
+            <div className="flex items-center gap-2">
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Group
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create Discussion Group</DialogTitle>
+                    <DialogDescription>
+                      Create a private group to discuss this video with friends.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Input
+                    value={groupNameInput}
+                    onChange={(e) => setGroupNameInput(e.target.value)}
+                    placeholder="Group name..."
+                  />
+                  <DialogFooter>
+                    <Button onClick={createGroup} disabled={!groupNameInput.trim()}>
+                      Create Group
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <UserPlus className="h-4 w-4 mr-2" />
+                    Join Group
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Join Discussion Group</DialogTitle>
+                    <DialogDescription>
+                      Enter an invite code to join an existing group.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Input
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value)}
+                    placeholder="Invite code..."
+                  />
+                  <DialogFooter>
+                    <Button onClick={joinGroup} disabled={!inviteCode.trim()}>
+                      Join Group
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+          )}
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
