@@ -144,6 +144,52 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Get video recommendations
+  app.get("/api/videos/:id/recommendations", async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.id);
+
+      if (isNaN(videoId)) {
+        return res.status(400).json({ message: "Invalid video ID" });
+      }
+
+      // Get the current video to find related content
+      const currentVideo = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId),
+        with: {
+          category: true,
+          subcategory: true
+        }
+      });
+
+      if (!currentVideo) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      // Find related videos in the same category or subcategory
+      // Exclude the current video
+      const relatedVideos = await db.query.videos.findMany({
+        where: and(
+          sql`${videos.id} != ${videoId}`,
+          sql`${videos.categoryId} = ${currentVideo.categoryId}`
+        ),
+        with: {
+          category: true,
+          subcategory: true
+        },
+        limit: 6
+      });
+
+      res.json(relatedVideos);
+    } catch (error) {
+      console.error('Error fetching video recommendations:', error);
+      res.status(500).json({
+        message: "Error fetching recommendations",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   // Protected endpoints - require authentication
   const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (req.isAuthenticated()) {
