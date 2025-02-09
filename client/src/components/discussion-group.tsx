@@ -25,7 +25,6 @@ interface Message {
 
 interface DiscussionGroupProps {
   videoId: number;
-  videoTitle: string;
 }
 
 export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
@@ -36,24 +35,16 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Get current group
-  const { data: groups } = useQuery({
-    queryKey: [`/api/groups`, videoId],
-    queryFn: () => fetch(`/api/groups?videoId=${videoId}`).then(r => r.json()),
-    enabled: !!user && !!videoId,
-  });
-
-  const group = groups?.[0];
-
   // Get messages
   const { data: messages, refetch: refetchMessages } = useQuery<Message[]>({
-    queryKey: [`/api/groups/${group?.id}/messages`],
-    enabled: !!group?.id,
+    queryKey: [`/api/messages`],
+    queryFn: () => fetch(`/api/messages?videoId=${videoId}`).then(r => r.json()),
+    enabled: !!user && !!videoId,
   });
 
   // WebSocket connection
   useEffect(() => {
-    if (!user || !group?.id) return;
+    if (!user) return;
 
     console.log('Attempting WebSocket connection...');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -103,7 +94,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         socketRef.current.close();
       }
     };
-  }, [user, group?.id, toast, refetchMessages]);
+  }, [user, toast, refetchMessages]);
 
   // Send message
   const sendMessage = async () => {
@@ -118,8 +109,8 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
     try {
       socketRef.current.send(JSON.stringify({
-        type: 'group_message',
-        groupId: group!.id,
+        type: 'message',
+        videoId,
         content: messageInput,
       }));
       setMessageInput('');
@@ -138,7 +129,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages?.length]);
 
-  if (!user || !group) return null;
+  if (!user) return null;
 
   return (
     <Card className="mt-6">

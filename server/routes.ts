@@ -3,28 +3,11 @@ import express from 'express';
 import session from 'express-session';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
-import { sql, eq, and, asc, ne, or, notInArray, inArray, desc } from "drizzle-orm";
+import { sql, eq, and, desc } from "drizzle-orm";
 import multer from 'multer';
-import { videos, categories, subcategories, userPreferences, discussionGroups, groupMembers, groupMessages, userNotifications } from "@db/schema";
+import { videos, messages, users } from "@db/schema";
 import { setupAuth } from "./auth";
 import pgSession from 'connect-pg-simple';
-import crypto from 'crypto';
-
-// Configure multer for file uploads
-const storage = multer.memoryStorage();
-const upload = multer({
-  storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      cb(new Error('Only image files are allowed'));
-      return;
-    }
-    cb(null, true);
-  },
-});
 
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
@@ -32,12 +15,6 @@ const connectedClients = new Map<number, WebSocket>();
 // Helper to handle database errors
 function handleDatabaseError(error: unknown, res: express.Response) {
   console.error('Database error:', error);
-  if (error instanceof Error && error.message.includes('endpoint is disabled')) {
-    return res.status(503).json({
-      message: "Database connection temporarily unavailable",
-      error: "Please try again in a few moments"
-    });
-  }
   return res.status(500).json({
     message: "Database error occurred",
     error: error instanceof Error ? error.message : "Unknown error"
@@ -50,7 +27,6 @@ export function registerRoutes(app: express.Application): Server {
   // Setup auth
   setupAuth(app);
 
-  // Create session store
   const sessionStore = new (pgSession(session))({
     conObject: {
       connectionString: process.env.DATABASE_URL,
@@ -152,58 +128,42 @@ export function registerRoutes(app: express.Application): Server {
         const message = JSON.parse(data.toString());
         console.log('Received message:', message);
 
-        if (message.type === 'group_message') {
-          const { groupId, content } = message;
+        if (message.type === 'message') {
+          const { videoId, content } = message;
 
-          // Verify group membership
-          const member = await db.query.groupMembers.findFirst({
-            where: eq(groupMembers.userId, userId),
-          });
-
-          if (!member) {
-            console.error('Message rejected: User not in group:', { userId, groupId });
-            ws.send(JSON.stringify({
-              type: 'error',
-              message: 'Not a member of this group'
-            }));
-            return;
-          }
-
-          // Save message
-          const [savedMessage] = await db.insert(groupMessages)
+          // Insert message into database
+          const [savedMessage] = await db.insert(messages)
             .values({
-              groupId,
+              videoId,
               userId,
-              content,
+              content
             })
             .returning();
 
           // Get username for the message
-          const userResult = await db.execute(sql`
-            SELECT username FROM users WHERE id = ${userId}
-          `);
+          const user = await db.query.users.findFirst({
+            where: eq(users.id, userId),
+            columns: {
+              username: true
+            }
+          });
 
           const messageData = {
             type: 'new_message',
             data: {
               ...savedMessage,
               user: {
-                username: userResult.rows[0]?.username
+                username: user?.username
               }
             }
           };
 
-          // Broadcast to group members
-          const members = await db.query.groupMembers.findMany({
-            where: eq(groupMembers.groupId, groupId),
-          });
-
-          for (const member of members) {
-            const client = connectedClients.get(member.userId);
-            if (client?.readyState === WebSocket.OPEN) {
+          // Broadcast to all connected clients
+          connectedClients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
               client.send(JSON.stringify(messageData));
             }
-          }
+          });
         }
       } catch (error) {
         console.error('Message handling error:', error);
@@ -217,43 +177,53 @@ export function registerRoutes(app: express.Application): Server {
     });
   });
 
-  // API routes for messages
-  app.get("/api/groups/:groupId/messages", async (req, res) => {
+  // API route for getting messages
+  app.get("/api/messages", async (req, res) => {
     try {
       if (!req.user) {
         return res.status(401).json({ message: "Not authenticated" });
       }
 
-      const groupId = parseInt(req.params.groupId);
-
-      // Verify group membership
-      const member = await db.query.groupMembers.findFirst({
-        where: eq(groupMembers.userId, req.user.id),
-      });
-
-      if (!member) {
-        return res.status(403).json({ message: "Not a member of this group" });
-      }
+      const videoId = parseInt(req.query.videoId as string);
 
       // Get messages with user info
-      const messages = await db.query.groupMessages.findMany({
-        where: eq(groupMessages.groupId, groupId),
-        orderBy: [asc(groupMessages.createdAt)],
+      const messagesList = await db.query.messages.findMany({
+        where: eq(messages.videoId, videoId),
+        orderBy: [desc(messages.createdAt)],
         with: {
           user: {
             columns: {
-              username: true,
-            },
-          },
-        },
+              username: true
+            }
+          }
+        }
       });
 
-      res.json(messages);
+      res.json(messagesList);
     } catch (error) {
       console.error('Error fetching messages:', error);
       handleDatabaseError(error, res);
     }
   });
+
+  app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
+  // Configure multer for file uploads
+  const storage = multer.memoryStorage();
+  const upload = multer({
+    storage,
+    limits: {
+      fileSize: 5 * 1024 * 1024, // 5MB limit
+    },
+    fileFilter: (_req, file, cb) => {
+      if (!file.mimetype.startsWith('image/')) {
+        cb(new Error('Only image files are allowed'));
+        return;
+      }
+      cb(null, true);
+    },
+  });
+
 
   // Handle file uploads first - BEFORE any JSON parsing middleware
   app.patch("/api/videos/:id/thumbnail", upload.single('thumbnail'), async (req, res) => {
@@ -291,9 +261,7 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  // NOW add JSON parsing middleware for other routes
-  app.use(express.json({ limit: '1mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
 
   app.post("/api/thumbnails/generate", async (req, res) => {
     try {
@@ -874,136 +842,6 @@ export function registerRoutes(app: express.Application): Server {
     } catch (error) {
       console.error('Error deleting video:', error);
       handleDatabaseError(error, res);
-    }
-  });
-
-  // NEW GET /api/groups route
-  app.get("/api/groups", async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-
-      const videoId = req.query.videoId ? parseInt(req.query.videoId as string) : undefined;
-
-      // Get groups the user is a member of
-      const memberGroups = await db.select({
-        id: discussionGroups.id,
-        name: discussionGroups.name,
-        description: discussionGroups.description,
-        videoId: discussionGroups.videoId,
-        creatorId: discussionGroups.creatorId,
-        isPrivate: discussionGroups.isPrivate,
-        inviteCode: discussionGroups.inviteCode,
-        createdAt: discussionGroups.createdAt,
-      })
-        .from(groupMembers)
-        .where(eq(groupMembers.userId, req.user.id))
-        .innerJoin(discussionGroups, eq(groupMembers.groupId, discussionGroups.id));
-
-      // Filter groups for this video if videoId is provided
-      const groups = videoId
-        ? memberGroups.filter(group => group.videoId === videoId)
-        : memberGroups;
-
-      res.json(groups);
-    } catch (error) {
-      handleDatabaseError(error, res);
-    }
-  });
-
-
-  // Discussion group routes
-  app.post("/api/groups", async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-
-      const { name, description, videoId, isPrivate = true } = req.body;
-
-      // Validate input
-      if (!name || !videoId) {
-        return res.status(400).json({ message: "Name and video ID are required" });
-      }
-
-      // Generate unique invite code
-      const inviteCode = crypto.randomBytes(6).toString('hex');
-
-      // Create discussion group
-      const [group] = await db.insert(discussionGroups)
-        .values({
-          name,
-          description,
-          videoId,
-          creatorId: req.user.id,
-          isPrivate,
-          inviteCode,
-        })
-        .returning();
-
-      // Add creator as admin member
-      await db.insert(groupMembers)
-        .values({
-          groupId: group.id,
-          userId: req.user.id,
-          role: 'admin',
-        });
-
-      res.json(group);
-    } catch (error) {
-      handleDatabaseError(error, res);
-    }
-  });
-
-  app.post("/api/groups/:inviteCode/join", async (req, res) => {
-    try {
-      if (!req.user) {
-        return res.status(401).json({ message: "Not authenticated" });
-      }
-
-      const { inviteCode } = req.params;
-
-      // Find group by invite code
-      const group = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.inviteCode, inviteCode),
-      });
-
-      if (!group) {
-        return res.status(404).json({ message: "Group not found" });
-      }
-
-      // Check if user is already a member
-      const existingMember = await db.query.groupMembers.findFirst({
-        where: and(
-          eq(groupMembers.groupId, group.id),
-          eq(groupMembers.userId, req.user.id)
-        ),
-      });
-
-      if (existingMember) {
-        return res.status(400).json({ message: "Already a member" });
-      }
-
-      // Add user to group
-      const [member] = await db.insert(groupMembers)
-        .values({
-          groupId: group.id,
-          userId: req.user.id,
-          role: 'member',
-        })
-        .returning();
-
-      // Notify group creator
-      await db.insert(userNotifications)
-        .values({
-          userId: group.creatorId,
-          groupId: group.id,
-          type: 'new_member',
-        });
-
-      res.json({ group, member });
-    } catch (error) {      handleDatabaseError(error, res);
     }
   });
 

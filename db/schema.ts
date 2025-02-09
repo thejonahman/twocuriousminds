@@ -91,12 +91,21 @@ export const userNotifications = pgTable("user_notifications", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  videoId: integer("video_id").notNull().references(() => videos.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const userRelations = relations(users, ({ many }) => ({
   preferences: many(userPreferences),
   createdGroups: many(discussionGroups, { relationName: "creator" }),
   groupMemberships: many(groupMembers),
   groupMessages: many(groupMessages),
   notifications: many(userNotifications),
+  messages: many(messages),
 }));
 
 export const discussionGroupRelations = relations(discussionGroups, ({ one, many }) => ({
@@ -154,6 +163,16 @@ export const userPreferencesRelations = relations(userPreferences, ({ one }) => 
   }),
 }));
 
+export const messageRelations = relations(messages, ({ one }) => ({
+  user: one(users, {
+    fields: [messages.userId],
+    references: [users.id],
+  }),
+  video: one(videos, {
+    fields: [messages.videoId],
+    references: [videos.id],
+  }),
+}));
 
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3).max(50),
@@ -191,7 +210,15 @@ export const insertUserNotificationSchema = createInsertSchema(userNotifications
   type: z.enum(["new_message", "group_invite"]),
 });
 
+export const insertMessageSchema = createInsertSchema(messages, {
+  content: z.string().min(1, "Message cannot be empty"),
+});
+
+export const selectMessageSchema = createSelectSchema(messages);
+
 export type InsertDiscussionGroup = z.infer<typeof insertDiscussionGroupSchema>;
 export type InsertGroupMember = z.infer<typeof insertGroupMemberSchema>;
 export type InsertGroupMessage = z.infer<typeof insertGroupMessageSchema>;
 export type InsertUserNotification = z.infer<typeof insertUserNotificationSchema>;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type SelectMessage = z.infer<typeof selectMessageSchema>;
