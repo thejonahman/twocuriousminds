@@ -3,9 +3,9 @@ import express from 'express';
 import session from 'express-session';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
-import { sql, eq, and, desc } from "drizzle-orm";
+import { sql, eq, and, desc, notInArray, inArray, ne, or, asc } from "drizzle-orm";
 import multer from 'multer';
-import { videos, messages, users } from "@db/schema";
+import { videos, messages, users, categories, subcategories, userPreferences } from "@db/schema";
 import { setupAuth } from "./auth";
 import pgSession from 'connect-pg-simple';
 
@@ -34,7 +34,7 @@ export function registerRoutes(app: express.Application): Server {
     createTableIfMissing: true,
   });
 
-  // Create session middleware
+  // Create session middleware with secure settings
   const sessionMiddleware = session({
     store: sessionStore,
     secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -48,10 +48,10 @@ export function registerRoutes(app: express.Application): Server {
     },
   });
 
-  // Add session middleware
+  // Add session middleware to express
   app.use(sessionMiddleware);
 
-  // Configure WebSocket server
+  // Configure WebSocket server with clear error handling
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -62,16 +62,14 @@ export function registerRoutes(app: express.Application): Server {
         return;
       }
 
-      // Apply session middleware
-      sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
-        if (err) {
-          console.error('Session middleware error:', err);
-          cb(false, 500, 'Internal Server Error');
-          return;
-        }
-
-        const req = info.req as express.Request & { session?: any };
-        const userId = req.session?.passport?.user?.id;
+      // Wrap session middleware in promise for better error handling
+      new Promise((resolve) => {
+        sessionMiddleware(info.req as express.Request, {} as express.Response, () => {
+          resolve((info.req as express.Request & { session?: any }).session);
+        });
+      })
+      .then((session: any) => {
+        const userId = session?.passport?.user?.id;
 
         if (!userId) {
           console.error('WebSocket auth failed: No user ID in session');
@@ -80,14 +78,19 @@ export function registerRoutes(app: express.Application): Server {
         }
 
         console.log('WebSocket auth successful for user:', userId);
+        (info.req as any).userId = userId; // Store userId for later use
         cb(true);
+      })
+      .catch((error) => {
+        console.error('WebSocket auth error:', error);
+        cb(false, 500, 'Internal Server Error');
       });
     }
   });
 
   // Handle WebSocket connections
-  wss.on('connection', async (ws, req: express.Request & { session?: any }) => {
-    const userId = req.session?.passport?.user?.id;
+  wss.on('connection', async (ws, req: express.Request & { userId?: number }) => {
+    const userId = req.userId;
     if (!userId) {
       console.error('WebSocket connection rejected: Missing user ID');
       ws.close(1008, 'Unauthorized');
@@ -97,32 +100,13 @@ export function registerRoutes(app: express.Application): Server {
     console.log('WebSocket connected for user:', userId);
     connectedClients.set(userId, ws);
 
-    // Send immediate connection confirmation
+    // Send connection confirmation
     ws.send(JSON.stringify({
       type: 'connected',
-      message: 'Successfully connected to chat server'
+      message: 'Connected to chat server'
     }));
 
-    // Keep connection alive
-    const pingInterval = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.ping();
-      }
-    }, 30000);
-
-    ws.on('close', () => {
-      console.log('WebSocket disconnected for user:', userId);
-      connectedClients.delete(userId);
-      clearInterval(pingInterval);
-    });
-
-    ws.on('error', (error) => {
-      console.error('WebSocket error for user:', userId, error);
-      connectedClients.delete(userId);
-      clearInterval(pingInterval);
-    });
-
-    // Handle messages
+    // Handle incoming messages
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
@@ -159,11 +143,13 @@ export function registerRoutes(app: express.Application): Server {
           };
 
           // Broadcast to all connected clients
-          connectedClients.forEach((client) => {
+          for (const [clientId, client] of connectedClients.entries()) {
             if (client.readyState === WebSocket.OPEN) {
               client.send(JSON.stringify(messageData));
+            } else {
+              connectedClients.delete(clientId);
             }
-          });
+          }
         }
       } catch (error) {
         console.error('Message handling error:', error);
@@ -174,6 +160,18 @@ export function registerRoutes(app: express.Application): Server {
           }));
         }
       }
+    });
+
+    // Handle connection close
+    ws.on('close', () => {
+      console.log('WebSocket disconnected for user:', userId);
+      connectedClients.delete(userId);
+    });
+
+    // Handle errors
+    ws.on('error', (error) => {
+      console.error('WebSocket error for user:', userId, error);
+      connectedClients.delete(userId);
     });
   });
 

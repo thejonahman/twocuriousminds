@@ -33,6 +33,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [messageInput, setMessageInput] = useState("");
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Get messages
@@ -42,9 +43,9 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     enabled: !!user && !!videoId,
   });
 
-  // WebSocket connection
-  useEffect(() => {
-    if (!user) return;
+  // Connect WebSocket
+  const connectWebSocket = () => {
+    if (!user || socketRef.current?.readyState === WebSocket.OPEN) return;
 
     console.log('Attempting WebSocket connection...');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -54,7 +55,10 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     ws.onopen = () => {
       console.log('WebSocket connected');
       setConnected(true);
-      toast({ title: "Connected to chat" });
+      toast({ 
+        title: "Connected",
+        description: "Connected to chat server"
+      });
     };
 
     ws.onmessage = (event) => {
@@ -64,6 +68,12 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
         if (data.type === 'new_message') {
           refetchMessages();
+        } else if (data.type === 'error') {
+          toast({
+            title: "Error",
+            description: data.message,
+            variant: "destructive",
+          });
         }
       } catch (error) {
         console.error('Error processing message:', error);
@@ -73,11 +83,16 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     ws.onclose = () => {
       console.log('WebSocket disconnected');
       setConnected(false);
+      socketRef.current = null;
+
       toast({
         title: "Disconnected",
         description: "Lost connection to chat server",
         variant: "destructive",
       });
+
+      // Attempt to reconnect after 5 seconds
+      reconnectTimeoutRef.current = setTimeout(connectWebSocket, 5000);
     };
 
     ws.onerror = (error) => {
@@ -85,11 +100,20 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       setConnected(false);
       toast({
         title: "Connection Error",
+        description: "Failed to connect to chat server",
         variant: "destructive",
       });
     };
+  };
+
+  // Setup WebSocket connection
+  useEffect(() => {
+    connectWebSocket();
 
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         socketRef.current.close();
       }
@@ -149,29 +173,28 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {messages?.length === 0 ? (
+          {!messages?.length && (
             <p className="text-center text-muted-foreground">No messages yet. Start the conversation!</p>
-          ) : (
-            messages?.map((message) => (
+          )}
+          {messages?.map((message) => (
+            <div
+              key={message.id}
+              className={`flex flex-col ${
+                message.userId === user.id ? "items-end" : "items-start"
+              }`}
+            >
               <div
-                key={message.id}
-                className={`flex flex-col ${
-                  message.userId === user.id ? "items-end" : "items-start"
+                className={`rounded-lg px-4 py-2 ${
+                  message.userId === user.id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted"
                 }`}
               >
-                <div
-                  className={`rounded-lg px-4 py-2 ${
-                    message.userId === user.id
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted"
-                  }`}
-                >
-                  <p className="text-sm font-semibold">{message.user.username}</p>
-                  <p>{message.content}</p>
-                </div>
+                <p className="text-sm font-semibold">{message.user.username}</p>
+                <p>{message.content}</p>
               </div>
-            ))
-          )}
+            </div>
+          ))}
           <div ref={messagesEndRef} />
         </div>
       </CardContent>
