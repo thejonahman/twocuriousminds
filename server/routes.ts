@@ -113,6 +113,37 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Get individual video
+  app.get("/api/videos/:id", async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.id);
+
+      if (isNaN(videoId)) {
+        return res.status(400).json({ message: "Invalid video ID" });
+      }
+
+      const video = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId),
+        with: {
+          category: true,
+          subcategory: true
+        }
+      });
+
+      if (!video) {
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      res.json(video);
+    } catch (error) {
+      console.error('Error fetching video:', error);
+      res.status(500).json({
+        message: "Error fetching video",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   // Protected endpoints - require authentication
   const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (req.isAuthenticated()) {
