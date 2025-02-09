@@ -33,12 +33,18 @@ export default function ProfileWizard() {
   const { toast } = useToast();
 
   // Query to fetch categories
-  const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
+  const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     queryFn: async () => {
+      console.log("Fetching categories...");
       const res = await fetch('/api/categories');
-      if (!res.ok) throw new Error('Failed to fetch categories');
-      return res.json();
+      if (!res.ok) {
+        console.error("Failed to fetch categories:", await res.text());
+        throw new Error('Failed to fetch categories');
+      }
+      const data = await res.json();
+      console.log("Fetched categories:", data);
+      return data;
     },
   });
 
@@ -52,11 +58,12 @@ export default function ProfileWizard() {
         if (res.status === 404) return null;
         throw new Error('Failed to fetch preferences');
       }
-      return res.json();
+      const data = await res.json();
+      console.log("Fetched preferences:", data);
+      return data;
     },
   });
 
-  // Effect to check for existing preferences and redirect if found
   useEffect(() => {
     if (!preferencesLoading && existingPreferences) {
       const hasPreferences = (
@@ -77,12 +84,15 @@ export default function ProfileWizard() {
 
   const mutation = useMutation({
     mutationFn: async (preferences: Preferences) => {
+      console.log("Saving preferences:", preferences);
       const res = await apiRequest("POST", "/api/preferences", preferences);
       if (!res.ok) {
         const error = await res.text();
+        console.error("Failed to save preferences:", error);
         throw new Error(error || 'Failed to save preferences');
       }
       const data = await res.json();
+      console.log("Saved preferences response:", data);
       return data;
     },
     onSuccess: () => {
@@ -101,7 +111,19 @@ export default function ProfileWizard() {
     },
   });
 
-  // If still loading preferences or categories, show loading state
+  if (categoriesError) {
+    return (
+      <div className="container max-w-2xl py-8">
+        <Card>
+          <CardHeader>
+            <CardTitle>Error</CardTitle>
+            <CardDescription>Failed to load categories. Please try again later.</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
   if (preferencesLoading || categoriesLoading) {
     return (
       <div className="container max-w-2xl py-8">
@@ -177,17 +199,21 @@ export default function ProfileWizard() {
             <div className="space-y-4">
               <h3 className="font-medium">What content interests you?</h3>
               <div className="grid grid-cols-2 gap-2">
-                {categories.map((category) => (
-                  <div key={category.id} className="flex items-center gap-2">
-                    <Badge
-                      variant={selectedCategories.includes(category.id) ? "default" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => toggleCategory(category.id, "preferred")}
-                    >
-                      {category.name}
-                    </Badge>
-                  </div>
-                ))}
+                {categories.length === 0 ? (
+                  <p className="text-muted-foreground col-span-2 text-center">No categories available</p>
+                ) : (
+                  categories.map((category) => (
+                    <div key={category.id} className="flex items-center gap-2">
+                      <Badge
+                        variant={selectedCategories.includes(category.id) ? "default" : "outline"}
+                        className="cursor-pointer w-full justify-center"
+                        onClick={() => toggleCategory(category.id, "preferred")}
+                      >
+                        {category.name}
+                      </Badge>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -195,24 +221,28 @@ export default function ProfileWizard() {
             <div className="space-y-4">
               <h3 className="font-medium">Any topics you want to avoid?</h3>
               <div className="grid grid-cols-2 gap-2">
-                {categories.map((category) => (
-                  <div key={category.id} className="flex items-center gap-2">
-                    <Badge
-                      variant={excludedCategories.includes(category.id) ? "destructive" : "outline"}
-                      className="cursor-pointer"
-                      onClick={() => toggleCategory(category.id, "excluded")}
-                    >
-                      {category.name}
-                    </Badge>
-                  </div>
-                ))}
+                {categories.length === 0 ? (
+                  <p className="text-muted-foreground col-span-2 text-center">No categories available</p>
+                ) : (
+                  categories.map((category) => (
+                    <div key={category.id} className="flex items-center gap-2">
+                      <Badge
+                        variant={excludedCategories.includes(category.id) ? "destructive" : "outline"}
+                        className="cursor-pointer w-full justify-center"
+                        onClick={() => toggleCategory(category.id, "excluded")}
+                      >
+                        {category.name}
+                      </Badge>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
           {step === 3 && (
             <div className="space-y-4">
               <h3 className="font-medium">Which platforms do you prefer?</h3>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {platforms.map((platform) => (
                   <Badge
                     key={platform.id}
