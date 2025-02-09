@@ -45,22 +45,18 @@ interface SessionRequest extends IncomingMessage {
   session?: session.Session & Partial<session.SessionData>;
 }
 
-// Store active WebSocket connections
+// Store active WebSocket connections and handle session
 const connectedClients = new Map<number, WebSocket>();
 
-// Handle database errors
+// Helper to handle database errors
 function handleDatabaseError(error: unknown, res: express.Response) {
   console.error('Database error:', error);
-
-  // Check for connection errors
   if (error instanceof Error && error.message.includes('endpoint is disabled')) {
     return res.status(503).json({
       message: "Database connection temporarily unavailable",
       error: "Please try again in a few moments"
     });
   }
-
-  // Handle other database errors
   return res.status(500).json({
     message: "Database error occurred",
     error: error instanceof Error ? error.message : "Unknown error"
@@ -69,7 +65,6 @@ function handleDatabaseError(error: unknown, res: express.Response) {
 
 // Make sure we return the HTTP server
 export function registerRoutes(app: express.Application): Server {
-  // Create HTTP server first
   const httpServer = createServer(app);
 
   // Setup auth
@@ -100,7 +95,7 @@ export function registerRoutes(app: express.Application): Server {
   // Add session middleware
   app.use(sessionMiddleware);
 
-  // Configure WebSocket server with proper session handling
+  // Configure WebSocket server AFTER http server and session middleware are created
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -112,7 +107,7 @@ export function registerRoutes(app: express.Application): Server {
       }
 
       // Apply session middleware and verify authentication
-      sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
+      sessionMiddleware(info.req as express.Request, {} as express.Response, (err: any) => {
         if (err) {
           console.error('Session middleware error:', err);
           cb(false, 500, 'Internal Server Error');
@@ -129,7 +124,7 @@ export function registerRoutes(app: express.Application): Server {
         });
 
         if (!req.session?.passport?.user?.id) {
-          console.log('WebSocket auth failed: No user ID in session');
+          console.error('WebSocket auth failed: No user ID in session');
           cb(false, 401, 'Unauthorized');
           return;
         }
@@ -140,14 +135,11 @@ export function registerRoutes(app: express.Application): Server {
     }
   });
 
-  // Store active WebSocket connections
-  const connectedClients = new Map<number, WebSocket>();
-
   // Handle WebSocket connections
   wss.on('connection', async (ws, req: SessionRequest) => {
     const userId = req.session?.passport?.user?.id;
     if (!userId) {
-      console.log('WebSocket connection rejected: Missing user ID');
+      console.error('WebSocket connection rejected: Missing user ID');
       ws.close(1008, 'Unauthorized');
       return;
     }
@@ -156,7 +148,7 @@ export function registerRoutes(app: express.Application): Server {
     connectedClients.set(userId, ws);
 
     // Send immediate connection confirmation
-    ws.send(JSON.stringify({ 
+    ws.send(JSON.stringify({
       type: 'connected',
       message: 'Successfully connected to chat server'
     }));
@@ -184,6 +176,7 @@ export function registerRoutes(app: express.Application): Server {
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
+        console.log('Received message:', message);
 
         if (message.type === 'group_message') {
           const { groupId, content } = message;
@@ -197,6 +190,7 @@ export function registerRoutes(app: express.Application): Server {
           });
 
           if (!member) {
+            console.error('Message rejected: User not in group:', { userId, groupId });
             ws.send(JSON.stringify({
               type: 'error',
               message: 'Not a member of this group'
@@ -1035,123 +1029,25 @@ export function registerRoutes(app: express.Application): Server {
         return res.status(403).json({ message: "Not a member of this group" });
       }
 
-      // Get messages with user info
-      const messages = await db.execute(sql`
-        SELECT 
-          m.*,
-          json_build_object('username', u.username) as user
-        FROM group_messages m
-        JOIN users u ON m.user_id = u.id
-        WHERE m.group_id = ${groupId}
-        ORDER BY m.created_at ASC
-      `);
+      // Get messages for the group
+      const messages = await db.query.groupMessages.findMany({
+        where: eq(groupMessages.groupId, groupId),
+        orderBy: [asc(groupMessages.createdAt)],
+        with: {
+          user: {
+            columns: {
+              username: true,
+            },
+          },
+        },
+      });
 
-      res.json(messages.rows);
+      res.json(messages);
     } catch (error) {
       handleDatabaseError(error, res);
     }
   });
 
-  function handleDatabaseError(error: any, res: express.Response) {
-    console.error('Database error:', error);
-
-    // Check for connection errors    if (error.code === 'XX000' && error.message.includes('endpoint is disabled')) {
-    if (error instanceof Error && error.message.includes('endpoint is disabled')) {
-      return res.status(503).json({
-        message: "Database connection temporarily unavailable",
-        error: "Please try again in a few moments"
-      });
-    }
-
-    // Generic database error
-    res.status(500).json({
-      message: "Database operation failed",
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-
-  async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
-    try {
-      switch (platform.toLowerCase()) {
-        case 'youtube': {
-          const videoId = url.split('v=')[1]?.split('&')[0];
-          if (!videoId) {
-            console.error('Could not extract YouTube video ID from:', url);
-            return null;
-          }
-          // Try multiple resolutions in order of preference
-          const resolutions = ['maxresdefault', 'sddefault', 'hqdefault', 'default'];
-          for (const resolution of resolutions) {
-            const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/${resolution}.jpg`;
-            try {
-              const response = await fetch(thumbnailUrl);
-              if (response.ok) {
-                return thumbnailUrl;
-              }
-            } catch (error) {
-              console.warn(`Failed to fetch ${resolution} thumbnail for YouTube video ${videoId}`);
-            }
-          }
-          return null;
-        }
-        case 'tiktok':
-        case 'instagram': {
-          console.log('Analyzing content:', { title, description });
-          const contentText = `${title || ''} ${description || ''}`.toLowerCase();
-
-          const categories = {
-            beginner_technique: {
-              keywords: ['beginner', 'start', 'learn', 'first time', 'basic'],
-              color: '#4F46E5'
-            },
-            advanced_technique: {
-              keywords: ['advanced', 'expert', 'professional', 'racing'],
-              color: '#7C3AED'
-            },
-            safety_instruction: {
-              keywords: ['safety', 'protection', 'avalanche', 'rescue'],
-              color: '#DC2626'
-            }
-          };
-
-          // Find best matching category
-          const bestMatch = Object.entries(categories).reduce((prev, [category, data]) => {
-            const matchCount = data.keywords.filter(keyword => contentText.includes(keyword)).length;
-            return matchCount > prev.matchCount ? { category, matchCount, color: data.color } : prev;
-          }, { category: 'beginner_technique', matchCount: 0, color: '#4F46E5' });
-
-          // Generate an SVG thumbnail with proper escaping
-          const svgContent = `
-            <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-              <defs>
-                <linearGradient id="bg" x1="0%" y1="0%" x2="100%">
-                  <stop offset="0%" style="stop-color:${bestMatch.color};stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#1F2937;stop-opacity:1" />
-                </linearGradient>
-              </defs>
-              <rect width="100%" height="100%" fill="url(#bg)"/>
-              <rect x="40" y="40" width="1200" height="640" fill="rgba(255,255,255,0.1)" rx="20"/>
-              <text x="640" y="320" font-family="Arial" font-size="48" fill="white" text-anchor="middle" dominant-baseline="middle">
-                ${title ? title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : 'Video Content'}
-              </text>
-              <text x="640" y="400" font-family="Arial" font-size="32" fill="rgba(255,255,255,0.8)" text-anchor="middle" dominant-baseline="middle">
-                ${platform.charAt(0).toUpperCase() + platform.slice(1)}
-              </text>
-            </svg>
-          `.trim().replace(/\n\s+/g, ' ');
-
-          return `data:image/svg+xml;base64,${Buffer.from(svgContent).toString('base64')}`;
-        }
-        default:
-          console.error('Unsupported platform:', platform);
-          return null;
-      }
-    } catch (error) {
-      console.error('Error in getThumbnailUrl:', error);
-      return null;
-    }
-  }
-  // Return the HTTP server
   return httpServer;
 }
 

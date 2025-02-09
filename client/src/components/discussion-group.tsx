@@ -49,6 +49,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [showInviteGuide, setShowInviteGuide] = useState(false);
   const [connected, setConnected] = useState(false);
+  const socketRef = useRef<WebSocket | null>(null);
 
   // Get current group for this video
   const { data: groups, isLoading: groupLoading } = useQuery({
@@ -69,10 +70,12 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   useEffect(() => {
     if (!user || !group?.id) return;
 
-    // Create WebSocket connection with credentials
+    // Create WebSocket connection
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    socketRef.current = ws;
 
+    // Connection opened
     ws.addEventListener('open', () => {
       console.log('WebSocket connected');
       setSocket(ws);
@@ -83,6 +86,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       });
     });
 
+    // Listen for messages
     ws.addEventListener('message', (event) => {
       try {
         const message = JSON.parse(event.data);
@@ -107,19 +111,21 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       }
     });
 
+    // Connection closed
     ws.addEventListener('close', () => {
       console.log('WebSocket disconnected');
       setSocket(null);
       setConnected(false);
       toast({
         title: "Disconnected",
-        description: "Lost connection to chat server. Please refresh the page.",
+        description: "Lost connection to chat server",
         variant: "destructive",
       });
     });
 
-    ws.addEventListener('error', () => {
-      console.error('WebSocket connection error');
+    // Connection error
+    ws.addEventListener('error', (error) => {
+      console.error('WebSocket connection error:', error);
       setConnected(false);
       toast({
         title: "Connection Error",
@@ -128,9 +134,10 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       });
     });
 
+    // Cleanup on unmount
     return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        socketRef.current.close();
       }
     };
   }, [user, group?.id, queryClient, toast]);
@@ -299,20 +306,23 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       {group && (
         <>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
                 <span className="text-sm text-muted-foreground">
                   {connected ? 'Connected' : 'Disconnected'}
                 </span>
               </div>
-              <Button variant="outline" size="sm" onClick={copyInviteLink}>
-                <Share2 className="mr-2 h-4 w-4" />
-                Invite others
-              </Button>
+              {!showInviteGuide && (
+                <Button variant="outline" size="sm" onClick={copyInviteLink}>
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Invite others
+                </Button>
+              )}
             </div>
+
             {showInviteGuide && (
-              <div className="rounded-lg bg-muted p-4 mb-4">
+              <div className="rounded-lg bg-muted p-4">
                 <h4 className="font-semibold mb-2">👥 Invite your friends!</h4>
                 <p className="text-sm text-muted-foreground mb-2">
                   Share the copied link with friends to invite them to this discussion.
@@ -321,15 +331,6 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
                 <Button variant="outline" size="sm" onClick={copyInviteLink}>
                   <Share2 className="mr-2 h-4 w-4" />
                   Copy invite link again
-                </Button>
-              </div>
-            )}
-
-            {!showInviteGuide && (
-              <div className="flex justify-end mb-4">
-                <Button variant="outline" size="sm" onClick={copyInviteLink}>
-                  <Share2 className="mr-2 h-4 w-4" />
-                  Invite others
                 </Button>
               </div>
             )}
@@ -390,7 +391,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
               <Button
                 type="submit"
                 size="icon"
-                disabled={!messageInput.trim() || sendMessage.isPending}
+                disabled={!messageInput.trim() || sendMessage.isPending || !connected}
               >
                 <Send className="h-4 w-4" />
               </Button>
