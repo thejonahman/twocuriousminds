@@ -865,22 +865,21 @@ export function registerRoutes(app: express.Application): Server {
         return res.status(403).json({ message: "Not a member of this group" });
       }
 
-      // Get messages with user info
-      const messages = await db.select({
-        id: groupMessages.id,
-        content: groupMessages.content,
-        userId: groupMessages.userId,
-        createdAt: groupMessages.createdAt,
-        user: {
-          username: sql`users.username`,
-        },
-      })
-        .from(groupMessages)
-        .where(eq(groupMessages.groupId, groupId))
-        .innerJoin('users', eq(groupMessages.userId, sql`users.id`))
-        .orderBy(asc(groupMessages.createdAt));
+      // Get messages with user info using proper query syntax
+      const messages = await db.execute(sql`
+        SELECT 
+          group_messages.id,
+          group_messages.content,
+          group_messages.user_id as "userId",
+          group_messages.created_at as "createdAt",
+          json_build_object('username', users.username) as "user"
+        FROM group_messages 
+        INNER JOIN users ON group_messages.user_id = users.id
+        WHERE group_messages.group_id = ${groupId}
+        ORDER BY group_messages.created_at ASC
+      `);
 
-      res.json(messages);
+      res.json(messages.rows);
     } catch (error) {
       handleDatabaseError(error, res);
     }
@@ -1022,7 +1021,7 @@ const upload = multer({
     if (!file.mimetype.startsWith('image/')) {
       cb(new Error('Only image files are allowed'));
       return;
-    }
+        }
     cb(null, true);
   }
 });
