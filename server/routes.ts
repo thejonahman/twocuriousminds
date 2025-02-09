@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
 import multer from 'multer';
-import { videos, messages, users, discussionGroups, groupMessages, groupMembers } from "@db/schema";
+import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories } from "@db/schema";
 import { setupAuth } from "./auth";
 import { nanoid } from 'nanoid';
 
@@ -238,6 +238,23 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Public endpoints - no auth required
+  app.get("/api/categories", async (req, res) => {
+    try {
+      console.log("Fetching categories from database...");
+      const allCategories = await db.query.categories.findMany({
+        where: eq(categories.isDeleted, false),
+        orderBy: [desc(categories.displayOrder)]
+      });
+      console.log("Retrieved categories:", allCategories);
+      res.json(allCategories);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      res.status(500).json({
+        message: "Error fetching categories",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
   app.get("/api/videos", async (req, res) => {
     try {
       const allVideos = await db.query.videos.findMany({
