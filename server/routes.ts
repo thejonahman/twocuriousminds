@@ -887,7 +887,7 @@ export function registerRoutes(app: express.Application): Server {
 
   const httpServer = createServer(app);
 
-  // Set up WebSocket server with proper session handling
+  // Set up WebSocket server with session handling
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
@@ -902,8 +902,12 @@ export function registerRoutes(app: express.Application): Server {
         // Apply session middleware to the upgrade request
         await new Promise<void>((resolve, reject) => {
           sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
-            if (err) reject(err);
-            else resolve();
+            if (err) {
+              console.error('Session middleware error:', err);
+              reject(err);
+            } else {
+              resolve();
+            }
           });
         });
 
@@ -934,6 +938,11 @@ export function registerRoutes(app: express.Application): Server {
 
     console.log('WebSocket client connected, user:', userId);
     connectedClients.set(userId, ws);
+
+    ws.on('close', () => {
+      console.log('WebSocket client disconnected, user:', userId);
+      connectedClients.delete(userId);
+    });
 
     ws.on('message', async (data) => {
       try {
@@ -995,27 +1004,16 @@ export function registerRoutes(app: express.Application): Server {
           }
         }
       } catch (error) {
-        console.error('WebSocket message error:', error);
+        console.error('Error processing message:', error);
         ws.send(JSON.stringify({
           type: 'error',
           message: 'Failed to process message'
         }));
       }
     });
-
-    ws.on('close', () => {
-      console.log('WebSocket client disconnected, user:', userId);
-      connectedClients.delete(userId);
-    });
-
-    ws.on('error', (error) => {
-      console.error('WebSocket error for user:', userId, error);
-      connectedClients.delete(userId);
-    });
   });
 
   return httpServer;
-
 }
 
 const storage = multer.memoryStorage();
@@ -1024,25 +1022,38 @@ const upload = multer({
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit for files
   },
-  fileFilter: (_req, file, cb) => {    if (!file.mimetype.startsWith('image/')) {
+  fileFilter: (_req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
       cb(new Error('Only image files are allowed'));
       return;
     }
     cb(null, true);
-  }
+  },
 });
 
-// Error handler middleware for multer errors
-const handleMulterError = (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+function handleMulterError(err: Error, req: express.Request, res: express.Response, next: express.NextFunction) {
   if (err instanceof multer.MulterError) {
-    console.error('Multer error:', err);
-    return res.status(413).json({
-      message: "Error uploading file",
-      error: err.message
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        message: "File too large",
+        details: "Maximum file size is 5MB"
+      });
+    }
+    return res.status(400).json({
+      message: "File upload error",
+      details: err.message
     });
   }
+
+  if (err.message === 'Only image files are allowed') {
+    return res.status(400).json({
+      message: "Invalid file type",
+      details: "Only image files are allowed"
+    });
+  }
+
   next(err);
-};
+}
 
 async function getThumbnailUrl(url: string, platform: string, title?: string, description?: string): Promise<string | null> {
   try {
@@ -1054,7 +1065,7 @@ async function getThumbnailUrl(url: string, platform: string, title?: string, de
           return null;
         }
         // Try multiple resolutions in order of preference
-        const resolutions =['maxresdefault', 'sddefault', 'hqdefault', 'default'];
+        const resolutions = ['maxresdefault', 'sddefault', 'hqdefault', 'default'];
         for (const resolution of resolutions) {
           const thumbnailUrl = `https://img.youtube.com/vi/${videoId}/${resolution}.jpg`;
           try {
