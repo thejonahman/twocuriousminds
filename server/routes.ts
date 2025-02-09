@@ -20,29 +20,21 @@ export function registerRoutes(app: Express): Server {
   // Setup WebSocket server
   const wss = new WebSocketServer({ 
     server: httpServer,
-    path: '/ws'
-  });
+    path: '/ws',
+    verifyClient: (info, callback) => {
+      // Create a fake res object since session middleware expects it
+      const res: any = {
+        writeHead: () => {},
+        setHeader: () => {},
+        end: () => {}
+      };
 
-  // Upgrade session handling for WebSocket
-  httpServer.on('upgrade', function (request, socket, head) {
-    const res = {} as any;
-    res.end = () => {};
-
-    // Apply session middleware
-    sessionMiddleware(request as any, res, () => {
-      if (!request.session?.passport?.user) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
-      }
-
-      // Only handle WebSocket upgrades for our path
-      if (request.url?.startsWith('/ws')) {
-        wss.handleUpgrade(request, socket, head, function (ws) {
-          wss.emit('connection', ws, request);
-        });
-      }
-    });
+      // Apply session middleware
+      sessionMiddleware(info.req as any, res, () => {
+        const isAuthenticated = info.req.session?.passport?.user != null;
+        callback(isAuthenticated, 401, 'Unauthorized');
+      });
+    }
   });
 
   // Handle WebSocket connections
@@ -50,15 +42,14 @@ export function registerRoutes(app: Express): Server {
     console.log('WebSocket connection attempt');
 
     // Get user ID from session
-    if (!req.session?.passport?.user) {
+    const userId = req.session?.passport?.user;
+    if (!userId) {
       console.log('WebSocket - No authenticated user');
       ws.close(1008, 'Unauthorized');
       return;
     }
 
-    const userId = req.session.passport.user;
     console.log('WebSocket connected for user:', userId);
-
     connectedClients.set(userId, ws);
 
     ws.on('message', async (data) => {
