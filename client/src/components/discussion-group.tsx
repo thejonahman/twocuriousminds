@@ -26,6 +26,7 @@ interface Message {
   id: number;
   content: string;
   userId: number;
+  groupId?: number;
   createdAt: string;
   user: {
     username: string;
@@ -129,8 +130,19 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               }
               break;
             case 'new_group_message':
-              if (currentGroup && currentGroup.id === data.data.groupId) {
-                setGroupMessages(prev => [...prev, data.data]);
+              console.log('Received group message:', data.data);
+              if (currentGroup && data.data.groupId === currentGroup.id) {
+                const newMessage: Message = {
+                  id: data.data.id,
+                  content: data.data.content,
+                  userId: data.data.userId,
+                  groupId: data.data.groupId,
+                  createdAt: data.data.createdAt,
+                  user: {
+                    username: data.data.user.username
+                  }
+                };
+                setGroupMessages(prev => [...prev, newMessage]);
               }
               break;
             case 'group_created':
