@@ -33,21 +33,19 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [messageInput, setMessageInput] = useState("");
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Get messages
-  const { data: messages, refetch: refetchMessages } = useQuery<Message[]>({
-    queryKey: [`/api/messages`],
+  // Fetch messages
+  const { data: messages = [], refetch: refetchMessages } = useQuery<Message[]>({
+    queryKey: ['/api/messages', videoId],
     queryFn: () => fetch(`/api/messages?videoId=${videoId}`).then(r => r.json()),
     enabled: !!user && !!videoId,
   });
 
-  // Connect WebSocket
-  const connectWebSocket = () => {
-    if (!user || socketRef.current?.readyState === WebSocket.OPEN) return;
+  // Setup WebSocket
+  useEffect(() => {
+    if (!user) return;
 
-    console.log('Attempting WebSocket connection...');
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
     socketRef.current = ws;
@@ -55,73 +53,33 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     ws.onopen = () => {
       console.log('WebSocket connected');
       setConnected(true);
-      toast({ 
-        title: "Connected",
-        description: "Connected to chat server"
-      });
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      setConnected(false);
     };
 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log('Received message:', data);
-
         if (data.type === 'new_message') {
           refetchMessages();
-        } else if (data.type === 'error') {
-          toast({
-            title: "Error",
-            description: data.message,
-            variant: "destructive",
-          });
         }
       } catch (error) {
         console.error('Error processing message:', error);
       }
     };
 
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setConnected(false);
-      socketRef.current = null;
-
-      toast({
-        title: "Disconnected",
-        description: "Lost connection to chat server",
-        variant: "destructive",
-      });
-
-      // Attempt to reconnect after 5 seconds
-      reconnectTimeoutRef.current = setTimeout(connectWebSocket, 5000);
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setConnected(false);
-      toast({
-        title: "Connection Error",
-        description: "Failed to connect to chat server",
-        variant: "destructive",
-      });
-    };
-  };
-
-  // Setup WebSocket connection
-  useEffect(() => {
-    connectWebSocket();
-
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
+      if (socketRef.current) {
         socketRef.current.close();
       }
     };
-  }, [user, toast, refetchMessages]);
+  }, [user]);
 
   // Send message
-  const sendMessage = async () => {
+  const sendMessage = () => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
         title: "Error",
@@ -131,27 +89,19 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       return;
     }
 
-    try {
-      socketRef.current.send(JSON.stringify({
-        type: 'message',
-        videoId,
-        content: messageInput,
-      }));
-      setMessageInput('');
-    } catch (error) {
-      console.error('Error sending message:', error);
-      toast({
-        title: "Error",
-        description: "Failed to send message",
-        variant: "destructive",
-      });
-    }
+    socketRef.current.send(JSON.stringify({
+      type: 'message',
+      videoId,
+      content: messageInput,
+    }));
+
+    setMessageInput('');
   };
 
-  // Scroll to bottom when new messages arrive
+  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages?.length]);
+  }, [messages.length]);
 
   if (!user) return null;
 
@@ -173,10 +123,12 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {!messages?.length && (
-            <p className="text-center text-muted-foreground">No messages yet. Start the conversation!</p>
+          {messages.length === 0 && (
+            <p className="text-center text-muted-foreground">
+              No messages yet. Start the conversation!
+            </p>
           )}
-          {messages?.map((message) => (
+          {messages.map((message) => (
             <div
               key={message.id}
               className={`flex flex-col ${
