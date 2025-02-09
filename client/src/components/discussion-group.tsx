@@ -48,12 +48,8 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [socket, setSocket] = useState<WebSocket | null>(null);
   const [showInviteGuide, setShowInviteGuide] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout>();
-  const maxReconnectAttempts = 5;
-  const [reconnectAttempts, setReconnectAttempts] = useState(0);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
+  const [connected, setConnected] = useState(false);
+
 
   // Get current group for this video
   const { data: groups, isLoading: groupLoading } = useQuery({
@@ -71,146 +67,112 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     enabled: !!group?.id,
   });
 
-  // WebSocket connection management
+  // WebSocket connection
   useEffect(() => {
-    if (!user || !group?.id || isConnecting || reconnectAttempts >= maxReconnectAttempts) {
-      return;
-    }
+    if (!user || !group?.id) return;
 
-    const connectWebSocket = () => {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
+    ws.addEventListener('open', () => {
+      console.log('WebSocket connected');
+      setSocket(ws);
+      setConnected(true);
+      toast({
+        title: "Connected",
+        description: "Connected to chat server",
+      });
+    });
+
+    ws.addEventListener('message', (event) => {
       try {
-        setIsConnecting(true);
-        setConnectionStatus('connecting');
+        const message = JSON.parse(event.data);
 
-        // Ensure we're using the same protocol as the page
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-        // Connection opened
-        ws.addEventListener('open', () => {
-          console.log("WebSocket connected");
-          setSocket(ws);
-          setIsConnecting(false);
-          setReconnectAttempts(0);
-          setConnectionStatus('connected');
-
-          // Set up heartbeat
-          heartbeatIntervalRef.current = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: 'ping' }));
-            }
-          }, 30000);
-
+        if (message.type === 'new_message') {
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
+        } else if (message.type === 'error') {
           toast({
-            title: "Connected",
-            description: "You're now connected to the chat server",
-          });
-        });
-
-        // Listen for messages
-        ws.addEventListener('message', (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            console.log('Received message:', message);
-
-            if (message.type === "new_message") {
-              queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
-            } else if (message.type === "connected") {
-              console.log('Connection confirmed with user ID:', message.userId);
-            } else if (message.type === "pong") {
-              console.log('Heartbeat acknowledged');
-            } else if (message.type === "error") {
-              toast({
-                title: "Error",
-                description: message.message,
-                variant: "destructive",
-              });
-            }
-          } catch (error) {
-            console.error("Error parsing message:", error);
-          }
-        });
-
-        // Handle errors
-        ws.addEventListener('error', (error) => {
-          console.error("WebSocket error:", error);
-          setIsConnecting(false);
-          setConnectionStatus('disconnected');
-
-          if (heartbeatIntervalRef.current) {
-            clearInterval(heartbeatIntervalRef.current);
-          }
-
-          toast({
-            title: "Connection Error",
-            description: "Failed to connect to chat server",
+            title: "Error",
+            description: message.message,
             variant: "destructive",
           });
-        });
-
-        // Handle connection close
-        ws.addEventListener('close', () => {
-          console.log("WebSocket connection closed");
-          setSocket(null);
-          setIsConnecting(false);
-          setConnectionStatus('disconnected');
-
-          // Clear intervals
-          if (heartbeatIntervalRef.current) {
-            clearInterval(heartbeatIntervalRef.current);
-          }
-          if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current);
-          }
-
-          // Attempt reconnection if under max attempts
-          if (reconnectAttempts < maxReconnectAttempts) {
-            const nextAttempt = reconnectAttempts + 1;
-            setReconnectAttempts(nextAttempt);
-            const delay = Math.min(1000 * Math.pow(2, nextAttempt), 10000);
-
-            toast({
-              title: "Connection Lost",
-              description: `Reconnecting in ${delay / 1000} seconds...`,
-              variant: "destructive",
-            });
-
-            reconnectTimeoutRef.current = setTimeout(() => {
-              connectWebSocket();
-            }, delay);
-          } else {
-            toast({
-              title: "Connection Failed",
-              description: "Unable to connect to chat server. Please refresh the page.",
-              variant: "destructive",
-            });
-          }
-        });
-
-        return ws;
+        }
       } catch (error) {
-        console.error("Error creating WebSocket:", error);
-        setIsConnecting(false);
-        setConnectionStatus('disconnected');
-        return null;
+        console.error('Error processing message:', error);
       }
-    };
+    });
 
-    const ws = connectWebSocket();
+    ws.addEventListener('close', () => {
+      console.log('WebSocket disconnected');
+      setSocket(null);
+      setConnected(false);
+      toast({
+        title: "Disconnected",
+        description: "Lost connection to chat server",
+        variant: "destructive",
+      });
+    });
 
-    // Cleanup function
+    ws.addEventListener('error', () => {
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to chat server",
+        variant: "destructive",
+      });
+    });
+
     return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-      }
-      if (ws) {
+      if (ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
     };
-  }, [user, group?.id, isConnecting, reconnectAttempts, queryClient, toast]);
+  }, [user, group?.id, queryClient, toast]);
+
+  // Send message function
+  const sendMessage = useMutation({
+    mutationFn: async () => {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        throw new Error('Not connected to chat server');
+      }
+
+      socket.send(JSON.stringify({
+        type: 'group_message',
+        groupId: group!.id,
+        content: messageInput,
+      }));
+    },
+    onSuccess: () => {
+      setMessageInput('');
+    },
+    onError: (error) => {
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to send message',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // Copy invite link
+  const copyInviteLink = async () => {
+    if (group) {
+      const inviteUrl = `${window.location.origin}/join/${group.inviteCode}`;
+      try {
+        await navigator.clipboard.writeText(inviteUrl);
+        setShowInviteGuide(true);
+        toast({
+          title: "Copied!",
+          description: "Share this link with friends to invite them to the discussion",
+        });
+      } catch (err) {
+        toast({
+          title: "Error",
+          description: "Failed to copy invite link",
+          variant: "destructive",
+        });
+      }
+    }
+  };
 
   // Scroll to bottom of messages
   useEffect(() => {
@@ -257,62 +219,6 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       });
     },
   });
-
-  // Send message mutation
-  const sendMessage = useMutation({
-    mutationFn: async () => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        throw new Error("Not connected to chat server");
-      }
-      if (!group) {
-        throw new Error("No active discussion group");
-      }
-
-      socket.send(JSON.stringify({
-        type: "group_message",
-        groupId: group.id,
-        content: messageInput,
-      }));
-      return true;
-    },
-    onSuccess: () => {
-      setMessageInput("");
-    },
-    onError: (error) => {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to send message",
-        variant: "destructive",
-      });
-
-      // If the error was due to connection, attempt to reconnect
-      if (socket?.readyState !== WebSocket.OPEN) {
-        setSocket(null);
-        setIsConnecting(false);
-      }
-    },
-  });
-
-  // Copy invite link
-  const copyInviteLink = async () => {
-    if (group) {
-      const inviteUrl = `${window.location.origin}/join/${group.inviteCode}`;
-      try {
-        await navigator.clipboard.writeText(inviteUrl);
-        setShowInviteGuide(true);
-        toast({
-          title: "Copied!",
-          description: "Share this link with friends to invite them to the discussion",
-        });
-      } catch (err) {
-        toast({
-          title: "Error",
-          description: "Failed to copy invite link",
-          variant: "destructive",
-        });
-      }
-    }
-  };
 
   if (!user) {
     return (
@@ -386,6 +292,18 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       {group && (
         <>
           <CardContent className="space-y-4">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-sm text-muted-foreground">
+                  {connected ? 'Connected' : 'Disconnected'}
+                </span>
+              </div>
+              <Button variant="outline" size="sm" onClick={copyInviteLink}>
+                <Share2 className="mr-2 h-4 w-4" />
+                Invite others
+              </Button>
+            </div>
             {showInviteGuide && (
               <div className="rounded-lg bg-muted p-4 mb-4">
                 <h4 className="font-semibold mb-2">👥 Invite your friends!</h4>

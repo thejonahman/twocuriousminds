@@ -104,88 +104,72 @@ export function registerRoutes(app: express.Application): Server {
   const wss = new WebSocketServer({
     server: httpServer,
     path: '/ws',
-    verifyClient: async (info, cb) => {
+    verifyClient: (info, cb) => {
       // Skip verification for Vite HMR
       if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
         cb(true);
         return;
       }
 
-      try {
-        // Apply session middleware to parse cookies
-        await new Promise<void>((resolve, reject) => {
-          sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
-            if (err) {
-              console.error('Session middleware error:', err);
-              reject(err);
-            } else {
-              resolve();
-            }
-          });
-        });
+      // Apply session middleware
+      sessionMiddleware(info.req as express.Request, {} as express.Response, (err) => {
+        if (err) {
+          console.error('Session middleware error:', err);
+          cb(false, 500, 'Internal Server Error');
+          return;
+        }
 
         const req = info.req as SessionRequest;
-
-        // Debug log session state
-        console.log('WebSocket connection attempt:', {
-          hasSession: !!req.session,
-          hasPassport: !!req.session?.passport,
-          hasUser: !!req.session?.passport?.user,
-          cookies: info.req.headers.cookie,
-        });
-
-        if (!req.session?.passport?.user) {
-          console.log('WebSocket auth failed: Missing user session data');
+        if (!req.session?.passport?.user?.id) {
+          console.log('WebSocket auth failed: No user ID');
           cb(false, 401, 'Unauthorized');
           return;
         }
 
-        console.log('WebSocket auth successful for user:', req.session.passport.user.id);
         cb(true);
-      } catch (error) {
-        console.error('WebSocket authentication error:', error);
-        cb(false, 500, 'Internal Server Error');
-      }
+      });
     }
   });
 
+  // Handle WebSocket connections
   wss.on('connection', async (ws, req: SessionRequest) => {
     const userId = req.session?.passport?.user?.id;
     if (!userId) {
-      console.log('WebSocket connection rejected: No user ID');
       ws.close(1008, 'Unauthorized');
       return;
     }
 
-    console.log('WebSocket client connected, user:', userId);
+    console.log('WebSocket connected, user:', userId);
     connectedClients.set(userId, ws);
 
+    // Simple ping/pong for keepalive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 30000);
+
     ws.on('close', () => {
-      console.log('WebSocket client disconnected, user:', userId);
+      console.log('WebSocket disconnected, user:', userId);
       connectedClients.delete(userId);
+      clearInterval(pingInterval);
     });
 
     ws.on('error', (error) => {
-      console.error('WebSocket error for user:', userId, error);
+      console.error('WebSocket error:', error);
       connectedClients.delete(userId);
+      clearInterval(pingInterval);
     });
 
-    // Handle incoming messages
+    // Handle messages
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString());
-        console.log('Received message:', { type: message.type, userId });
-
-        // Handle ping messages to keep connection alive
-        if (message.type === 'ping') {
-          ws.send(JSON.stringify({ type: 'pong' }));
-          return;
-        }
 
         if (message.type === 'group_message') {
           const { groupId, content } = message;
 
-          // Verify user is a member of the group
+          // Verify group membership
           const member = await db.query.groupMembers.findFirst({
             where: and(
               eq(groupMembers.groupId, groupId),
@@ -194,7 +178,6 @@ export function registerRoutes(app: express.Application): Server {
           });
 
           if (!member) {
-            console.log('Message rejected: User not in group:', { userId, groupId });
             ws.send(JSON.stringify({
               type: 'error',
               message: 'Not a member of this group'
@@ -202,7 +185,7 @@ export function registerRoutes(app: express.Application): Server {
             return;
           }
 
-          // Save message to database
+          // Save and broadcast message
           const [savedMessage] = await db.insert(groupMessages)
             .values({
               groupId,
@@ -211,57 +194,46 @@ export function registerRoutes(app: express.Application): Server {
             })
             .returning();
 
-          console.log('Message saved:', { messageId: savedMessage.id, groupId });
-
-          // Get user info for the message
+          // Get username
           const user = await db.execute(sql`
             SELECT username FROM users WHERE id = ${userId}
           `);
 
-          const messageWithUser = {
-            ...savedMessage,
-            user: {
-              username: user.rows[0]?.username
+          const messageData = {
+            type: 'new_message',
+            data: {
+              ...savedMessage,
+              user: {
+                username: user.rows[0]?.username
+              }
             }
           };
 
-          // Get all group members to broadcast message
+          // Broadcast to group members
           const members = await db.query.groupMembers.findMany({
             where: eq(groupMembers.groupId, groupId),
           });
 
-          console.log('Broadcasting to members:', members.length);
-
-          // Broadcast to all connected members
           for (const member of members) {
-            const clientWs = connectedClients.get(member.userId);
-            if (clientWs?.readyState === WebSocket.OPEN) {
-              try {
-                clientWs.send(JSON.stringify({
-                  type: 'new_message',
-                  data: messageWithUser
-                }));
-              } catch (error) {
-                console.error('Error sending message to client:', error);
-                connectedClients.delete(member.userId);
-              }
+            const client = connectedClients.get(member.userId);
+            if (client?.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify(messageData));
             }
           }
         }
       } catch (error) {
-        console.error('Error processing message:', error);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Error processing message'
-        }));
+        console.error('Message handling error:', error);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to process message'
+          }));
+        }
       }
     });
 
-    // Send initial connection confirmation
-    ws.send(JSON.stringify({
-      type: 'connected',
-      userId
-    }));
+    // Send connection confirmation
+    ws.send(JSON.stringify({ type: 'connected' }));
   });
 
   // Handle file uploads first - BEFORE any JSON parsing middleware
