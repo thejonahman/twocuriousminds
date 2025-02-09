@@ -18,22 +18,15 @@ export default function Navbar() {
         <div className="flex items-center space-x-2">
           {user ? (
             <>
-              <PreferencesDialog>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2"
-                >
-                  <User className="h-4 w-4" />
-                  {user.username}
-                </Button>
-              </PreferencesDialog>
-              <Button 
-                variant="outline" 
+              <PreferencesDialog />
+              <Button
+                variant="ghost"
                 size="sm"
+                className="gap-2"
                 onClick={() => logoutMutation.mutate()}
               >
-                Logout
+                <User className="h-4 w-4" />
+                {user.username}
               </Button>
             </>
           ) : (
