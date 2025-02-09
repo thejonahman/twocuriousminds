@@ -54,6 +54,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const reconnectTimeoutRef = useRef<number>();
 
   // Fetch messages
   const { data: messages = [], refetch: refetchMessages } = useQuery<Message[]>({
@@ -66,67 +67,92 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   useEffect(() => {
     if (!user) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setConnected(true);
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setConnected(false);
-      // Try to reconnect after 5 seconds
-      setTimeout(() => {
-        if (user) {
-          const newWs = new WebSocket(`${protocol}//${window.location.host}/ws`);
-          socketRef.current = newWs;
-        }
-      }, 5000);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        switch (data.type) {
-          case 'new_message':
-            refetchMessages();
-            break;
-          case 'group_created':
-            setCurrentGroup(data.data);
-            toast({
-              title: "Success",
-              description: `Group "${data.data.name}" created! Invite code: ${data.data.inviteCode}`,
-            });
-            break;
-          case 'group_joined':
-            setCurrentGroup(data.data);
-            toast({
-              title: "Success",
-              description: `Joined group "${data.data.name}"!`,
-            });
-            break;
-          case 'error':
-            toast({
-              title: "Error",
-              description: data.message,
-              variant: "destructive",
-            });
-            break;
-        }
-      } catch (error) {
-        console.error('Error processing message:', error);
+    const connectWebSocket = () => {
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        return;
       }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setConnected(true);
+        // Clear any pending reconnection attempts
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setConnected(false);
+        // Try to reconnect after 5 seconds
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          if (user) {
+            connectWebSocket();
+          }
+        }, 5000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Received websocket message:', data);
+
+          switch (data.type) {
+            case 'new_message':
+              refetchMessages();
+              break;
+            case 'group_created':
+              setCurrentGroup(data.data);
+              toast({
+                title: "Success",
+                description: `Group "${data.data.name}" created! Invite code: ${data.data.inviteCode}`,
+              });
+              break;
+            case 'group_joined':
+              setCurrentGroup(data.data);
+              toast({
+                title: "Success",
+                description: `Joined group "${data.data.name}"!`,
+              });
+              break;
+            case 'error':
+              toast({
+                title: "Error",
+                description: data.message,
+                variant: "destructive",
+              });
+              break;
+          }
+        } catch (error) {
+          console.error('Error processing message:', error);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        toast({
+          title: "Connection Error",
+          description: "Failed to connect to chat server",
+          variant: "destructive",
+        });
+      };
     };
+
+    connectWebSocket();
 
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (socketRef.current) {
         socketRef.current.close();
       }
     };
-  }, [user]);
+  }, [user, toast]);
 
   // Send message
   const sendMessage = () => {

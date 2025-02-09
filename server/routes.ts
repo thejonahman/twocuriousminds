@@ -25,16 +25,23 @@ export function registerRoutes(app: Express): Server {
 
   // Upgrade session handling for WebSocket
   httpServer.on('upgrade', function (request, socket, head) {
-    sessionMiddleware(request as any, {} as any, () => {
+    const res = {} as any;
+    res.end = () => {};
+
+    // Apply session middleware
+    sessionMiddleware(request as any, res, () => {
       if (!request.session?.passport?.user) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      wss.handleUpgrade(request, socket, head, function (ws) {
-        wss.emit('connection', ws, request);
-      });
+      // Only handle WebSocket upgrades for our path
+      if (request.url?.startsWith('/ws')) {
+        wss.handleUpgrade(request, socket, head, function (ws) {
+          wss.emit('connection', ws, request);
+        });
+      }
     });
   });
 
