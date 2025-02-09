@@ -10,7 +10,7 @@ import {
   CardTitle,
   CardFooter,
 } from "@/components/ui/card";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -56,8 +56,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<number>();
-
-  console.log("DiscussionGroup rendering, user:", user, "videoId:", videoId); // Debug log
 
   // If there's no user, show a message instead of returning null
   if (!user) {
@@ -119,11 +117,11 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
           switch (data.type) {
             case 'new_message':
               if (!currentGroup) {
-                refetchMessages();
+                setMessages(prev => [...prev, data.data]);
               }
               break;
             case 'new_group_message':
-              if (currentGroup) {
+              if (currentGroup && currentGroup.id === data.data.groupId) {
                 setGroupMessages(prev => [...prev, data.data]);
               }
               break;
