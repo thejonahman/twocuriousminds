@@ -53,9 +53,25 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
   const maxReconnectAttempts = 5;
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
+  // Get current group for this video
+  const { data: groups, isLoading: groupLoading } = useQuery({
+    queryKey: [`/api/groups`, videoId],
+    queryFn: () => fetch(`/api/groups?videoId=${videoId}`).then(r => r.json()),
+    enabled: !!user && !!videoId,
+  });
+
+  // Get the first group for this video (there should only be one)
+  const group = groups?.[0];
+
+  // Get messages if group exists
+  const { data: messages, isLoading: messagesLoading } = useQuery<Message[]>({
+    queryKey: [`/api/groups/${group?.id}/messages`],
+    enabled: !!group?.id,
+  });
+
   // Update WebSocket handlers with better connection management
   useEffect(() => {
-    if (!user || isConnecting || reconnectAttempts >= maxReconnectAttempts) {
+    if (!user || isConnecting || reconnectAttempts >= maxReconnectAttempts || !group?.id) {
       return;
     }
 
@@ -77,7 +93,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          if (message.type === "new_message" && message.data.groupId === group?.id) {
+          if (message.type === "new_message" && message.data.groupId === group.id) {
             queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
           } else if (message.type === "error") {
             toast({
@@ -126,7 +142,6 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       };
 
       setSocket(ws);
-
       return ws;
     };
 
@@ -138,23 +153,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       }
       ws.close();
     };
-  }, [user, isConnecting, reconnectAttempts, group?.id]);
-
-  // Get current group for this video
-  const { data: groups, isLoading: groupLoading } = useQuery({
-    queryKey: [`/api/groups`, videoId],
-    queryFn: () => fetch(`/api/groups?videoId=${videoId}`).then(r => r.json()),
-    enabled: !!user && !!videoId,
-  });
-
-  // Get the first group for this video (there should only be one)
-  const group = groups?.[0];
-
-  // Get messages if group exists
-  const { data: messages, isLoading: messagesLoading } = useQuery<Message[]>({
-    queryKey: [`/api/groups/${group?.id}/messages`],
-    enabled: !!group?.id,
-  });
+  }, [user, isConnecting, reconnectAttempts, group?.id, toast, queryClient]);
 
   // Create group mutation
   const createGroup = useMutation({
@@ -195,7 +194,7 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     },
   });
 
-  // Update send message mutation
+  // Send message mutation
   const sendMessage = useMutation({
     mutationFn: async () => {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
