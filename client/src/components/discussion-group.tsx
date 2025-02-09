@@ -69,80 +69,86 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
     enabled: !!group?.id,
   });
 
-  // Update WebSocket handlers with better connection management
+  // Connect WebSocket
   useEffect(() => {
-    if (!user || isConnecting || reconnectAttempts >= maxReconnectAttempts || !group?.id) {
+    if (!user || !group?.id || isConnecting || reconnectAttempts >= maxReconnectAttempts) {
       return;
     }
 
     const connectWebSocket = () => {
-      setIsConnecting(true);
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      try {
+        setIsConnecting(true);
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
-      ws.onopen = () => {
-        console.log("Connected to WebSocket");
-        setIsConnecting(false);
-        setReconnectAttempts(0);
-        toast({
-          title: "Connected",
-          description: "You're now connected to the chat server",
-        });
-      };
+        ws.onopen = () => {
+          console.log("WebSocket connected");
+          setSocket(ws);
+          setIsConnecting(false);
+          setReconnectAttempts(0);
+          toast({
+            title: "Connected",
+            description: "You're now connected to the chat server",
+          });
+        };
 
-      ws.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          if (message.type === "new_message" && message.data.groupId === group.id) {
-            queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
-          } else if (message.type === "error") {
+        ws.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data);
+            if (message.type === "new_message" && message.data.groupId === group.id) {
+              queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] });
+            } else if (message.type === "error") {
+              toast({
+                title: "Error",
+                description: message.message,
+                variant: "destructive",
+              });
+            }
+          } catch (error) {
+            console.warn("error parsing message", error);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+          ws.close();
+        };
+
+        ws.onclose = () => {
+          console.log("WebSocket connection closed");
+          setSocket(null);
+          setIsConnecting(false);
+
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+          }
+
+          // Only attempt reconnect if not at max attempts
+          if (reconnectAttempts < maxReconnectAttempts) {
+            const nextAttempt = reconnectAttempts + 1;
+            setReconnectAttempts(nextAttempt);
+
+            // Exponential backoff
+            const delay = Math.min(1000 * Math.pow(2, nextAttempt), 10000);
+
+            reconnectTimeoutRef.current = setTimeout(() => {
+              setIsConnecting(false);
+            }, delay);
+          } else {
             toast({
-              title: "Error",
-              description: message.message,
+              title: "Connection Failed",
+              description: "Unable to connect to chat server. Please refresh the page.",
               variant: "destructive",
             });
           }
-        } catch (error) {
-          console.error("Error parsing WebSocket message:", error);
-        }
-      };
+        };
 
-      ws.onerror = (error) => {
-        console.error("WebSocket error:", error);
-        toast({
-          title: "Connection Error",
-          description: "Failed to connect to chat server",
-          variant: "destructive",
-        });
-      };
-
-      ws.onclose = () => {
-        console.log("WebSocket connection closed");
-        setSocket(null);
+        return ws;
+      } catch (error) {
+        console.error("Error creating WebSocket:", error);
         setIsConnecting(false);
-
-        // Clear any existing reconnection timeout
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-
-        // Attempt to reconnect after a delay
-        if (reconnectAttempts < maxReconnectAttempts) {
-          setReconnectAttempts(prev => prev + 1);
-          reconnectTimeoutRef.current = setTimeout(() => {
-            setIsConnecting(false);
-          }, 5000 * (reconnectAttempts + 1)); // Exponential backoff
-        } else {
-          toast({
-            title: "Connection Failed",
-            description: "Unable to connect to chat server. Please refresh the page to try again.",
-            variant: "destructive",
-          });
-        }
-      };
-
-      setSocket(ws);
-      return ws;
+        return null;
+      }
     };
 
     const ws = connectWebSocket();
@@ -151,9 +157,18 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      ws.close();
+      if (ws) {
+        ws.close();
+      }
     };
-  }, [user, isConnecting, reconnectAttempts, group?.id, toast, queryClient]);
+  }, [user, group?.id, isConnecting, reconnectAttempts, toast, queryClient]);
+
+  // Scroll to bottom of messages
+  useEffect(() => {
+    if (messages?.length) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages?.length]);
 
   // Create group mutation
   const createGroup = useMutation({
@@ -249,13 +264,6 @@ export function DiscussionGroup({ videoId, videoTitle }: DiscussionGroupProps) {
       }
     }
   };
-
-  // Scroll to bottom of messages
-  useEffect(() => {
-    if (messages?.length) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages?.length]);
 
   if (!user) {
     return (

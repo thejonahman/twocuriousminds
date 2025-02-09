@@ -1006,9 +1006,15 @@ export function registerRoutes(app: express.Application): Server {
       console.log('WebSocket client disconnected, user:', userId);
       connectedClients.delete(userId);
     });
+
+    ws.on('error', (error) => {
+      console.error('WebSocket error for user:', userId, error);
+      connectedClients.delete(userId);
+    });
   });
 
   return httpServer;
+
 }
 
 const storage = multer.memoryStorage();
@@ -1017,11 +1023,10 @@ const upload = multer({
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit for files
   },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
+  fileFilter: (_req, file, cb) => {    if (!file.mimetype.startsWith('image/')) {
       cb(new Error('Only image files are allowed'));
       return;
-        }
+    }
     cb(null, true);
   }
 });
