@@ -5,17 +5,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { type Group } from "@/lib/api-types";
 
 export default function JoinGroup() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  
-  // Extract invite code from URL
+
+  // Extract invite code and videoId from URL
   const inviteCode = window.location.pathname.split('/join-group/')[1];
+  const videoId = new URLSearchParams(window.location.search).get('videoId');
 
   // Query group details from invite code
-  const { data: groupData, isLoading, error } = useQuery({
+  const { data: groupData, isLoading, error } = useQuery<Group>({
     queryKey: [`/api/groups/invite/${inviteCode}`],
     enabled: !!inviteCode && !!user,
   });
@@ -23,19 +25,31 @@ export default function JoinGroup() {
   useEffect(() => {
     if (!user) {
       // Store the invite URL in sessionStorage to redirect back after auth
-      sessionStorage.setItem('redirectAfterAuth', window.location.pathname);
+      sessionStorage.setItem('redirectAfterAuth', window.location.pathname + window.location.search);
       navigate('/auth');
       return;
     }
 
     if (groupData) {
+      // Verify video ID matches if provided
+      if (videoId && groupData.videoId.toString() !== videoId) {
+        toast({
+          title: "Error",
+          description: "Invalid video for this group",
+          variant: "destructive",
+        });
+        navigate('/');
+        return;
+      }
+
       toast({
         title: "Success",
         description: `Joined group "${groupData.name}"!`,
       });
-      navigate(`/video/${groupData.videoId}`);
+      // Navigate to video page with group ID
+      navigate(`/video/${groupData.videoId}/group/${groupData.id}`);
     }
-  }, [user, groupData, navigate, toast]);
+  }, [user, groupData, navigate, toast, videoId]);
 
   if (!user) {
     return null; // Will redirect to auth

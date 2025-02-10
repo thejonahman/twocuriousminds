@@ -23,7 +23,9 @@ function Router() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
             <Switch>
               <Route path="/" component={Home} />
+              {/* Update video route to support deep linking to groups */}
               <Route path="/video/:id" component={Video} />
+              <Route path="/video/:id/group/:groupId" component={Video} />
               <Route path="/auth" component={Auth} />
               <Route path="/join-group/:inviteCode" component={JoinGroup} />
               <ProtectedRoute 
