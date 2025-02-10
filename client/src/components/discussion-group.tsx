@@ -3,6 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -20,7 +21,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
 
@@ -73,6 +73,13 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     enabled: !!user && !!currentGroup?.id,
     select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
+
+  // Add video data query
+  const { data: videoData } = useQuery({
+    queryKey: [`/api/videos/${videoId}`],
+    enabled: !!videoId,
+  });
+
 
   const addOptimisticMessage = (newMessage: Message) => {
     const queryKey = currentGroup
@@ -314,10 +321,12 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       return;
     }
 
+    const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
     const createGroupData = {
       type: 'create_group',
-      name: groupNameInput,
+      name: groupName,
       videoId,
+      description: `Discussion group for ${videoData?.title}`,
     };
 
     console.log('Sending create group request:', createGroupData);
@@ -427,10 +436,34 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                   <Input
                     value={groupNameInput}
                     onChange={(e) => setGroupNameInput(e.target.value)}
-                    placeholder="Group name..."
+                    placeholder={videoData?.title || "Group name..."}
+                    className="mb-2"
                   />
                   <DialogFooter>
-                    <Button onClick={createGroup} disabled={!groupNameInput.trim()}>
+                    <Button 
+                      onClick={() => {
+                        const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
+                        const createGroupData = {
+                          type: 'create_group',
+                          name: groupName,
+                          videoId,
+                          description: `Discussion group for ${videoData?.title}`,
+                        };
+
+                        if (socketRef.current?.readyState === WebSocket.OPEN) {
+                          console.log('Sending create group request:', createGroupData);
+                          socketRef.current.send(JSON.stringify(createGroupData));
+                          setGroupNameInput('');
+                        } else {
+                          toast({
+                            title: "Error",
+                            description: "Not connected to server",
+                            variant: "destructive",
+                          });
+                        }
+                      }}
+                      disabled={!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN}
+                    >
                       Create Group
                     </Button>
                   </DialogFooter>
