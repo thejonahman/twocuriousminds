@@ -3,25 +3,30 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
-import multer from 'multer';
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth } from "./auth";
 import { nanoid } from 'nanoid';
 import type { Session } from 'express-session';
 
 // Fix type declaration for session in request
-declare module 'http' {
-  interface IncomingMessage {
-    session?: Session & {
-      passport?: {
-        user?: number;
-      };
+declare module 'express-session' {
+  interface SessionData {
+    passport?: {
+      user?: number;
     };
   }
 }
 
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
+
+// Define requireAuth middleware first
+const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  if (req.session?.passport?.user) {
+    return next();
+  }
+  res.status(401).json({ message: "Not authenticated" });
+};
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
@@ -423,13 +428,52 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Protected endpoints - require authentication
-  const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.isAuthenticated()) {
-      return next();
+  // Add REST endpoint for group invites
+  app.get("/api/groups/invite/:code", requireAuth, async (req, res) => {
+    try {
+      const inviteCode = req.params.code;
+      console.log('Fetching group for invite code:', inviteCode);
+
+      // Find group by invite code
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.inviteCode, inviteCode)
+      });
+
+      if (!group) {
+        console.log('Group not found for invite code:', inviteCode);
+        return res.status(404).json({ message: "Invalid invite code" });
+      }
+
+      // Check if user is already a member
+      const existingMember = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, group.id),
+          eq(groupMembers.userId, req.user!.id)
+        )
+      });
+
+      if (!existingMember) {
+        // Add user as member
+        await db.insert(groupMembers)
+          .values({
+            groupId: group.id,
+            userId: req.user!.id,
+            role: 'member'
+          });
+      }
+
+      console.log('Successfully joined group:', group.id);
+      res.json(group);
+    } catch (error) {
+      console.error('Error processing group invite:', error);
+      res.status(500).json({
+        message: "Error processing invite",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
-    res.status(401).json({ message: "Not authenticated" });
-  };
+  });
+
+  // Protected endpoints - require authentication
 
   // Messages endpoint
   app.get("/api/messages", requireAuth, async (req, res) => {

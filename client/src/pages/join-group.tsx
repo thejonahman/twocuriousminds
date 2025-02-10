@@ -32,7 +32,7 @@ export default function JoinGroup() {
 
     if (groupData && !isLoading) {
       // Verify video ID matches if provided
-      if (videoId && groupData.videoId.toString() !== videoId) {
+      if (videoId && groupData.videoId !== null && groupData.videoId.toString() !== videoId) {
         toast({
           title: "Error",
           description: "Invalid video for this group",
@@ -46,8 +46,18 @@ export default function JoinGroup() {
         title: "Success",
         description: `Joined group "${groupData.name}"!`,
       });
+
       // Navigate to video page with group ID
-      navigate(`/video/${groupData.videoId}/group/${groupData.id}`);
+      if (groupData.videoId !== null && groupData.id !== null) {
+        navigate(`/video/${groupData.videoId}/group/${groupData.id}`);
+      } else {
+        toast({
+          title: "Error",
+          description: "Invalid group data",
+          variant: "destructive",
+        });
+        navigate('/');
+      }
     }
   }, [user, groupData, navigate, toast, videoId, isLoading]);
 
