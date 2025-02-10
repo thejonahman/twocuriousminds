@@ -29,28 +29,43 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Setup WebSocket server
+  // Setup WebSocket server with improved error handling
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws',
     verifyClient: (info, callback) => {
-      // Create a fake res object since session middleware expects it
+      // Ignore vite-hmr websocket connections
+      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        return callback(false);
+      }
+
       const res: any = {
         writeHead: () => {},
         setHeader: () => {},
         end: () => {}
       };
 
-      // Apply session middleware
-      sessionMiddleware(info.req as Request, res as Response, () => {
-        // Check if user is authenticated through session
-        const isAuthenticated = info.req.session?.passport?.user != null;
-        if (isAuthenticated) {
-          callback(true);
-        } else {
-          callback(false, 401, 'Unauthorized');
-        }
-      });
+      // Apply session middleware with proper error handling
+      try {
+        sessionMiddleware(info.req as Request, res as Response, (err?: any) => {
+          if (err) {
+            console.error('Session middleware error:', err);
+            return callback(false, 401, 'Session error');
+          }
+
+          const isAuthenticated = info.req.session?.passport?.user != null;
+          if (isAuthenticated) {
+            console.log('WebSocket auth successful for user:', info.req.session?.passport?.user);
+            callback(true);
+          } else {
+            console.log('WebSocket auth failed: No user in session');
+            callback(false, 401, 'Unauthorized');
+          }
+        });
+      } catch (error) {
+        console.error('WebSocket verifyClient error:', error);
+        callback(false, 500, 'Internal server error');
+      }
     }
   });
 

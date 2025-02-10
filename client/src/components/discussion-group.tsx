@@ -75,7 +75,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   });
 
   const addOptimisticMessage = (newMessage: Message) => {
-    const queryKey = currentGroup 
+    const queryKey = currentGroup
       ? ['/api/group-messages', currentGroup.id]
       : ['/api/messages', videoId];
 
@@ -100,135 +100,149 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
     setWsState(prev => ({ ...prev, connecting: true }));
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    socketRef.current = ws;
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      socketRef.current = ws;
 
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setWsState({
-        connected: true,
-        connecting: false,
-        retryCount: 0,
-        retryDelay: INITIAL_RETRY_DELAY,
-      });
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setWsState({
+          connected: true,
+          connecting: false,
+          retryCount: 0,
+          retryDelay: INITIAL_RETRY_DELAY,
+        });
 
-      if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = undefined;
-      }
-    };
+        if (reconnectTimeoutRef.current) {
+          window.clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = undefined;
+        }
+      };
 
-    ws.onclose = (event) => {
-      console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
+        setWsState(prev => ({
+          ...prev,
+          connected: false,
+          connecting: false,
+        }));
+
+        // Don't reconnect if the socket was closed intentionally or unauthorized
+        if (event.code !== 1000 && event.code !== 1008 && user && wsState.retryCount < MAX_RETRIES) {
+          const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
+          console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
+
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            setWsState(prev => ({
+              ...prev,
+              retryCount: prev.retryCount + 1,
+              retryDelay: nextDelay,
+            }));
+            connectWebSocket();
+          }, nextDelay);
+        } else if (wsState.retryCount >= MAX_RETRIES) {
+          toast({
+            title: "Connection Error",
+            description: "Maximum reconnection attempts reached. Please refresh the page.",
+            variant: "destructive",
+          });
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Received websocket message:', data);
+
+          // Validate websocket message format
+          const message = validateApiResponse(wsMessageSchema, data);
+
+          switch (message.type) {
+            case 'new_message':
+              if (!currentGroup) {
+                console.log('Invalidating messages query');
+                queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
+                // Scroll to bottom on new message
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }
+              break;
+
+            case 'new_group_message':
+              if (currentGroup && message.data.groupId === currentGroup.id) {
+                console.log('Invalidating group messages query');
+                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
+                // Scroll to bottom on new message
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }
+              break;
+
+            case 'group_created':
+              console.log("Group Created:", message.data);
+              // Validate group data
+              const newGroup = validateApiResponse(groupSchema, message.data);
+              setCurrentGroup(newGroup);
+              setIsCreateGroupOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', newGroup.id] });
+              toast({
+                title: "Success",
+                description: `Group "${newGroup.name}" created! Share this invite code with friends: ${newGroup.inviteCode}`,
+              });
+              break;
+
+            case 'group_joined':
+              console.log("Group Joined:", message.data);
+              // Validate group data
+              const joinedGroup = validateApiResponse(groupSchema, message.data);
+              setCurrentGroup(joinedGroup);
+              setIsJoinGroupOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', joinedGroup.id] });
+              toast({
+                title: "Success",
+                description: `Joined group "${joinedGroup.name}"!`,
+              });
+              break;
+
+            case 'error':
+              toast({
+                title: "Error",
+                description: message.message,
+                variant: "destructive",
+              });
+              break;
+          }
+        } catch (error) {
+          console.error('Error processing message:', error);
+          toast({
+            title: "Error",
+            description: "Failed to process server message",
+            variant: "destructive",
+          });
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        toast({
+          title: "Connection Error",
+          description: "Failed to connect to chat server",
+          variant: "destructive",
+        });
+      };
+    } catch (error) {
+      console.error('Error creating WebSocket connection:', error);
       setWsState(prev => ({
         ...prev,
         connected: false,
         connecting: false,
       }));
-
-      // Don't reconnect if the socket was closed intentionally (code 1000) or max retries reached
-      if (event.code !== 1000 && user && wsState.retryCount < MAX_RETRIES) {
-        const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
-        console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
-
-        reconnectTimeoutRef.current = window.setTimeout(() => {
-          setWsState(prev => ({
-            ...prev,
-            retryCount: prev.retryCount + 1,
-            retryDelay: nextDelay,
-          }));
-          connectWebSocket();
-        }, nextDelay);
-      } else if (wsState.retryCount >= MAX_RETRIES) {
-        toast({
-          title: "Connection Error",
-          description: "Maximum reconnection attempts reached. Please refresh the page.",
-          variant: "destructive",
-        });
-      }
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log('Received websocket message:', data);
-
-        // Validate websocket message format
-        const message = validateApiResponse(wsMessageSchema, data);
-
-        switch (message.type) {
-          case 'new_message':
-            if (!currentGroup) {
-              console.log('Invalidating messages query');
-              queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
-              // Scroll to bottom on new message
-              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            }
-            break;
-
-          case 'new_group_message':
-            if (currentGroup && message.data.groupId === currentGroup.id) {
-              console.log('Invalidating group messages query');
-              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
-              // Scroll to bottom on new message
-              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            }
-            break;
-
-          case 'group_created':
-            console.log("Group Created:", message.data);
-            // Validate group data
-            const newGroup = validateApiResponse(groupSchema, message.data);
-            setCurrentGroup(newGroup);
-            setIsCreateGroupOpen(false);
-            queryClient.invalidateQueries({ queryKey: ['/api/group-messages', newGroup.id] });
-            toast({
-              title: "Success",
-              description: `Group "${newGroup.name}" created! Share this invite code with friends: ${newGroup.inviteCode}`,
-            });
-            break;
-
-          case 'group_joined':
-            console.log("Group Joined:", message.data);
-            // Validate group data
-            const joinedGroup = validateApiResponse(groupSchema, message.data);
-            setCurrentGroup(joinedGroup);
-            setIsJoinGroupOpen(false);
-            queryClient.invalidateQueries({ queryKey: ['/api/group-messages', joinedGroup.id] });
-            toast({
-              title: "Success",
-              description: `Joined group "${joinedGroup.name}"!`,
-            });
-            break;
-
-          case 'error':
-            toast({
-              title: "Error",
-              description: message.message,
-              variant: "destructive",
-            });
-            break;
-        }
-      } catch (error) {
-        console.error('Error processing message:', error);
-        toast({
-          title: "Error",
-          description: "Failed to process server message",
-          variant: "destructive",
-        });
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
       toast({
         title: "Connection Error",
-        description: "Failed to connect to chat server",
+        description: "Failed to connect to chat server. Please try again later.",
         variant: "destructive",
       });
-    };
-  }, [user, toast, queryClient, videoId, currentGroup, wsState.retryCount, wsState.retryDelay]);
+    }
+  }, [user, toast, wsState.retryCount, wsState.retryDelay]);
 
   useEffect(() => {
     if (!user) return;
