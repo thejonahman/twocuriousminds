@@ -54,59 +54,21 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [inviteCode, setInviteCode] = useState("");
   const [connected, setConnected] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
-  const [groupMessages, setGroupMessages] = useState<Message[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-  const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<number>();
 
-  if (!user) {
-    return (
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Discussion</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-center text-muted-foreground">
-            Please sign in to participate in discussions
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   // Query for video messages
-  const { data: queryMessages = [] } = useQuery<Message[]>({
+  const { data: messages = [] } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
-    queryFn: () => fetch(`/api/messages?videoId=${videoId}`).then(r => r.json()),
     enabled: !!user && !!videoId && !currentGroup,
   });
 
   // Query for group messages when in a group
-  const { data: queryGroupMessages = [] } = useQuery<Message[]>({
+  const { data: groupMessages = [] } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
-    queryFn: () => fetch(`/api/group-messages?groupId=${currentGroup?.id}`).then(r => r.json()),
     enabled: !!user && !!currentGroup?.id,
   });
-
-  // Initialize messages state with query data
-  useEffect(() => {
-    console.log("Query Messages:", queryMessages);
-    if (!currentGroup) {
-      setMessages(queryMessages);
-    }
-  }, [queryMessages, currentGroup]);
-
-  // Initialize group messages when joining a group
-  useEffect(() => {
-    console.log("Query Group Messages:", queryGroupMessages);
-    console.log("Current Group:", currentGroup);
-    if (currentGroup) {
-      setGroupMessages(queryGroupMessages);
-    }
-  }, [queryGroupMessages, currentGroup]);
 
   useEffect(() => {
     if (!user) return;
@@ -145,33 +107,20 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
           switch (data.type) {
             case 'new_message':
-              console.log("New Message Received:", data.data);
               if (!currentGroup) {
-                setMessages(prev => [...prev, data.data]);
+                queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
               }
               break;
+
             case 'new_group_message':
-              console.log('Received group message:', data.data);
-              console.log('Current group:', currentGroup);
               if (currentGroup && data.data.groupId === currentGroup.id) {
-                console.log('Adding new message to group messages');
-                const newMessage: Message = {
-                  id: data.data.id,
-                  content: data.data.content,
-                  userId: data.data.userId,
-                  groupId: data.data.groupId,
-                  createdAt: data.data.createdAt,
-                  user: {
-                    username: data.data.user.username
-                  }
-                };
-                setGroupMessages(prev => [...prev, newMessage]);
+                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
               }
               break;
+
             case 'group_created':
               console.log("Group Created:", data.data);
               setCurrentGroup(data.data);
-              setGroupMessages([]);
               setIsCreateGroupOpen(false);
               queryClient.invalidateQueries({ queryKey: ['/api/group-messages', data.data.id] });
               toast({
@@ -179,10 +128,10 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                 description: `Group "${data.data.name}" created! Share this invite code with friends: ${data.data.inviteCode}`,
               });
               break;
+
             case 'group_joined':
               console.log("Group Joined:", data.data);
               setCurrentGroup(data.data);
-              setGroupMessages([]);
               setIsJoinGroupOpen(false);
               queryClient.invalidateQueries({ queryKey: ['/api/group-messages', data.data.id] });
               toast({
@@ -190,6 +139,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                 description: `Joined group "${data.data.name}"!`,
               });
               break;
+
             case 'error':
               toast({
                 title: "Error",
@@ -223,10 +173,9 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         socketRef.current.close();
       }
     };
-  }, [user, toast, queryClient]);
+  }, [user, toast, queryClient, videoId, currentGroup]);
 
   const sendMessage = () => {
-    console.log("Sending Message:", messageInput);
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
         title: "Error",
@@ -252,7 +201,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   };
 
   const createGroup = () => {
-    console.log("Creating Group:", groupNameInput);
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
         title: "Error",
@@ -274,7 +222,6 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   };
 
   const joinGroup = () => {
-    console.log("Joining Group:", inviteCode);
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       toast({
         title: "Error",
@@ -295,18 +242,32 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   };
 
   const leaveGroup = () => {
-    console.log("Leaving Group");
     setCurrentGroup(null);
-    setGroupMessages([]);
-    // Restore video messages when leaving group
-    if (queryMessages.length > 0) {
-      setMessages(queryMessages);
-    }
   };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, groupMessages.length]);
+
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
+
+  if (!user) {
+    return (
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle>Discussion</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-center text-muted-foreground">
+            Please sign in to participate in discussions
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const displayMessages = currentGroup ? groupMessages : messages;
 
   return (
     <Card>
@@ -402,12 +363,12 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {(currentGroup ? groupMessages : messages).length === 0 && (
+          {displayMessages.length === 0 && (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
           )}
-          {(currentGroup ? groupMessages : messages).map((message) => (
+          {displayMessages.map((message) => (
             <div
               key={message.id}
               className={`flex flex-col ${
