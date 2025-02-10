@@ -22,6 +22,7 @@ import {
 import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
+import { z } from "zod";
 
 // Maximum number of reconnection attempts
 const MAX_RETRIES = 5;
@@ -72,6 +73,16 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     enabled: !!user && !!currentGroup?.id,
     select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
+
+  const addOptimisticMessage = (newMessage: Message) => {
+    const queryKey = currentGroup 
+      ? ['/api/group-messages', currentGroup.id]
+      : ['/api/messages', videoId];
+
+    queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
+      return [...old, newMessage];
+    });
+  };
 
   const connectWebSocket = useCallback(() => {
     if (!user || wsState.connecting) return;
@@ -151,6 +162,8 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
             if (!currentGroup) {
               console.log('Invalidating messages query');
               queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
+              // Scroll to bottom on new message
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }
             break;
 
@@ -158,6 +171,8 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
             if (currentGroup && message.data.groupId === currentGroup.id) {
               console.log('Invalidating group messages query');
               queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
+              // Scroll to bottom on new message
+              messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }
             break;
 
@@ -253,9 +268,26 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       content: messageInput,
     };
 
+    // Add optimistic update
+    const optimisticMessage: Message = {
+      id: Date.now(), // Temporary ID
+      content: messageInput,
+      userId: user.id,
+      createdAt: new Date().toISOString(),
+      user: {
+        username: user.username,
+      },
+      ...(currentGroup ? { groupId: currentGroup.id } : { videoId }),
+    };
+
+    addOptimisticMessage(optimisticMessage);
+
     console.log('Sending WebSocket message:', messageData);
     socketRef.current.send(JSON.stringify(messageData));
     setMessageInput('');
+
+    // Scroll to bottom after sending
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   const createGroup = () => {
@@ -303,6 +335,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     setCurrentGroup(null);
   };
 
+  // Auto-scroll when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, groupMessages.length]);
