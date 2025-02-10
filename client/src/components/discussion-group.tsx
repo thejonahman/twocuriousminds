@@ -97,7 +97,14 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
     const connectWebSocket = () => {
       if (socketRef.current?.readyState === WebSocket.OPEN) {
+        console.log('WebSocket already connected');
         return;
+      }
+
+      // Close existing connection if any
+      if (socketRef.current) {
+        console.log('Closing existing WebSocket connection');
+        socketRef.current.close();
       }
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -109,17 +116,22 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         setConnected(true);
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = undefined;
         }
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
         setConnected(false);
-        reconnectTimeoutRef.current = window.setTimeout(() => {
-          if (user) {
+
+        // Don't reconnect if the socket was closed intentionally (code 1000)
+        if (event.code !== 1000 && user) {
+          console.log('Scheduling reconnection attempt...');
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            console.log('Attempting to reconnect...');
             connectWebSocket();
-          }
-        }, 5000);
+          }, 5000);
+        }
       };
 
       ws.onmessage = (event) => {
@@ -189,12 +201,15 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
     connectWebSocket();
 
+    // Cleanup function
     return () => {
+      console.log('Cleaning up WebSocket connection');
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (socketRef.current) {
-        socketRef.current.close();
+        // Use code 1000 to indicate intentional closure
+        socketRef.current.close(1000, 'Component unmounting');
       }
     };
   }, [user, toast, queryClient, videoId, currentGroup]);

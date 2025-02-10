@@ -1,5 +1,5 @@
 import { createServer, type Server } from "http";
-import express, { type Express } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
@@ -9,7 +9,7 @@ import { setupAuth } from "./auth";
 import { nanoid } from 'nanoid';
 import type { Session } from 'express-session';
 
-// Add type declaration for session in request
+// Fix type declaration for session in request
 declare module 'http' {
   interface IncomingMessage {
     session?: Session & {
@@ -42,7 +42,7 @@ export function registerRoutes(app: Express): Server {
       };
 
       // Apply session middleware
-      sessionMiddleware(info.req, res, () => {
+      sessionMiddleware(info.req as Request, res as Response, () => {
         // Check if user is authenticated through session
         const isAuthenticated = info.req.session?.passport?.user != null;
         if (isAuthenticated) {
@@ -458,20 +458,19 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Preferences endpoints
-  app.get("/api/preferences", requireAuth, async (req, res) => {
+  app.get("/api/preferences", requireAuth, async (req: Request, res: Response) => {
     try {
-      // Get preferences from database for the authenticated user
-      const preferences = await db.select().from(userPreferences)
-        .where(eq(userPreferences.userId, req.user!.id))
-        .limit(1);
+      const preferences = await db.query.userPreferences.findFirst({
+        where: eq(userPreferences.userId, req.user!.id)
+      });
 
-      if (!preferences?.length) {
+      if (!preferences) {
         return res.status(404).json({
           message: "No preferences found"
         });
       }
 
-      res.json(preferences[0]);
+      res.json(preferences);
     } catch (error) {
       console.error('Error fetching preferences:', error);
       res.status(500).json({
@@ -481,7 +480,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/preferences", requireAuth, async (req, res) => {
+  app.post("/api/preferences", requireAuth, async (req: Request, res: Response) => {
     try {
       const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
 
@@ -491,11 +490,10 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
-      // Upsert preferences using raw SQL to handle the conflict properly
       const [savedPreferences] = await db
         .insert(userPreferences)
         .values({
-          userId: req.user!.id,
+          user_id: req.user!.id,
           preferredCategories,
           excludedCategories,
           preferredPlatforms,
