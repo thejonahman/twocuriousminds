@@ -88,7 +88,7 @@ export function registerRoutes(app: Express): Server {
               })
               .returning();
 
-            // Get username
+            // Get username for response
             const user = await db.query.users.findFirst({
               where: eq(users.id, userId),
               columns: {
@@ -105,6 +105,9 @@ export function registerRoutes(app: Express): Server {
               }
             };
 
+            console.log('Broadcasting message:', broadcastMessage);
+
+            // Broadcast to all connected clients for video messages
             connectedClients.forEach((client) => {
               if (client.readyState === WebSocket.OPEN) {
                 client.send(JSON.stringify(broadcastMessage));
@@ -196,74 +199,68 @@ export function registerRoutes(app: Express): Server {
             const { groupId, content: groupContent } = message;
             console.log('Processing group message:', { groupId, content: groupContent });
 
-            try {
-              // Save group message
-              const [savedGroupMessage] = await db.insert(groupMessages)
-                .values({
-                  groupId,
-                  userId,
-                  content: groupContent
-                })
-                .returning();
+            // Save group message
+            const [savedGroupMessage] = await db.insert(groupMessages)
+              .values({
+                groupId,
+                userId,
+                content: groupContent
+              })
+              .returning();
 
-              console.log('Saved group message:', savedGroupMessage);
+            console.log('Saved group message:', savedGroupMessage);
 
-              // Get sender info with username
-              const sender = await db.query.users.findFirst({
-                where: eq(users.id, userId),
-                columns: {
-                  username: true
+            // Get sender info
+            const sender = await db.query.users.findFirst({
+              where: eq(users.id, userId),
+              columns: {
+                username: true
+              }
+            });
+
+            console.log('Message sender:', sender);
+
+            // Get group members
+            const members = await db.query.groupMembers.findMany({
+              where: eq(groupMembers.groupId, groupId),
+              columns: {
+                userId: true
+              }
+            });
+
+            console.log('Group members:', members);
+
+            // Broadcast message with all necessary information
+            const groupBroadcastMessage = {
+              type: 'new_group_message',
+              data: {
+                id: savedGroupMessage.id,
+                groupId: savedGroupMessage.groupId,
+                content: savedGroupMessage.content,
+                userId: savedGroupMessage.userId,
+                createdAt: savedGroupMessage.createdAt,
+                user: {
+                  username: sender?.username
                 }
-              });
+              }
+            };
 
-              console.log('Message sender:', sender);
+            console.log('Broadcasting group message:', groupBroadcastMessage);
 
-              // Get group members
-              const members = await db.query.groupMembers.findMany({
-                where: eq(groupMembers.groupId, groupId),
-                columns: {
-                  userId: true
-                }
-              });
-
-              console.log('Group members:', members);
-
-              // Create broadcast message with all necessary information
-              const groupBroadcastMessage = {
-                type: 'new_group_message',
-                data: {
-                  id: savedGroupMessage.id,
-                  groupId: savedGroupMessage.groupId,
-                  content: savedGroupMessage.content,
-                  userId: savedGroupMessage.userId,
-                  createdAt: savedGroupMessage.createdAt,
-                  user: {
-                    username: sender?.username
-                  }
-                }
-              };
-
-              console.log('Broadcasting group message:', groupBroadcastMessage);
-
-              // Broadcast to all group members
-              members.forEach(member => {
-                const client = connectedClients.get(member.userId);
-                if (client?.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify(groupBroadcastMessage));
-                }
-              });
-            } catch (error) {
-              console.error('Error processing group message:', error);
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Failed to send message'
-              }));
-            }
+            // Broadcast only to group members
+            members.forEach(member => {
+              const client = connectedClients.get(member.userId);
+              if (client?.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(groupBroadcastMessage));
+              }
+            });
             break;
         }
       } catch (error) {
         console.error('Message handling error:', error);
-        console.error('Error details:', error.message);
+        if (error instanceof Error) {
+          console.error('Error details:', error.message);
+        }
       }
     };
 
@@ -419,7 +416,7 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      res.json(messagesList);
+      res.json(messagesList.reverse());
     } catch (error) {
       console.error('Error fetching messages:', error);
       res.status(500).json({ 
@@ -450,7 +447,7 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      res.json(messagesList);
+      res.json(messagesList.reverse());
     } catch (error) {
       console.error('Error fetching group messages:', error);
       res.status(500).json({ 

@@ -62,12 +62,34 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const { data: messages = [] } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     enabled: !!user && !!videoId && !currentGroup,
+    queryFn: async () => {
+      console.log('Fetching messages for video:', videoId);
+      const response = await fetch(`/api/messages?videoId=${videoId}`);
+      if (!response.ok) {
+        console.error('Failed to fetch messages:', response.statusText);
+        throw new Error('Failed to fetch messages');
+      }
+      const data = await response.json();
+      console.log('Fetched messages:', data);
+      return data;
+    }
   });
 
   // Query for group messages when in a group
   const { data: groupMessages = [] } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
     enabled: !!user && !!currentGroup?.id,
+    queryFn: async () => {
+      console.log('Fetching messages for group:', currentGroup?.id);
+      const response = await fetch(`/api/group-messages?groupId=${currentGroup?.id}`);
+      if (!response.ok) {
+        console.error('Failed to fetch group messages:', response.statusText);
+        throw new Error('Failed to fetch group messages');
+      }
+      const data = await response.json();
+      console.log('Fetched group messages:', data);
+      return data;
+    }
   });
 
   useEffect(() => {
@@ -108,12 +130,14 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
           switch (data.type) {
             case 'new_message':
               if (!currentGroup) {
+                console.log('Invalidating messages query');
                 queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
               }
               break;
 
             case 'new_group_message':
               if (currentGroup && data.data.groupId === currentGroup.id) {
+                console.log('Invalidating group messages query');
                 queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
               }
               break;
