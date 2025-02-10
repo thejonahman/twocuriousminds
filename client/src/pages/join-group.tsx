@@ -30,7 +30,7 @@ export default function JoinGroup() {
       return;
     }
 
-    if (groupData) {
+    if (groupData && !isLoading) {
       // Verify video ID matches if provided
       if (videoId && groupData.videoId.toString() !== videoId) {
         toast({
@@ -49,7 +49,7 @@ export default function JoinGroup() {
       // Navigate to video page with group ID
       navigate(`/video/${groupData.videoId}/group/${groupData.id}`);
     }
-  }, [user, groupData, navigate, toast, videoId]);
+  }, [user, groupData, navigate, toast, videoId, isLoading]);
 
   if (!user) {
     return null; // Will redirect to auth
@@ -76,7 +76,10 @@ export default function JoinGroup() {
         <CardTitle>Joining Group...</CardTitle>
       </CardHeader>
       <CardContent>
-        <Progress value={100} className="w-full" />
+        <Progress value={isLoading ? 20 : 100} className="w-full" />
+        <p className="text-sm text-muted-foreground mt-2">
+          Please wait while we connect you to the group discussion...
+        </p>
       </CardContent>
     </Card>
   );
