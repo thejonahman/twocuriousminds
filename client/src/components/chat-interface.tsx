@@ -9,57 +9,55 @@ import { apiRequest } from "@/lib/queryClient";
 
 interface ChatMessage {
   id: number;
-  question: string;
-  answer: string;
+  content: string;
+  userId: number;
+  createdAt: string;
+  user?: {
+    username: string;
+  };
 }
 
 export function ChatInterface({ videoId }: { videoId: number }) {
-  const [question, setQuestion] = useState("");
+  const [message, setMessage] = useState("");
   const queryClient = useQueryClient();
 
   const { data: messages, isLoading } = useQuery<ChatMessage[]>({
-    queryKey: [`/api/chat/${videoId}`],
+    queryKey: [`/api/messages/${videoId}`],
   });
 
   const mutation = useMutation({
-    mutationFn: async (question: string) => {
-      const res = await apiRequest("POST", "/api/chat", {
+    mutationFn: async (content: string) => {
+      const res = await apiRequest("POST", "/api/messages", {
         videoId,
-        question,
+        content,
       });
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/chat/${videoId}`] });
-      setQuestion("");
+      queryClient.invalidateQueries({ queryKey: [`/api/messages/${videoId}`] });
+      setMessage("");
     },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (question.trim()) {
-      mutation.mutate(question);
+    if (message.trim()) {
+      mutation.mutate(message);
     }
   };
 
   return (
     <Card className="h-[600px] flex flex-col">
       <CardHeader className="border-b p-4">
-        <h3 className="font-semibold">Ask Questions</h3>
+        <h3 className="font-semibold">Discussion</h3>
       </CardHeader>
       <CardContent className="flex-1 p-4">
         <ScrollArea className="h-full">
           <div className="space-y-4">
-            {messages?.map((message) => (
-              <div key={message.id} className="space-y-2">
-                <div className="bg-muted rounded-lg p-3">
-                  <p className="font-medium">You</p>
-                  <p>{message.question}</p>
-                </div>
-                <div className="bg-primary/10 rounded-lg p-3">
-                  <p className="font-medium">AI Assistant</p>
-                  <p>{message.answer}</p>
-                </div>
+            {messages?.map((msg) => (
+              <div key={msg.id} className="bg-muted rounded-lg p-3">
+                {msg.user && <p className="font-medium">{msg.user.username}</p>}
+                <p>{msg.content}</p>
               </div>
             ))}
           </div>
@@ -68,9 +66,9 @@ export function ChatInterface({ videoId }: { videoId: number }) {
       <CardFooter className="border-t p-4">
         <form onSubmit={handleSubmit} className="flex w-full gap-2">
           <Input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask a question about the video..."
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Type your message..."
             className="flex-1"
           />
           <Button type="submit" disabled={mutation.isPending}>

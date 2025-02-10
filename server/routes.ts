@@ -69,9 +69,11 @@ export function registerRoutes(app: Express): Server {
     console.log('WebSocket connected for user:', userId);
     connectedClients.set(userId, ws);
 
-    ws.onmessage = async (data) => {
+    ws.onmessage = async (event) => {
       try {
-        const message = JSON.parse(data.toString());
+        const rawData = event.data.toString();
+        console.log('Raw WebSocket data received:', rawData);
+        const message = JSON.parse(rawData);
         console.log('Received message:', message);
 
         switch (message.type) {
@@ -135,14 +137,21 @@ export function registerRoutes(app: Express): Server {
                 role: 'admin'
               });
 
+            // Include invite code in response
+            const groupResponse = {
+              ...group,
+              inviteCode
+            };
+
             ws.send(JSON.stringify({
               type: 'group_created',
-              data: group
+              data: groupResponse
             }));
             break;
 
           case 'join_group':
             const { inviteCode: joinCode } = message;
+            console.log('Join group request received:', joinCode);
 
             // Find group
             const groupToJoin = await db.query.discussionGroups.findFirst({
@@ -150,6 +159,7 @@ export function registerRoutes(app: Express): Server {
             });
 
             if (!groupToJoin) {
+              console.log('Group not found for invite code:', joinCode);
               ws.send(JSON.stringify({
                 type: 'error',
                 message: 'Invalid invite code'
@@ -175,6 +185,7 @@ export function registerRoutes(app: Express): Server {
                 });
             }
 
+            console.log('User joined group successfully:', groupToJoin.id);
             ws.send(JSON.stringify({
               type: 'group_joined',
               data: groupToJoin
@@ -252,6 +263,7 @@ export function registerRoutes(app: Express): Server {
         }
       } catch (error) {
         console.error('Message handling error:', error);
+        console.error('Error details:', error.message);
       }
     };
 

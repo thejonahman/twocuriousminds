@@ -20,7 +20,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 interface Message {
   id: number;
@@ -48,6 +48,7 @@ interface DiscussionGroupProps {
 export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -55,11 +56,12 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const [groupMessages, setGroupMessages] = useState<Message[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reconnectTimeoutRef = useRef<number>();
 
-  // If there's no user, show a message instead of returning null
   if (!user) {
     return (
       <Card className="mt-6">
@@ -92,7 +94,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   // Initialize messages state with query data
   useEffect(() => {
     console.log("Query Messages:", queryMessages);
-    if (queryMessages.length > 0 && !currentGroup) {
+    if (!currentGroup) {
       setMessages(queryMessages);
     }
   }, [queryMessages, currentGroup]);
@@ -163,20 +165,15 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                     username: data.data.user.username
                   }
                 };
-                setGroupMessages(prev => {
-                  console.log('Previous messages:', prev);
-                  console.log('Adding new message:', newMessage);
-                  return [...prev, newMessage];
-                });
-              } else {
-                console.log('Message not added:',
-                  currentGroup ? 'Group ID mismatch' : 'No current group');
+                setGroupMessages(prev => [...prev, newMessage]);
               }
               break;
             case 'group_created':
               console.log("Group Created:", data.data);
               setCurrentGroup(data.data);
               setGroupMessages([]);
+              setIsCreateGroupOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', data.data.id] });
               toast({
                 title: "Success",
                 description: `Group "${data.data.name}" created! Share this invite code with friends: ${data.data.inviteCode}`,
@@ -186,6 +183,8 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               console.log("Group Joined:", data.data);
               setCurrentGroup(data.data);
               setGroupMessages([]);
+              setIsJoinGroupOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', data.data.id] });
               toast({
                 title: "Success",
                 description: `Joined group "${data.data.name}"!`,
@@ -224,7 +223,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         socketRef.current.close();
       }
     };
-  }, [user, toast]);
+  }, [user, toast, queryClient]);
 
   const sendMessage = () => {
     console.log("Sending Message:", messageInput);
@@ -237,20 +236,18 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       return;
     }
 
-    if (currentGroup) {
-      socketRef.current.send(JSON.stringify({
-        type: 'group_message',
-        groupId: currentGroup.id,
-        content: messageInput,
-      }));
-    } else {
-      socketRef.current.send(JSON.stringify({
-        type: 'message',
-        videoId,
-        content: messageInput,
-      }));
-    }
+    const messageData = currentGroup ? {
+      type: 'group_message',
+      groupId: currentGroup.id,
+      content: messageInput,
+    } : {
+      type: 'message',
+      videoId,
+      content: messageInput,
+    };
 
+    console.log('Sending WebSocket message:', messageData);
+    socketRef.current.send(JSON.stringify(messageData));
     setMessageInput('');
   };
 
@@ -265,15 +262,15 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       return;
     }
 
-    socketRef.current.send(JSON.stringify({
+    const createGroupData = {
       type: 'create_group',
       name: groupNameInput,
       videoId,
-    }));
+    };
 
+    console.log('Sending create group request:', createGroupData);
+    socketRef.current.send(JSON.stringify(createGroupData));
     setGroupNameInput('');
-    // Clear messages when creating a new group
-    setMessages([]);
   };
 
   const joinGroup = () => {
@@ -287,14 +284,14 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       return;
     }
 
-    socketRef.current.send(JSON.stringify({
+    const joinGroupData = {
       type: 'join_group',
       inviteCode,
-    }));
+    };
 
+    console.log('Sending join group request:', joinGroupData);
+    socketRef.current.send(JSON.stringify(joinGroupData));
     setInviteCode('');
-    // Clear messages when joining a group
-    setMessages([]);
   };
 
   const leaveGroup = () => {
@@ -347,7 +344,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
           {!currentGroup && (
             <div className="flex items-center gap-2">
-              <Dialog>
+              <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="sm">
                     <Plus className="h-4 w-4 mr-2" />
@@ -374,7 +371,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                 </DialogContent>
               </Dialog>
 
-              <Dialog>
+              <Dialog open={isJoinGroupOpen} onOpenChange={setIsJoinGroupOpen}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="sm">
                     <UserPlus className="h-4 w-4 mr-2" />
