@@ -2,7 +2,7 @@ import { createServer, type Server } from "http";
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
-import { sql, eq, and, desc } from "drizzle-orm";
+import { sql, eq, and, desc, gt } from "drizzle-orm";
 import multer from 'multer';
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth } from "./auth";
@@ -192,13 +192,29 @@ export function registerRoutes(app: Express): Server {
               }
             });
 
-            // Get group members efficiently
+            // Get group members efficiently and update unread counts
             const members = await db.query.groupMembers.findMany({
-              where: eq(groupMembers.groupId, groupId),
-              columns: {
-                userId: true
-              }
+              where: eq(groupMembers.groupId, groupId)
             });
+
+            // Update unread count for other members
+            await Promise.all(
+              members
+                .filter(member => member.userId !== userId)
+                .map(member =>
+                  db
+                    .update(groupMembers)
+                    .set({
+                      unreadCount: sql`${groupMembers.unreadCount} + 1`
+                    })
+                    .where(
+                      and(
+                        eq(groupMembers.groupId, groupId),
+                        eq(groupMembers.userId, member.userId)
+                      )
+                    )
+                )
+            );
 
             const groupBroadcastMessage = {
               type: 'new_group_message',
@@ -222,7 +238,7 @@ export function registerRoutes(app: Express): Server {
             break;
 
           case 'join_group':
-            const { inviteCode: joinCode } = message;
+            const { inviteCode: joinCode, videoId: joinVideoId } = message;
             console.log('Join group request received:', joinCode);
 
             // Find group
@@ -235,6 +251,16 @@ export function registerRoutes(app: Express): Server {
               ws.send(JSON.stringify({
                 type: 'error',
                 message: 'Invalid invite code'
+              }));
+              return;
+            }
+
+            // Verify videoId matches if provided
+            if (joinVideoId && groupToJoin.videoId !== joinVideoId) {
+              console.log('Video ID mismatch:', { expected: groupToJoin.videoId, received: joinVideoId });
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Invalid video for this group'
               }));
               return;
             }
@@ -524,6 +550,80 @@ export function registerRoutes(app: Express): Server {
       console.error('Error saving preferences:', error);
       res.status(500).json({
         message: "Error saving preferences",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Get unread count for a group
+  app.get("/api/groups/:groupId/unread-count", requireAuth, async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      // Get the member record to get lastReadAt
+      const member = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user!.id)
+        )
+      });
+
+      if (!member) {
+        return res.status(404).json({ message: "Not a member of this group" });
+      }
+
+      // Count messages after lastReadAt
+      const unreadCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(groupMessages)
+        .where(
+          and(
+            eq(groupMessages.groupId, groupId),
+            gt(groupMessages.createdAt, member.lastReadAt!)
+          )
+        )
+        .then(result => Number(result[0].count));
+
+      res.json({ unreadCount });
+    } catch (error) {
+      console.error('Error fetching unread count:', error);
+      res.status(500).json({
+        message: "Error fetching unread count",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Mark messages as read
+  app.post("/api/groups/:groupId/mark-read", requireAuth, async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      // Update lastReadAt for the member
+      await db
+        .update(groupMembers)
+        .set({
+          lastReadAt: new Date(),
+          unreadCount: 0
+        })
+        .where(
+          and(
+            eq(groupMembers.groupId, groupId),
+            eq(groupMembers.userId, req.user!.id)
+          )
+        );
+
+      res.json({ message: "Messages marked as read" });
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      res.status(500).json({
+        message: "Error marking messages as read",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }

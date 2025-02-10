@@ -91,6 +91,9 @@ export const groupMembers = pgTable("group_members", {
   userId: integer("user_id").notNull().references(() => users.id),
   role: text("role").notNull().default("member"),
   notificationsEnabled: boolean("notifications_enabled").default(true),
+  emailNotifications: boolean("email_notifications").default(true),
+  lastReadAt: timestamp("last_read_at").defaultNow(),
+  unreadCount: integer("unread_count").default(0),
   joinedAt: timestamp("joined_at").defaultNow(),
 }, (table) => ({
   groupIdIdx: index("group_members_group_id_idx").on(table.groupId),
@@ -248,6 +251,8 @@ export const insertDiscussionGroupSchema = createInsertSchema(discussionGroups, 
 export const insertGroupMemberSchema = createInsertSchema(groupMembers, {
   role: z.enum(["admin", "member"]).default("member"),
   notificationsEnabled: z.boolean().default(true),
+  emailNotifications: z.boolean().default(true),
+  unreadCount: z.number().default(0),
 });
 
 export const insertGroupMessageSchema = createInsertSchema(groupMessages, {

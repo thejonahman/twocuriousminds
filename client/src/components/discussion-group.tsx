@@ -23,6 +23,7 @@ import {
 import { Send, MessageSquare, Plus, UserPlus, Users, Link, Copy, Check } from "lucide-react";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
+import { useLocation, useRoute } from "wouter";
 
 // Maximum number of reconnection attempts
 const MAX_RETRIES = 5;
@@ -46,6 +47,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [inviteCode, setInviteCode] = useState("");
@@ -60,6 +62,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     retryDelay: INITIAL_RETRY_DELAY,
   });
   const reconnectTimeoutRef = useRef<number>();
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Query for video messages
   const { data: messages = [] } = useQuery<Message[]>({
@@ -81,10 +84,10 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     enabled: !!videoId,
   });
 
-  // Generate invite link
+  // Generate invite link with video ID
   const generateInviteLink = (inviteCode: string) => {
     const baseUrl = window.location.origin;
-    return `${baseUrl}/join-group/${inviteCode}`;
+    return `${baseUrl}/join-group/${inviteCode}?videoId=${videoId}`;
   };
 
   // Copy invite link handler
@@ -205,6 +208,10 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               if (currentGroup && message.data.groupId === currentGroup.id) {
                 console.log('Invalidating group messages query');
                 queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
+                // Update unread count if not currently viewing
+                if (document.hidden) {
+                  setUnreadCount(prev => prev + 1);
+                }
                 // Scroll to bottom on new message
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
@@ -230,6 +237,10 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               setCurrentGroup(joinedGroup);
               setIsJoinGroupOpen(false);
               queryClient.invalidateQueries({ queryKey: ['/api/group-messages', joinedGroup.id] });
+
+              // Update URL with group ID for deep linking
+              setLocation(`/video/${videoId}/group/${joinedGroup.id}`);
+
               toast({
                 title: "Success",
                 description: `Joined group "${joinedGroup.name}"!`,
@@ -275,7 +286,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
         variant: "destructive",
       });
     }
-  }, [user, toast, wsState.retryCount, wsState.retryDelay]);
+  }, [user, toast, wsState.retryCount, wsState.retryDelay, videoId]);
 
   useEffect(() => {
     if (!user) return;
@@ -373,6 +384,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     const joinGroupData = {
       type: 'join_group',
       inviteCode,
+      videoId, // Include videoId when joining
     };
 
     console.log('Sending join group request:', joinGroupData);
@@ -391,6 +403,43 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
 
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
+
+  useEffect(() => {
+    if (currentGroup && user) {
+      // Query for unread count
+      const fetchUnreadCount = async () => {
+        try {
+          const response = await fetch(`/api/groups/${currentGroup.id}/unread-count`);
+          if (response.ok) {
+            const data = await response.json();
+            setUnreadCount(data.unreadCount);
+          }
+        } catch (error) {
+          console.error('Error fetching unread count:', error);
+        }
+      };
+
+      fetchUnreadCount();
+    }
+  }, [currentGroup, user]);
+
+
+  useEffect(() => {
+    if (currentGroup && user && !document.hidden) {
+      const markAsRead = async () => {
+        try {
+          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+            method: 'POST',
+          });
+          setUnreadCount(0);
+        } catch (error) {
+          console.error('Error marking messages as read:', error);
+        }
+      };
+
+      markAsRead();
+    }
+  }, [currentGroup, user, groupMessages]);
 
   if (!user) {
     return (
@@ -418,6 +467,11 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               <>
                 <Users className="h-5 w-5" />
                 {currentGroup.name}
+                {unreadCount > 0 && (
+                  <span className="bg-primary text-primary-foreground rounded-full px-2 py-1 text-xs">
+                    {unreadCount}
+                  </span>
+                )}
               </>
             ) : (
               <>
@@ -483,7 +537,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                     className="mb-2"
                   />
                   <DialogFooter>
-                    <Button 
+                    <Button
                       onClick={() => {
                         const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
                         const createGroupData = {
