@@ -11,6 +11,7 @@ import Video from "@/pages/video";
 import ProfileWizard from "@/pages/profile-wizard";
 import Auth from "@/pages/auth";
 import { AdminPage } from "@/pages/admin";
+import JoinGroup from "@/pages/join-group";
 import Navbar from "@/components/navbar";
 
 function Router() {
@@ -24,6 +25,7 @@ function Router() {
               <Route path="/" component={Home} />
               <Route path="/video/:id" component={Video} />
               <Route path="/auth" component={Auth} />
+              <Route path="/join-group/:inviteCode" component={JoinGroup} />
               <ProtectedRoute 
                 path="/admin" 
                 component={AdminPage}

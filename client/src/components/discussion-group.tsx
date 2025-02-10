@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
+import { Send, MessageSquare, Plus, UserPlus, Users, Link, Copy, Check } from "lucide-react";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
 
@@ -50,6 +50,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
+  const [copied, setCopied] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [wsState, setWsState] = useState<WebSocketState>({
@@ -80,6 +81,31 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     enabled: !!videoId,
   });
 
+  // Generate invite link
+  const generateInviteLink = (inviteCode: string) => {
+    const baseUrl = window.location.origin;
+    return `${baseUrl}/join-group/${inviteCode}`;
+  };
+
+  // Copy invite link handler
+  const copyInviteLink = async (inviteCode: string) => {
+    const link = generateInviteLink(inviteCode);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      toast({
+        title: "Success",
+        description: "Invite link copied to clipboard!",
+      });
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to copy invite link",
+        variant: "destructive",
+      });
+    }
+  };
 
   const addOptimisticMessage = (newMessage: Message) => {
     const queryKey = currentGroup
@@ -400,11 +426,28 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
               </>
             )}
           </div>
-          {currentGroup && (
-            <Button variant="outline" size="sm" onClick={leaveGroup}>
-              Leave Group
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {currentGroup?.inviteCode && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={() => copyInviteLink(currentGroup.inviteCode)}
+              >
+                {copied ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Link className="h-4 w-4" />
+                )}
+                Share Group
+              </Button>
+            )}
+            {currentGroup && (
+              <Button variant="outline" size="sm" onClick={leaveGroup}>
+                Leave Group
+              </Button>
+            )}
+          </div>
         </CardTitle>
       </CardHeader>
 
@@ -430,7 +473,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
                   <DialogHeader>
                     <DialogTitle>Create Discussion Group</DialogTitle>
                     <DialogDescription>
-                      Create a private group to discuss this video with friends.
+                      Create a private group to discuss this video with friends. You'll get a shareable link after creating the group.
                     </DialogDescription>
                   </DialogHeader>
                   <Input
