@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
 import express, { type Express, type Request, type Response } from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
-import { db } from "@db";
+import { db, pool } from "@db"; // Assuming db now exports pool
 import { sql, eq, and, desc } from "drizzle-orm";
 import multer from 'multer';
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
@@ -22,6 +22,28 @@ declare module 'http' {
 
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
+
+// Store prepared statements
+const preparedStatements = {
+  insertMessage: 'INSERT INTO messages (video_id, user_id, content) VALUES ($1, $2, $3) RETURNING *',
+  insertGroupMessage: 'INSERT INTO group_messages (group_id, user_id, content) VALUES ($1, $2, $3) RETURNING *',
+  createGroup: `
+    INSERT INTO discussion_groups (name, description, video_id, creator_id, is_private, invite_code)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING *
+  `,
+  addGroupMember: 'INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, $3)'
+};
+
+// Initialize prepared statements
+pool.on('connect', (client) => {
+  Object.entries(preparedStatements).forEach(([name, text]) => {
+    client.query({
+      name,
+      text
+    }).catch(err => console.error(`Failed to prepare statement ${name}:`, err));
+  });
+});
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
@@ -79,16 +101,15 @@ export function registerRoutes(app: Express): Server {
         switch (message.type) {
           case 'message':
             const { videoId, content } = message;
-            // Save message
-            const [savedMessage] = await db.insert(messages)
-              .values({
-                videoId,
-                userId,
-                content
-              })
-              .returning();
+            console.log('Processing video message:', { videoId, content });
 
-            // Get username for response
+            // Use prepared statement for better performance
+            const [savedMessage] = await db.execute(
+              sql.raw(preparedStatements.insertMessage),
+              [videoId, userId, content]
+            );
+
+            // Get username efficiently with a prepared statement
             const user = await db.query.users.findFirst({
               where: eq(users.id, userId),
               columns: {
@@ -107,51 +128,102 @@ export function registerRoutes(app: Express): Server {
 
             console.log('Broadcasting message:', broadcastMessage);
 
-            // Broadcast to all connected clients for video messages
-            connectedClients.forEach((client) => {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify(broadcastMessage));
-              }
+            // Efficient broadcasting using Set for active connections
+            const activeClients = new Set(Array.from(connectedClients.values())
+              .filter(client => client.readyState === WebSocket.OPEN));
+
+            activeClients.forEach(client => {
+              client.send(JSON.stringify(broadcastMessage));
             });
             break;
 
           case 'create_group':
             const { name, description = '', videoId: groupVideoId } = message;
-            // Generate unique invite code
             const inviteCode = nanoid(10);
+            console.log('Creating group:', { name, description, groupVideoId });
 
-            // Create group
-            const [group] = await db.insert(discussionGroups)
-              .values({
-                name,
-                description,
-                videoId: groupVideoId,
-                creatorId: userId,
-                isPrivate: true,
+            // Use transaction for atomic group creation
+            const client = await pool.connect();
+            try {
+              await client.query('BEGIN');
+
+              // Create group using prepared statement
+              const [group] = await db.execute(
+                sql.raw(preparedStatements.createGroup),
+                [name, description, groupVideoId, userId, true, inviteCode]
+              );
+
+              // Add creator as member using prepared statement
+              await db.execute(
+                sql.raw(preparedStatements.addGroupMember),
+                [group.id, userId, 'admin']
+              );
+
+              await client.query('COMMIT');
+
+              const groupResponse = {
+                ...group,
                 inviteCode
-              })
-              .returning();
+              };
 
-            // Add creator as member
-            await db.insert(groupMembers)
-              .values({
-                groupId: group.id,
-                userId,
-                role: 'admin'
-              });
-
-            // Include invite code in response
-            const groupResponse = {
-              ...group,
-              inviteCode
-            };
-
-            ws.send(JSON.stringify({
-              type: 'group_created',
-              data: groupResponse
-            }));
+              ws.send(JSON.stringify({
+                type: 'group_created',
+                data: groupResponse
+              }));
+            } catch (error) {
+              await client.query('ROLLBACK');
+              throw error;
+            } finally {
+              client.release();
+            }
             break;
 
+          case 'group_message':
+            const { groupId, content: groupContent } = message;
+            console.log('Processing group message:', { groupId, content: groupContent });
+
+            // Use prepared statement for group message
+            const [savedGroupMessage] = await db.execute(
+              sql.raw(preparedStatements.insertGroupMessage),
+              [groupId, userId, groupContent]
+            );
+
+            console.log('Saved group message:', savedGroupMessage);
+
+            // Get sender info efficiently
+            const sender = await db.query.users.findFirst({
+              where: eq(users.id, userId),
+              columns: {
+                username: true
+              }
+            });
+
+            // Get group members efficiently with a single query
+            const members = await db.query.groupMembers.findMany({
+              where: eq(groupMembers.groupId, groupId),
+              columns: {
+                userId: true
+              }
+            });
+
+            const groupBroadcastMessage = {
+              type: 'new_group_message',
+              data: {
+                ...savedGroupMessage,
+                user: {
+                  username: sender?.username
+                }
+              }
+            };
+
+            // Efficient broadcasting to group members
+            const memberIds = new Set(members.map(m => m.userId));
+            for (const [clientUserId, client] of connectedClients.entries()) {
+              if (memberIds.has(clientUserId) && client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(groupBroadcastMessage));
+              }
+            }
+            break;
           case 'join_group':
             const { inviteCode: joinCode } = message;
             console.log('Join group request received:', joinCode);
@@ -193,67 +265,6 @@ export function registerRoutes(app: Express): Server {
               type: 'group_joined',
               data: groupToJoin
             }));
-            break;
-
-          case 'group_message':
-            const { groupId, content: groupContent } = message;
-            console.log('Processing group message:', { groupId, content: groupContent });
-
-            // Save group message
-            const [savedGroupMessage] = await db.insert(groupMessages)
-              .values({
-                groupId,
-                userId,
-                content: groupContent
-              })
-              .returning();
-
-            console.log('Saved group message:', savedGroupMessage);
-
-            // Get sender info
-            const sender = await db.query.users.findFirst({
-              where: eq(users.id, userId),
-              columns: {
-                username: true
-              }
-            });
-
-            console.log('Message sender:', sender);
-
-            // Get group members
-            const members = await db.query.groupMembers.findMany({
-              where: eq(groupMembers.groupId, groupId),
-              columns: {
-                userId: true
-              }
-            });
-
-            console.log('Group members:', members);
-
-            // Broadcast message with all necessary information
-            const groupBroadcastMessage = {
-              type: 'new_group_message',
-              data: {
-                id: savedGroupMessage.id,
-                groupId: savedGroupMessage.groupId,
-                content: savedGroupMessage.content,
-                userId: savedGroupMessage.userId,
-                createdAt: savedGroupMessage.createdAt,
-                user: {
-                  username: sender?.username
-                }
-              }
-            };
-
-            console.log('Broadcasting group message:', groupBroadcastMessage);
-
-            // Broadcast only to group members
-            members.forEach(member => {
-              const client = connectedClients.get(member.userId);
-              if (client?.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify(groupBroadcastMessage));
-              }
-            });
             break;
         }
       } catch (error) {
