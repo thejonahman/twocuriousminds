@@ -1,16 +1,20 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { relations } from "drizzle-orm";
 import { z } from "zod";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(),
+  username: text("username").notNull(),  
   email: text("email").notNull(),
   password: text("password").notNull(),
   isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  usernameIdx: index("username_idx").on(table.username),
+  emailIdx: index("email_idx").on(table.email),
+  createdAtIdx: index("created_at_idx").on(table.createdAt)
+}));
 
 export const userPreferences = pgTable("user_preferences", {
   id: serial("id").primaryKey(),
@@ -19,7 +23,9 @@ export const userPreferences = pgTable("user_preferences", {
   preferredPlatforms: jsonb("preferred_platforms").$type<string[]>().default([]),
   excludedCategories: jsonb("excluded_categories").$type<number[]>().default([]),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  userIdIdx: index("user_preferences_user_id_idx").on(table.userId)
+}));
 
 export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
@@ -27,7 +33,10 @@ export const categories = pgTable("categories", {
   description: text("description"),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   displayOrder: integer("display_order").default(0),
-});
+}, (table) => ({
+  nameIdx: index("category_name_idx").on(table.name),
+  displayOrderIdx: index("category_display_order_idx").on(table.displayOrder)
+}));
 
 export const subcategories = pgTable("subcategories", {
   id: serial("id").primaryKey(),
@@ -35,7 +44,10 @@ export const subcategories = pgTable("subcategories", {
   categoryId: integer("category_id").notNull().references(() => categories.id),
   displayOrder: integer("display_order").default(0),
   isDeleted: boolean("is_deleted").default(false).notNull(),
-});
+}, (table) => ({
+  categoryIdIdx: index("subcategory_category_id_idx").on(table.categoryId),
+  nameDisplayOrderIdx: index("subcategory_name_display_order_idx").on(table.name, table.displayOrder)
+}));
 
 export const videos = pgTable("videos", {
   id: serial("id").primaryKey(),
@@ -49,7 +61,13 @@ export const videos = pgTable("videos", {
   watched: boolean("watched").default(false),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  categoryIdIdx: index("video_category_id_idx").on(table.categoryId),
+  subcategoryIdIdx: index("video_subcategory_id_idx").on(table.subcategoryId),
+  platformIdx: index("video_platform_idx").on(table.platform),
+  createdAtIdx: index("video_created_at_idx").on(table.createdAt),
+  titleIdx: index("video_title_idx").on(table.title)
+}));
 
 export const discussionGroups = pgTable("discussion_groups", {
   id: serial("id").primaryKey(),
@@ -61,7 +79,11 @@ export const discussionGroups = pgTable("discussion_groups", {
   inviteCode: text("invite_code").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  videoIdIdx: index("discussion_group_video_id_idx").on(table.videoId),
+  creatorIdIdx: index("discussion_group_creator_id_idx").on(table.creatorId),
+  inviteCodeIdx: index("discussion_group_invite_code_idx").on(table.inviteCode)
+}));
 
 export const groupMembers = pgTable("group_members", {
   id: serial("id").primaryKey(),
@@ -70,7 +92,10 @@ export const groupMembers = pgTable("group_members", {
   role: text("role").notNull().default("member"),
   notificationsEnabled: boolean("notifications_enabled").default(true),
   joinedAt: timestamp("joined_at").defaultNow(),
-});
+}, (table) => ({
+  groupIdIdx: index("group_members_group_id_idx").on(table.groupId),
+  userIdIdx: index("group_members_user_id_idx").on(table.userId)
+}));
 
 export const groupMessages = pgTable("group_messages", {
   id: serial("id").primaryKey(),
@@ -79,7 +104,11 @@ export const groupMessages = pgTable("group_messages", {
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => ({
+  groupIdIdx: index("group_messages_group_id_idx").on(table.groupId),
+  userIdIdx: index("group_messages_user_id_idx").on(table.userId),
+  createdAtIdx: index("group_messages_created_at_idx").on(table.createdAt)
+}));
 
 export const userNotifications = pgTable("user_notifications", {
   id: serial("id").primaryKey(),
@@ -89,7 +118,11 @@ export const userNotifications = pgTable("user_notifications", {
   type: text("type").notNull(),
   read: boolean("read").default(false),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  userIdIdx: index("user_notifications_user_id_idx").on(table.userId),
+  groupIdIdx: index("user_notifications_group_id_idx").on(table.groupId),
+  messageIdIdx: index("user_notifications_message_id_idx").on(table.messageId)
+}));
 
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
@@ -97,7 +130,11 @@ export const messages = pgTable("messages", {
   userId: integer("user_id").notNull().references(() => users.id),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => ({
+  videoIdIdx: index("messages_video_id_idx").on(table.videoId),
+  userIdIdx: index("messages_user_id_idx").on(table.userId),
+  createdAtIdx: index("messages_created_at_idx").on(table.createdAt)
+}));
 
 export const userRelations = relations(users, ({ many }) => ({
   preferences: many(userPreferences),

@@ -493,7 +493,7 @@ export function registerRoutes(app: Express): Server {
       const [savedPreferences] = await db
         .insert(userPreferences)
         .values({
-          user_id: req.user!.id,
+          userId: req.user!.id,  
           preferredCategories,
           excludedCategories,
           preferredPlatforms,
