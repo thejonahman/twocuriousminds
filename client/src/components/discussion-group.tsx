@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,24 +21,20 @@ import {
 } from "@/components/ui/dialog";
 import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 
-interface Message {
-  id: number;
-  content: string;
-  userId: number;
-  groupId?: number;
-  createdAt: string;
-  user: {
-    username: string;
-  };
-}
+// Maximum number of reconnection attempts
+const MAX_RETRIES = 5;
+// Initial delay in milliseconds (1 second)
+const INITIAL_RETRY_DELAY = 1000;
+// Maximum delay between retries (30 seconds)
+const MAX_RETRY_DELAY = 30000;
 
-interface Group {
-  id: number;
-  name: string;
-  description: string;
-  inviteCode: string;
-  creatorId: number;
+interface WebSocketState {
+  connected: boolean;
+  connecting: boolean;
+  retryCount: number;
+  retryDelay: number;
 }
 
 interface DiscussionGroupProps {
@@ -52,152 +48,175 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [inviteCode, setInviteCode] = useState("");
-  const [connected, setConnected] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [wsState, setWsState] = useState<WebSocketState>({
+    connected: false,
+    connecting: false,
+    retryCount: 0,
+    retryDelay: INITIAL_RETRY_DELAY,
+  });
   const reconnectTimeoutRef = useRef<number>();
 
   // Query for video messages
   const { data: messages = [] } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     enabled: !!user && !!videoId && !currentGroup,
-    queryFn: async () => {
-      console.log('Fetching messages for video:', videoId);
-      const response = await fetch(`/api/messages?videoId=${videoId}`);
-      if (!response.ok) {
-        console.error('Failed to fetch messages:', response.statusText);
-        throw new Error('Failed to fetch messages');
-      }
-      const data = await response.json();
-      console.log('Fetched messages:', data);
-      return data;
-    }
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
 
-  // Query for group messages when in a group
+  // Query for group messages
   const { data: groupMessages = [] } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
     enabled: !!user && !!currentGroup?.id,
-    queryFn: async () => {
-      console.log('Fetching messages for group:', currentGroup?.id);
-      const response = await fetch(`/api/group-messages?groupId=${currentGroup?.id}`);
-      if (!response.ok) {
-        console.error('Failed to fetch group messages:', response.statusText);
-        throw new Error('Failed to fetch group messages');
-      }
-      const data = await response.json();
-      console.log('Fetched group messages:', data);
-      return data;
-    }
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
+
+  const connectWebSocket = useCallback(() => {
+    if (!user || wsState.connecting) return;
+
+    // Close existing connection if any
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
+      return;
+    }
+
+    if (socketRef.current) {
+      console.log('Closing existing WebSocket connection');
+      socketRef.current.close();
+    }
+
+    setWsState(prev => ({ ...prev, connecting: true }));
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    socketRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setWsState({
+        connected: true,
+        connecting: false,
+        retryCount: 0,
+        retryDelay: INITIAL_RETRY_DELAY,
+      });
+
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = undefined;
+      }
+    };
+
+    ws.onclose = (event) => {
+      console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
+      setWsState(prev => ({
+        ...prev,
+        connected: false,
+        connecting: false,
+      }));
+
+      // Don't reconnect if the socket was closed intentionally (code 1000) or max retries reached
+      if (event.code !== 1000 && user && wsState.retryCount < MAX_RETRIES) {
+        const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
+        console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
+
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          setWsState(prev => ({
+            ...prev,
+            retryCount: prev.retryCount + 1,
+            retryDelay: nextDelay,
+          }));
+          connectWebSocket();
+        }, nextDelay);
+      } else if (wsState.retryCount >= MAX_RETRIES) {
+        toast({
+          title: "Connection Error",
+          description: "Maximum reconnection attempts reached. Please refresh the page.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Received websocket message:', data);
+
+        // Validate websocket message format
+        const message = validateApiResponse(wsMessageSchema, data);
+
+        switch (message.type) {
+          case 'new_message':
+            if (!currentGroup) {
+              console.log('Invalidating messages query');
+              queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
+            }
+            break;
+
+          case 'new_group_message':
+            if (currentGroup && message.data.groupId === currentGroup.id) {
+              console.log('Invalidating group messages query');
+              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
+            }
+            break;
+
+          case 'group_created':
+            console.log("Group Created:", message.data);
+            // Validate group data
+            const newGroup = validateApiResponse(groupSchema, message.data);
+            setCurrentGroup(newGroup);
+            setIsCreateGroupOpen(false);
+            queryClient.invalidateQueries({ queryKey: ['/api/group-messages', newGroup.id] });
+            toast({
+              title: "Success",
+              description: `Group "${newGroup.name}" created! Share this invite code with friends: ${newGroup.inviteCode}`,
+            });
+            break;
+
+          case 'group_joined':
+            console.log("Group Joined:", message.data);
+            // Validate group data
+            const joinedGroup = validateApiResponse(groupSchema, message.data);
+            setCurrentGroup(joinedGroup);
+            setIsJoinGroupOpen(false);
+            queryClient.invalidateQueries({ queryKey: ['/api/group-messages', joinedGroup.id] });
+            toast({
+              title: "Success",
+              description: `Joined group "${joinedGroup.name}"!`,
+            });
+            break;
+
+          case 'error':
+            toast({
+              title: "Error",
+              description: message.message,
+              variant: "destructive",
+            });
+            break;
+        }
+      } catch (error) {
+        console.error('Error processing message:', error);
+        toast({
+          title: "Error",
+          description: "Failed to process server message",
+          variant: "destructive",
+        });
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to chat server",
+        variant: "destructive",
+      });
+    };
+  }, [user, toast, queryClient, videoId, currentGroup, wsState.retryCount, wsState.retryDelay]);
 
   useEffect(() => {
     if (!user) return;
-
-    const connectWebSocket = () => {
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        console.log('WebSocket already connected');
-        return;
-      }
-
-      // Close existing connection if any
-      if (socketRef.current) {
-        console.log('Closing existing WebSocket connection');
-        socketRef.current.close();
-      }
-
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      socketRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        setConnected(true);
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = undefined;
-        }
-      };
-
-      ws.onclose = (event) => {
-        console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
-        setConnected(false);
-
-        // Don't reconnect if the socket was closed intentionally (code 1000)
-        if (event.code !== 1000 && user) {
-          console.log('Scheduling reconnection attempt...');
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            console.log('Attempting to reconnect...');
-            connectWebSocket();
-          }, 5000);
-        }
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('Received websocket message:', data);
-
-          switch (data.type) {
-            case 'new_message':
-              if (!currentGroup) {
-                console.log('Invalidating messages query');
-                queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
-              }
-              break;
-
-            case 'new_group_message':
-              if (currentGroup && data.data.groupId === currentGroup.id) {
-                console.log('Invalidating group messages query');
-                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
-              }
-              break;
-
-            case 'group_created':
-              console.log("Group Created:", data.data);
-              setCurrentGroup(data.data);
-              setIsCreateGroupOpen(false);
-              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', data.data.id] });
-              toast({
-                title: "Success",
-                description: `Group "${data.data.name}" created! Share this invite code with friends: ${data.data.inviteCode}`,
-              });
-              break;
-
-            case 'group_joined':
-              console.log("Group Joined:", data.data);
-              setCurrentGroup(data.data);
-              setIsJoinGroupOpen(false);
-              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', data.data.id] });
-              toast({
-                title: "Success",
-                description: `Joined group "${data.data.name}"!`,
-              });
-              break;
-
-            case 'error':
-              toast({
-                title: "Error",
-                description: data.message,
-                variant: "destructive",
-              });
-              break;
-          }
-        } catch (error) {
-          console.error('Error processing message:', error);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        toast({
-          title: "Connection Error",
-          description: "Failed to connect to chat server",
-          variant: "destructive",
-        });
-      };
-    };
 
     connectWebSocket();
 
@@ -205,14 +224,14 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
     return () => {
       console.log('Cleaning up WebSocket connection');
       if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
+        window.clearTimeout(reconnectTimeoutRef.current);
       }
       if (socketRef.current) {
         // Use code 1000 to indicate intentional closure
         socketRef.current.close(1000, 'Component unmounting');
       }
     };
-  }, [user, toast, queryClient, videoId, currentGroup]);
+  }, [user, connectWebSocket]);
 
   const sendMessage = () => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
@@ -336,12 +355,12 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
       <CardContent>
         <div className="flex items-center justify-between gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <div className={`w-2 h-2 rounded-full ${wsState.connected ? 'bg-green-500' : wsState.connecting ? 'bg-yellow-500' : 'bg-red-500'}`} />
             <span className="text-sm text-muted-foreground">
-              {connected ? 'Connected' : 'Disconnected'}
+              {wsState.connected ? 'Connected' : wsState.connecting ? 'Connecting...' : 'Disconnected'}
+              {!wsState.connected && wsState.retryCount > 0 && ` (Attempt ${wsState.retryCount}/${MAX_RETRIES})`}
             </span>
           </div>
-
           {!currentGroup && (
             <div className="flex items-center gap-2">
               <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
@@ -449,7 +468,7 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
           <Button
             type="submit"
             size="icon"
-            disabled={!messageInput.trim() || !connected}
+            disabled={!messageInput.trim() || !wsState.connected}
           >
             <Send className="h-4 w-4" />
           </Button>
