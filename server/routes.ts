@@ -403,7 +403,7 @@ export function registerRoutes(app: Express): Server {
   app.get("/api/messages", requireAuth, async (req, res) => {
     try {
       const videoId = parseInt(req.query.videoId as string);
-      if (!videoId) {
+      if (isNaN(videoId)) {
         return res.status(400).json({ message: "Video ID is required" });
       }
 
@@ -433,7 +433,7 @@ export function registerRoutes(app: Express): Server {
   app.get("/api/group-messages", requireAuth, async (req, res) => {
     try {
       const groupId = parseInt(req.query.groupId as string);
-      if (!groupId) {
+      if (isNaN(groupId)) {
         return res.status(400).json({ message: "Group ID is required" });
       }
 
