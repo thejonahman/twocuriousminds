@@ -189,7 +189,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         }
       };
 
-      ws.onmessage = (event) => {
+      ws.onmessage = async (event) => {
         try {
           const data = JSON.parse(event.data);
           console.log('Received websocket message:', data);
@@ -209,8 +209,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
             case 'new_group_message':
               if (currentGroup && message.data.groupId === currentGroup.id) {
-                console.log('Invalidating group messages query');
-                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
+                console.log('Invalidating group messages query for new message');
+                // Force an immediate refresh of messages
+                await queryClient.invalidateQueries({ 
+                  queryKey: ['/api/group-messages', currentGroup.id],
+                  exact: true 
+                });
+
                 // Update unread count if not currently viewing
                 if (document.hidden) {
                   setUnreadCount(prev => prev + 1);
@@ -406,6 +411,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       markAsRead();
     }
   }, [currentGroup, user, groupMessages]);
+
+  // Add polling interval for messages
+  useEffect(() => {
+    if (currentGroup?.id) {
+      // Poll for new messages every 5 seconds as a backup
+      const interval = setInterval(() => {
+        queryClient.invalidateQueries({ 
+          queryKey: ['/api/group-messages', currentGroup.id] 
+        });
+      }, 5000);
+
+      return () => clearInterval(interval);
+    }
+  }, [currentGroup?.id, queryClient]);
+
 
   if (!user) {
     return (
