@@ -101,6 +101,28 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
 
+  // Persist current group ID to localStorage when it changes
+  useEffect(() => {
+    if (currentGroup) {
+      localStorage.setItem(`lastGroupId-${videoId}`, currentGroup.id.toString());
+    }
+  }, [currentGroup, videoId]);
+
+  // Try to restore group from localStorage on mount if no initialGroupId or lastActiveGroup
+  useEffect(() => {
+    if (!initialGroupId && !lastActiveGroup && !currentGroup) {
+      const storedGroupId = localStorage.getItem(`lastGroupId-${videoId}`);
+      if (storedGroupId) {
+        const groupId = parseInt(storedGroupId);
+        console.log('Restoring group from localStorage:', groupId);
+        queryClient.prefetchQuery({
+          queryKey: [`/api/groups/${groupId}`],
+        });
+        setLocation(`/video/${videoId}/group/${groupId}`);
+      }
+    }
+  }, [initialGroupId, lastActiveGroup, currentGroup, videoId, queryClient, setLocation]);
+
   // Query for video messages
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
@@ -383,6 +405,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
   const leaveGroup = () => {
     setCurrentGroup(null);
+    // Clear stored group ID when leaving
+    localStorage.removeItem(`lastGroupId-${videoId}`);
     // Update URL to remove group ID
     setLocation(`/video/${videoId}`);
   };

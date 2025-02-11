@@ -32,6 +32,7 @@ export default function Video() {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
+  // Query for video details
   const { data: video, isLoading } = useQuery<{
     id: number;
     title: string;
@@ -74,6 +75,17 @@ export default function Video() {
       setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
     }
   }, [lastActiveGroup, id, groupId, setLocation]);
+
+  // Load stored group from localStorage if no groupId or lastActiveGroup
+  useEffect(() => {
+    if (!groupId && !lastActiveGroup) {
+      const storedGroupId = localStorage.getItem(`lastGroupId-${id}`);
+      if (storedGroupId) {
+        console.log('Found stored group ID:', storedGroupId);
+        setLocation(`/video/${id}/group/${storedGroupId}`);
+      }
+    }
+  }, [id, groupId, lastActiveGroup, setLocation]);
 
   // Scroll to top whenever the video ID changes
   useEffect(() => {
