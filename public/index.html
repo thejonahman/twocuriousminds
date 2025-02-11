@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Simple Chat</title>
+  <style>
+    #messages {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div id="messages"></div>
+  <input type="text" id="messageInput" placeholder="Type a message...">
+  <button onclick="sendMessage()">Send</button>
+
+  <script>
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('messageInput');
+    
+    // Create WebSocket connection
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}`);
+    
+    ws.onopen = () => {
+      console.log('Connected to WebSocket server');
+      appendMessage('System: Connected to chat server');
+    };
+    
+    ws.onmessage = (event) => {
+      appendMessage(event.data);
+    };
+    
+    ws.onclose = () => {
+      appendMessage('System: Disconnected from chat server');
+    };
+    
+    function sendMessage() {
+      const message = messageInput.value;
+      if (message.trim()) {
+        ws.send(message);
+        messageInput.value = '';
+      }
+    }
+    
+    function appendMessage(message) {
+      const div = document.createElement('div');
+      div.textContent = message;
+      messagesDiv.appendChild(div);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    // Allow sending message with Enter key
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>

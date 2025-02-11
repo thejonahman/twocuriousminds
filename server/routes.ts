@@ -1,7 +1,6 @@
 import { createServer, type Server } from "http";
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import type { IncomingMessage } from 'http';
-import { WebSocketServer, WebSocket } from 'ws';
+import { Server as SocketIOServer } from 'socket.io';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
 import { messages, users, discussionGroups, groupMessages, groupMembers } from "@db/schema";
@@ -19,8 +18,8 @@ declare module 'express-session' {
   }
 }
 
-// Store active WebSocket connections
-const connectedClients = new Map<number, WebSocket>();
+// Store active socket connections
+const connectedClients = new Map<number, any>();
 
 // Define requireAuth middleware
 const requireAuth = (req: Request, res: Response, next: NextFunction) => {
@@ -34,78 +33,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create HTTP server first
   const server = createServer(app);
 
-  // Initialize WebSocket server with noServer option
-  const wsServer = new WebSocketServer({ 
-    noServer: true,
-    path: '/chat-ws'
+  // Initialize Socket.IO with CORS settings
+  const io = new SocketIOServer(server, {
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"]
+    },
+    path: '/socket.io'
   });
 
-  // Handle upgrades manually
-  server.on('upgrade', (request: IncomingMessage, socket, head) => {
-    if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
-      console.log('Skipping Vite HMR WebSocket upgrade');
-      return;
-    }
-
-    const pathname = new URL(request.url!, `http://${request.headers.host}`).pathname;
-    console.log('WebSocket upgrade request for path:', pathname);
-
-    if (pathname === '/chat-ws') {
-      console.log('Handling chat WebSocket upgrade');
-      wsServer.handleUpgrade(request, socket, head, (ws) => {
-        wsServer.emit('connection', ws, request);
-      });
-    }
-  });
-
-  console.log('WebSocket server initialized with path /chat-ws');
-
-  // WebSocket connection handler
-  wsServer.on('connection', async (ws, req: any) => {
-    console.log('WebSocket connection attempt');
+  // Socket.IO connection handler
+  io.on('connection', async (socket) => {
+    console.log('Socket.IO connection attempt');
 
     // Get user ID from session
-    const userId = req.session?.passport?.user;
+    const userId = socket.request.session?.passport?.user;
     if (!userId) {
-      console.log('WebSocket - No authenticated user');
-      ws.close(1008, 'Unauthorized');
+      console.log('Socket.IO - No authenticated user');
+      socket.disconnect();
       return;
     }
 
-    console.log('WebSocket connected for user:', userId);
-    connectedClients.set(userId, ws);
+    console.log('Socket.IO connected for user:', userId);
+    connectedClients.set(userId, socket);
 
-    let isAlive = true;
-    const pingInterval = setInterval(() => {
-      if (!isAlive) {
-        console.log('Client not responding to ping, closing connection');
-        clearInterval(pingInterval);
-        connectedClients.delete(userId);
-        ws.terminate();
-        return;
-      }
-      isAlive = false;
-      ws.ping();
-    }, 30000);
-
-    ws.on('pong', () => {
-      isAlive = true;
+    socket.on('disconnect', () => {
+      console.log('Socket.IO disconnected for user:', userId);
+      connectedClients.delete(userId);
     });
 
-    ws.onmessage = async (event) => {
+    socket.on('message', async (message) => {
       try {
-        const rawData = event.data.toString();
-        console.log('Raw WebSocket data received:', rawData);
-        const message = JSON.parse(rawData);
         console.log('Received message:', message);
 
         // Check database health before processing message
         const isHealthy = await isDatabaseHealthy();
         if (!isHealthy) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Database is temporarily unavailable. Please try again.'
-          }));
+          socket.emit('error', { message: 'Database is temporarily unavailable. Please try again.' });
           return;
         }
 
@@ -141,21 +105,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               };
 
               console.log('Broadcasting message:', broadcastMessage);
-
-              // Efficient broadcasting using Array.from()
-              Array.from(connectedClients.values())
-                .filter(client => client.readyState === WebSocket.OPEN)
-                .forEach(client => {
-                  client.send(JSON.stringify(broadcastMessage));
-                });
+              io.emit('message', broadcastMessage);
             } catch (error) {
               console.error('Error saving message:', error);
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Failed to save message. Please try again.'
-              }));
+              socket.emit('error', { message: 'Failed to save message. Please try again.' });
             }
             break;
+
           case 'create_group':
             const { name, description = '', videoId: groupVideoId } = message;
             const inviteCode = nanoid(10);
@@ -181,16 +137,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 role: 'admin'
               });
 
-            const groupResponse = {
+            socket.emit('group_created', {
               ...group,
               inviteCode
-            };
-
-            ws.send(JSON.stringify({
-              type: 'group_created',
-              data: groupResponse
-            }));
+            });
             break;
+
           case 'group_message':
             const { groupId, content: groupContent } = message;
             console.log('Processing group message:', { groupId, content: groupContent });
@@ -203,8 +155,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 content: groupContent
               })
               .returning();
-
-            console.log('Saved group message:', savedGroupMessage);
 
             // Get sender info efficiently
             const sender = await db.query.users.findFirst({
@@ -238,7 +188,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 )
             );
 
-            const groupBroadcastMessage = {
+            const groupMessage = {
               type: 'new_group_message',
               data: {
                 ...savedGroupMessage,
@@ -248,15 +198,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             };
 
-            // Efficient broadcasting to group members using Set and Array methods
-            const memberIds = new Set(members.map(m => m.userId));
-            Array.from(connectedClients.entries())
-              .filter(([clientId]) => memberIds.has(clientId))
-              .forEach(([_, client]) => {
-                if (client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify(groupBroadcastMessage));
-                }
-              });
+            // Broadcast to all members of the group
+            members.forEach(member => {
+              const memberSocket = connectedClients.get(member.userId);
+              if (memberSocket) {
+                memberSocket.emit('message', groupMessage);
+              }
+            });
             break;
           case 'join_group':
             const { inviteCode: joinCode, videoId: joinVideoId } = message;
@@ -269,20 +217,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (!groupToJoin) {
               console.log('Group not found for invite code:', joinCode);
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Invalid invite code'
-              }));
+              socket.emit('error', { message: 'Invalid invite code' });
               return;
             }
 
             // Verify videoId matches if provided
             if (joinVideoId && groupToJoin.videoId !== joinVideoId) {
               console.log('Video ID mismatch:', { expected: groupToJoin.videoId, received: joinVideoId });
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Invalid video for this group'
-              }));
+              socket.emit('error', { message: 'Invalid video for this group' });
               return;
             }
 
@@ -320,31 +262,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             };
 
             console.log('User joined group successfully:', groupToJoin.id);
-            ws.send(JSON.stringify({
-              type: 'group_joined',
-              data: fullGroupDetails
-            }));
+            socket.emit('group_joined', fullGroupDetails);
             break;
         }
       } catch (error) {
         console.error('Message handling error:', error);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: 'Failed to process message'
-        }));
+        socket.emit('error', { message: 'Failed to process message' });
       }
-    };
-
-    ws.on('close', () => {
-      console.log('WebSocket disconnected for user:', userId);
-      clearInterval(pingInterval);
-      connectedClients.delete(userId);
-    });
-
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
-      clearInterval(pingInterval);
-      connectedClients.delete(userId);
     });
   });
 
@@ -543,7 +467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(messagesList.reverse());
     } catch (error) {
       console.error('Error fetching messages:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Database error occurred",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -592,7 +516,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(messagesList.reverse());
     } catch (error) {
       console.error('Error fetching group messages:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Database error occurred",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -751,7 +675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(
           and(
             eq(groupMessages.groupId, groupId),
-            gt(groupMessages.createdAt, member.lastReadAt!)
+            sql`${groupMessages.createdAt} > ${member.lastReadAt}`
           )
         )
         .then(result => Number(result[0].count));
