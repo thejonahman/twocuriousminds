@@ -1,53 +1,31 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function JoinGroup() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
-  const socketRef = useRef<WebSocket | null>(null);
-  const joinAttemptedRef = useRef(false);
 
   // Extract invite code and videoId from URL
   const inviteCode = window.location.pathname.split('/join-group/')[1];
   const videoId = new URLSearchParams(window.location.search).get('videoId');
 
-  console.log('JoinGroup component mounted:', { inviteCode, videoId, user, authLoading });
-
-  // Handle authentication state
   useEffect(() => {
-    console.log('Join Group Auth Effect:', { user, authLoading });
+    if (authLoading) return;
 
-    // Only proceed if auth loading is complete
-    if (authLoading) {
-      console.log('Auth state is still loading...');
-      return;
-    }
-
-    // If we've already attempted to join, don't try again
-    if (joinAttemptedRef.current) {
-      return;
-    }
-
-    // Handle authentication
     if (!user) {
-      console.log('User not authenticated, storing navigation data and redirecting to auth');
-      // Store the complete URL for post-auth redirect
+      // Store current URL for post-auth redirect
       sessionStorage.setItem('redirectUrl', window.location.href);
-
-      // Redirect to auth page
-      console.log('Redirecting to auth page');
       window.location.replace('/auth');
       return;
     }
 
-    // If we're authenticated but missing required params, redirect
     if (!inviteCode || !videoId) {
-      console.log('Missing required parameters:', { inviteCode, videoId });
       toast({
         title: "Invalid Link",
         description: "The invite link is invalid or incomplete.",
@@ -57,72 +35,26 @@ export default function JoinGroup() {
       return;
     }
 
-    // Set up WebSocket connection
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    socketRef.current = ws;
-
-    ws.onopen = () => {
-      console.log('WebSocket connected, sending join group request');
-      joinAttemptedRef.current = true;
-      // Send join request immediately when socket opens
-      ws.send(JSON.stringify({
-        type: 'join_group',
-        inviteCode,
-        videoId: parseInt(videoId, 10),
-      }));
-    };
-
-    ws.onmessage = (event) => {
+    // Join group via REST API
+    const joinGroup = async () => {
       try {
-        const data = JSON.parse(event.data);
-        console.log('Received websocket message:', data);
+        const response = await apiRequest('GET', `/api/groups/invite/${inviteCode}`);
+        const group = await response.json();
 
-        if (data.type === 'group_joined') {
-          console.log('Successfully joined group:', data.data);
-          const group = data.data;
-
-          // Navigate to video page with group ID
-          const destination = `/video/${videoId}?groupId=${group.id}`;
-          console.log('Navigating to:', destination);
-          window.location.replace(destination);
-        } else if (data.type === 'error') {
-          toast({
-            title: "Error",
-            description: data.message,
-            variant: "destructive",
-          });
-          // Redirect to video page since we have the videoId
-          window.location.replace(`/video/${videoId}`);
-        }
+        // Navigate to video page with group ID
+        window.location.replace(`/video/${videoId}?groupId=${group.id}`);
       } catch (error) {
-        console.error('Error processing message:', error);
+        console.error('Error joining group:', error);
         toast({
           title: "Error",
-          description: "Failed to process server response",
+          description: "Failed to join the group discussion",
           variant: "destructive",
         });
-        // Redirect to video page since we have the videoId
         window.location.replace(`/video/${videoId}`);
       }
     };
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      toast({
-        title: "Connection Error",
-        description: "Failed to connect to chat server",
-        variant: "destructive",
-      });
-      // Redirect to video page since we have the videoId
-      window.location.replace(`/video/${videoId}`);
-    };
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-      }
-    };
+    joinGroup();
   }, [user, authLoading, inviteCode, videoId, toast]);
 
   return (
