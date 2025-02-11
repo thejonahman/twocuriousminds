@@ -60,6 +60,6 @@ app.use((req, res, next) => {
   // this serves both the API and the client
   const PORT = 5000;
   server.listen(PORT, "0.0.0.0", () => {
-    log(`serving on port ${PORT}`);
+    log(`serving on port ${PORT} (0.0.0.0)`);
   });
 })();
