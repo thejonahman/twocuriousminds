@@ -187,7 +187,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      const host = window.location.host;
+      const ws = new WebSocket(`${protocol}//${host}/ws`);
+      console.log('Attempting to connect to WebSocket:', `${protocol}//${host}/ws`);
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -202,35 +204,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         if (reconnectTimeoutRef.current) {
           window.clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = undefined;
-        }
-      };
-
-      ws.onclose = (event) => {
-        console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
-        setWsState(prev => ({
-          ...prev,
-          connected: false,
-          connecting: false,
-        }));
-
-        if (event.code !== 1000 && event.code !== 1008 && user && wsState.retryCount < MAX_RETRIES) {
-          const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
-          console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
-
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            setWsState(prev => ({
-              ...prev,
-              retryCount: prev.retryCount + 1,
-              retryDelay: nextDelay,
-            }));
-            connectWebSocket();
-          }, nextDelay);
-        } else if (wsState.retryCount >= MAX_RETRIES) {
-          toast({
-            title: "Connection Error",
-            description: "Maximum reconnection attempts reached. Please refresh the page.",
-            variant: "destructive",
-          });
         }
       };
 
@@ -283,6 +256,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
               break;
 
             case 'error':
+              console.error('Received error from server:', message.message);
               toast({
                 title: "Error",
                 description: message.message,
@@ -300,11 +274,41 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         }
       };
 
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
+        setWsState(prev => ({
+          ...prev,
+          connected: false,
+          connecting: false,
+        }));
+
+        // Don't retry on normal closure or auth failure
+        if (event.code !== 1000 && event.code !== 1008 && user && wsState.retryCount < MAX_RETRIES) {
+          const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
+          console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
+
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            setWsState(prev => ({
+              ...prev,
+              retryCount: prev.retryCount + 1,
+              retryDelay: nextDelay,
+            }));
+            connectWebSocket();
+          }, nextDelay);
+        } else if (wsState.retryCount >= MAX_RETRIES) {
+          toast({
+            title: "Connection Error",
+            description: "Maximum reconnection attempts reached. Please refresh the page.",
+            variant: "destructive",
+          });
+        }
+      };
+
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         toast({
           title: "Connection Error",
-          description: "Failed to connect to chat server",
+          description: "Failed to connect to chat server. Please check your internet connection and try again.",
           variant: "destructive",
         });
       };
@@ -317,11 +321,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       }));
       toast({
         title: "Connection Error",
-        description: "Failed to connect to chat server. Please try again later.",
+        description: "Failed to establish connection. Please check your internet connection and try again.",
         variant: "destructive",
       });
     }
-  }, [user, toast, wsState.retryCount, wsState.retryDelay, videoId]);
+  }, [user, toast, wsState.retryCount, wsState.retryDelay]);
 
   useEffect(() => {
     if (!user) return;
@@ -658,6 +662,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             onChange={(e) => setMessageInput(e.target.value)}
             placeholder={`Type your message${currentGroup ? ' to group' : ''}...`}
             className="flex-1"
+            disabled={!wsState.connected}
           />
           <Button
             type="submit"
