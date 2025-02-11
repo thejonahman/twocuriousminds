@@ -15,6 +15,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
+import { z } from "zod";
+
+// Define type for last active group
+const lastActiveGroupSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  videoId: z.number().nullable(),
+});
+
+type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
 
 export default function Video() {
   const { id, groupId } = useParams();
@@ -42,15 +52,24 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Add query for last active group
-  const { data: lastActiveGroup } = useQuery({
+  // Add query for last active group with proper type validation
+  const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${id}/last-active-group`],
     enabled: !!id && !groupId, // Only run if no groupId provided
+    select: (data) => {
+      try {
+        return lastActiveGroupSchema.parse(data);
+      } catch (error) {
+        console.error('Invalid last active group data:', error);
+        return null;
+      }
+    }
   });
 
   // If there's a last active group and no current groupId, redirect
   useEffect(() => {
     if (lastActiveGroup?.id && !groupId) {
+      console.log('Redirecting to last active group:', lastActiveGroup.id);
       setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
     }
   }, [lastActiveGroup, id, groupId, setLocation]);

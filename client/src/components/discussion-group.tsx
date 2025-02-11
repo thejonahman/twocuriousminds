@@ -76,12 +76,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
     select: (data) => validateApiResponse(groupSchema, data),
-    onSuccess: (data) => {
-      if (data && !currentGroup) {
-        setCurrentGroup(data);
-        setLocation(`/video/${videoId}/group/${data.id}`);
-      }
-    },
   });
 
   // Set initial group when data is loaded
@@ -96,6 +90,16 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       }
     }
   }, [group, currentGroup, videoId, setLocation]);
+
+  // Handle last active group
+  useEffect(() => {
+    if (lastActiveGroup && !currentGroup && !initialGroupId) {
+      console.log('Setting last active group:', lastActiveGroup);
+      setCurrentGroup(lastActiveGroup);
+      setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+    }
+  }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
+
 
   // Query for video messages
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
