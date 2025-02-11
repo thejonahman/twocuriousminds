@@ -22,18 +22,18 @@ function Router() {
         <main className="flex-1 w-full">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
             <Switch>
-              <Route path="/" component={Home} />
-              {/* Update video route to support deep linking to groups */}
-              <Route path="/video/:id" component={Video} />
-              <Route path="/video/:id/group/:groupId" component={Video} />
-              <Route path="/auth" component={Auth} />
+              {/* Put join-group route first to take precedence */}
               <Route path="/join-group/:inviteCode" component={JoinGroup} />
+              <Route path="/video/:id/group/:groupId" component={Video} />
+              <Route path="/video/:id" component={Video} />
+              <Route path="/auth" component={Auth} />
               <ProtectedRoute 
                 path="/admin" 
                 component={AdminPage}
                 adminRequired={true}
               />
               <ProtectedRoute path="/profile/wizard" component={ProfileWizard} />
+              <Route path="/" component={Home} />
               <Route component={NotFound} />
             </Switch>
           </div>
