@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
+import { Send, MessageSquare, Plus, Users } from "lucide-react";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
 import { useLocation } from "wouter";
@@ -45,6 +45,11 @@ interface DiscussionGroupProps {
   initialGroupId?: number;
 }
 
+interface VideoData {
+  title: string;
+  id: number;
+}
+
 export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -53,115 +58,54 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const reconnectTimeoutRef = useRef<number>();
+
   const [wsState, setWsState] = useState<WebSocketState>({
     connected: false,
     connecting: false,
     retryCount: 0,
     retryDelay: INITIAL_RETRY_DELAY,
   });
-  const reconnectTimeoutRef = useRef<number>();
-  const [unreadCount, setUnreadCount] = useState(0);
 
   // Query for group if initialGroupId is provided
-  const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
+  const { data: group } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
-    onSuccess: (data) => {
-      console.log('Group data loaded:', data);
-      if (data && !currentGroup) {
-        setCurrentGroup(data);
-        // Update URL to include group ID if not already present
-        const currentPath = window.location.pathname;
-        if (!currentPath.includes('/group/')) {
-          setLocation(`/video/${videoId}/group/${data.id}`);
-        }
-        // If the group has messages, display them immediately
-        if (data.messages) {
-          queryClient.setQueryData(['/api/group-messages', data.id], data.messages);
-        }
-      }
-    },
-    onError: (error) => {
-      console.error('Error loading group:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load group discussion",
-        variant: "destructive",
-      });
-    }
   });
 
   // Query for video messages
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     enabled: !!user && !!videoId && !currentGroup,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
 
-  // Update group messages query with better error handling
+  // Query for group messages
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
     enabled: !!user && !!currentGroup?.id && wsState.connected,
-    select: (data) => {
-      console.log('Received group messages:', data);
-      // Ensure messages are sorted by creation time
-      const sortedMessages = validateApiResponse(z.array(messageSchema), data).sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
-      return sortedMessages;
-    },
-    onError: (error) => {
-      console.error('Error loading group messages:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load group messages",
-        variant: "destructive",
-      });
-    },
-    initialData: currentGroup?.messages?.sort(
-      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-    ) || []
+  });
+
+  // Add video data query
+  const { data: videoData } = useQuery<VideoData>({
+    queryKey: [`/api/videos/${videoId}`],
+    enabled: !!videoId,
   });
 
   // Set initial group when data is loaded
   useEffect(() => {
     if (group && !currentGroup) {
-      console.log('Setting initial group:', group);
       setCurrentGroup(group);
-      // Update URL to include group ID if not already present
       const currentPath = window.location.pathname;
       if (!currentPath.includes('/group/')) {
         setLocation(`/video/${videoId}/group/${group.id}`);
       }
     }
   }, [group, currentGroup, videoId, setLocation]);
-
-  // Add video data query
-  const { data: videoData } = useQuery({
-    queryKey: [`/api/videos/${videoId}`],
-    enabled: !!videoId,
-  });
-
-  const generateShareUrl = () => {
-    const baseUrl = window.location.origin;
-    if (!currentGroup?.id) {
-      console.error('No group ID available for sharing');
-      return '';
-    }
-    return `${baseUrl}/video/${videoId}/group/${currentGroup.id}`;
-  };
-
-  const addOptimisticMessage = (newMessage: Message) => {
-    const queryKey = currentGroup
-      ? ['/api/group-messages', currentGroup.id]
-      : ['/api/messages', videoId];
-
-    queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
-      return [...old, newMessage];
-    });
-  };
 
   const connectWebSocket = useCallback(() => {
     if (!user || wsState.connecting) return;
@@ -232,43 +176,32 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           const data = JSON.parse(event.data);
           console.log('Received websocket message:', data);
 
-          // Validate websocket message format
           const message = validateApiResponse(wsMessageSchema, data);
 
           switch (message.type) {
             case 'new_message':
               if (!currentGroup) {
-                console.log('Invalidating messages query');
                 queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
-                // Scroll to bottom on new message
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
               break;
 
             case 'new_group_message':
               if (currentGroup && message.data.groupId === currentGroup.id) {
-                console.log('Invalidating group messages query');
                 queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
-                // Update unread count if not currently viewing
                 if (document.hidden) {
                   setUnreadCount(prev => prev + 1);
                 }
-                // Scroll to bottom on new message
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
               break;
 
             case 'group_created':
-              console.log("Group Created:", message.data);
-              // Validate group data
               const newGroup = validateApiResponse(groupSchema, message.data);
               setCurrentGroup(newGroup);
               setIsCreateGroupOpen(false);
               queryClient.invalidateQueries({ queryKey: ['/api/group-messages', newGroup.id] });
-
-              // Update URL with group ID
               setLocation(`/video/${videoId}/group/${newGroup.id}`);
-
               toast({
                 title: "Success",
                 description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
@@ -314,7 +247,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         variant: "destructive",
       });
     }
-  }, [user, toast, wsState.retryCount, wsState.retryDelay, videoId]);
+  }, [user, toast, wsState.retryCount, wsState.retryDelay, videoId, currentGroup, queryClient, setLocation]);
 
   useEffect(() => {
     if (!user) return;
@@ -330,6 +263,31 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       }
     };
   }, [user, connectWebSocket]);
+
+  const updateLastAccessedGroup = useCallback(async () => {
+    if (!user || !videoId || !currentGroup?.id) return;
+
+    try {
+      await fetch('/api/user-preferences/last-group', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          videoId,
+          groupId: currentGroup.id
+        })
+      });
+    } catch (error) {
+      console.error('Failed to update last accessed group:', error);
+    }
+  }, [user, videoId, currentGroup?.id]);
+
+  useEffect(() => {
+    if (currentGroup?.id) {
+      updateLastAccessedGroup();
+    }
+  }, [currentGroup?.id, updateLastAccessedGroup]);
 
   const sendMessage = () => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
@@ -351,9 +309,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       content: messageInput,
     };
 
-    // Add optimistic update
     const optimisticMessage: Message = {
-      id: Date.now(), // Temporary ID
+      id: Date.now(),
       content: messageInput,
       userId: user!.id,
       createdAt: new Date().toISOString(),
@@ -363,13 +320,20 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       ...(currentGroup ? { groupId: currentGroup.id } : { videoId }),
     };
 
-    addOptimisticMessage(optimisticMessage);
+    // Add optimistic update
+    const queryKey = currentGroup
+      ? ['/api/group-messages', currentGroup.id]
+      : ['/api/messages', videoId];
+
+    queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
+      return [...old, optimisticMessage].sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+    });
 
     console.log('Sending WebSocket message:', messageData);
     socketRef.current.send(JSON.stringify(messageData));
     setMessageInput('');
-
-    // Scroll to bottom after sending
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
@@ -388,7 +352,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       type: 'create_group',
       name: groupName,
       videoId,
-      description: `Discussion group for ${videoData?.title}`,
+      description: `Discussion group for ${videoData?.title ?? 'video'}`,
     };
 
     console.log('Sending create group request:', createGroupData);
@@ -398,54 +362,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
   const leaveGroup = () => {
     setCurrentGroup(null);
-    // Update URL to remove group ID
     setLocation(`/video/${videoId}`);
   };
 
-  // Auto-scroll when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, groupMessages.length]);
 
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-
-  useEffect(() => {
-    if (currentGroup && user) {
-      // Query for unread count
-      const fetchUnreadCount = async () => {
-        try {
-          const response = await fetch(`/api/groups/${currentGroup.id}/unread-count`);
-          if (response.ok) {
-            const data = await response.json();
-            setUnreadCount(data.unreadCount);
-          }
-        } catch (error) {
-          console.error('Error fetching unread count:', error);
-        }
-      };
-
-      fetchUnreadCount();
-    }
-  }, [currentGroup, user]);
-
-  useEffect(() => {
-    if (currentGroup && user && !document.hidden) {
-      const markAsRead = async () => {
-        try {
-          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
-            method: 'POST',
-          });
-          setUnreadCount(0);
-        } catch (error) {
-          console.error('Error marking messages as read:', error);
-        }
-      };
-
-      markAsRead();
-    }
-  }, [currentGroup, user, groupMessages]);
-
-  // Add loading state component
   if (!user) {
     return (
       <Card className="mt-6">
@@ -462,7 +385,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   }
 
   const displayMessages = currentGroup ? groupMessages : messages;
-  const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages || !wsState.connected;
+  const isLoading = isLoadingMessages || isLoadingGroupMessages || !wsState.connected;
 
   if (isLoading) {
     return (
@@ -481,34 +404,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       </Card>
     );
   }
-
-  // Add function to track last accessed group
-  const updateLastAccessedGroup = useCallback(async () => {
-    if (!user || !videoId || !currentGroup?.id) return;
-
-    try {
-      await fetch('/api/user-preferences/last-group', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          videoId,
-          groupId: currentGroup.id
-        })
-      });
-    } catch (error) {
-      console.error('Failed to update last accessed group:', error);
-    }
-  }, [user, videoId, currentGroup?.id]);
-
-  // Add effect to track when user accesses a group
-  useEffect(() => {
-    if (currentGroup?.id) {
-      updateLastAccessedGroup();
-    }
-  }, [currentGroup?.id, updateLastAccessedGroup]);
-
 
   return (
     <Card>
@@ -536,7 +431,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             {currentGroup && (
               <>
                 <ShareButton
-                  url={generateShareUrl()}
+                  url={`${window.location.origin}/video/${videoId}/group/${currentGroup.id}`}
                   title={`Join our discussion: ${currentGroup.name}`}
                   text={`Join our discussion group for "${videoData?.title}". Click the link to join!`}
                   className="gap-2"
@@ -593,12 +488,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {displayMessages.length === 0 && (
+          {(!displayMessages || displayMessages.length === 0) && (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
           )}
-          {displayMessages.map((message) => (
+          {displayMessages?.map((message: Message) => (
             <div
               key={message.id}
               className={`flex flex-col ${

@@ -15,45 +15,52 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { useAuth } from "@/hooks/use-auth"; // Import useAuth
+import { useAuth } from "@/hooks/use-auth";
+
+interface LastAccessedGroup {
+  groupId: number;
+}
+
+interface Video {
+  id: number;
+  title: string;
+  description: string;
+  url: string;
+  platform: string;
+  categoryId: number;
+  category: {
+    id: number;
+    name: string;
+  };
+  subcategoryId: number | undefined;
+  subcategory: {
+    id: number;
+    name: string;
+  } | null;
+}
 
 export default function Video() {
   const { id, groupId } = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
-  const { user } = useAuth(); // Add user state
+  const { user } = useAuth();
 
   // Query for last accessed group if no groupId is provided
-  const { data: lastAccessedGroup } = useQuery({
+  const { data: lastAccessedGroup } = useQuery<LastAccessedGroup>({
     queryKey: [`/api/last-accessed-group/${id}`],
     enabled: !!user && !!id && !groupId,
-    onSuccess: (data) => {
+    staleTime: 0,
+    onSuccess: (data: LastAccessedGroup) => {
       if (data?.groupId) {
-        // Redirect to the last accessed group
         setLocation(`/video/${id}/group/${data.groupId}`);
       }
     }
   });
 
-  const { data: video, isLoading } = useQuery<{
-    id: number;
-    title: string;
-    description: string;
-    url: string;
-    platform: string;
-    categoryId: number;
-    category: {
-      id: number;
-      name: string;
-    };
-    subcategoryId: number | undefined;
-    subcategory: {
-      id: number;
-      name: string;
-    } | null;
-  }>({
+  const { data: video, isLoading } = useQuery<Video>({
     queryKey: [`/api/videos/${id}`],
+    enabled: !!id
   });
 
   // Scroll to top whenever the video ID changes
@@ -70,7 +77,6 @@ export default function Video() {
   };
 
   const handleShare = async (type: string) => {
-    // Always include the groupId in the share URL if we're in a group discussion
     const baseUrl = window.location.origin;
     const shareUrl = groupId
       ? `${baseUrl}/video/${id}/group/${groupId}`
