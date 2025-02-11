@@ -51,9 +51,9 @@ export function registerRoutes(app: Express): Server {
   });
 
   wss.on('connection', (ws, request) => {
-      console.log('WebSocket connection attempt from:', info.origin);
-      console.log('Headers:', info.req.headers);
-      console.log('URL:', info.req.url);
+      console.log('WebSocket connection attempt');
+      console.log('Headers:', request.headers);
+      console.log('URL:', request.url);
       console.log('Environment:', process.env.NODE_ENV);
 
       // Ignore vite-hmr websocket connections
