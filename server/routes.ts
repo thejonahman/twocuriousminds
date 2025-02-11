@@ -39,6 +39,7 @@ export function registerRoutes(app: Express): Server {
     server: httpServer,
     path: '/ws',
     clientTracking: true,
+    perMessageDeflate: false,
     verifyClient: (info, callback) => {
       console.log('WebSocket connection attempt from:', info.origin);
       console.log('Headers:', info.req.headers);
