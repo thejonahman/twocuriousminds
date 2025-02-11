@@ -69,7 +69,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: initialGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
-    retry: 3,
   });
 
   // Set initial group when data is loaded
