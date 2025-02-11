@@ -34,11 +34,13 @@ export default function Auth() {
       const targetId = sessionStorage.getItem('targetId');
       const inviteCode = sessionStorage.getItem('inviteCode');
 
+      console.log('Auth redirect data:', { targetType, targetId, inviteCode });
+
       if (targetType === 'join-group' && targetId && inviteCode) {
         // User needs to complete profile wizard first
-        window.location.href = '/profile/wizard';
+        window.location.replace('/profile/wizard');
       } else if (targetType === 'group' && targetId) {
-        window.location.href = '/profile/wizard';
+        window.location.replace('/profile/wizard');
       } else {
         // No target URL, go to home
         navigate('/');

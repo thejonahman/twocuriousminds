@@ -55,9 +55,9 @@ export default function ProfileWizard() {
 
     if (targetType && targetId) {
       if (targetType === 'join-group' && inviteCode) {
-        window.location.href = `/join-group/${inviteCode}?videoId=${targetId}`;
+        window.location.replace(`/join-group/${inviteCode}?videoId=${targetId}`);
       } else if (targetType === 'group') {
-        window.location.href = `/video/${targetId}/group/${targetId}`;
+        window.location.replace(`/video/${targetId}/group/${targetId}`);
       } else {
         navigate('/');
       }

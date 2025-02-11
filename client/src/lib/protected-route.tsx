@@ -62,7 +62,7 @@ export function ProtectedRoute({
   if (!user || (adminRequired && !user.isAdmin)) {
     return (
       <Route path={path}>
-        <Redirect to={!user ? "/auth" : "/"} />
+        <Redirect to="/auth" />
       </Route>
     );
   }
