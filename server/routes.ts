@@ -99,8 +99,7 @@ export function registerRoutes(app: Express): Server {
         console.error('WebSocket verifyClient error:', error);
         callback(false, 500, 'Internal server error');
       }
-    }
-  });
+    };
 
   // Add error handler for the WebSocket server
   wss.on('error', (error) => {
