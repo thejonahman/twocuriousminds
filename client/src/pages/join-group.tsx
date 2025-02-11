@@ -20,9 +20,13 @@ export default function JoinGroup() {
   const { data: groupData, isLoading, error } = useQuery<Group>({
     queryKey: [`/api/groups/invite/${inviteCode}`],
     enabled: !!inviteCode && !!user,
+    retry: false, // Don't retry on failure
+    staleTime: 0, // Always fetch fresh data
   });
 
   useEffect(() => {
+    console.log('Join Group Effect:', { user, groupData, isLoading, error });
+
     if (!user) {
       // Store the invite URL in sessionStorage to redirect back after auth
       sessionStorage.setItem('redirectAfterAuth', window.location.pathname + window.location.search);
@@ -31,8 +35,11 @@ export default function JoinGroup() {
     }
 
     if (groupData && !isLoading) {
+      console.log('Group data received:', groupData);
+
       // Verify video ID matches if provided
       if (videoId && groupData.videoId !== null && groupData.videoId.toString() !== videoId) {
+        console.log('Video ID mismatch:', { expected: groupData.videoId, received: videoId });
         toast({
           title: "Error",
           description: "Invalid video for this group",
@@ -49,8 +56,11 @@ export default function JoinGroup() {
 
       // Navigate to video page with group ID
       if (groupData.videoId !== null && groupData.id !== null) {
-        navigate(`/video/${groupData.videoId}/group/${groupData.id}`);
+        const destination = `/video/${groupData.videoId}/group/${groupData.id}`;
+        console.log('Navigating to:', destination);
+        navigate(destination);
       } else {
+        console.error('Invalid group data:', groupData);
         toast({
           title: "Error",
           description: "Invalid group data",
