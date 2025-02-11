@@ -8,6 +8,7 @@ import { videos, messages, users, discussionGroups, groupMessages, groupMembers,
 import { setupAuth } from "./auth";
 import { nanoid } from 'nanoid';
 import type { Session } from 'express-session';
+import { isDatabaseHealthy } from "@db";
 
 // Fix type declaration for session in request
 declare module 'express-session' {
@@ -29,8 +30,31 @@ const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   res.status(401).json({ message: "Not authenticated" });
 };
 
-export function registerRoutes(app: Express): Server {
+export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
+
+  // Wait for database to be ready before setting up routes
+  try {
+    console.log('Waiting for database to be ready...');
+    let isReady = false;
+    for (let i = 0; i < 5; i++) {
+      if (await isDatabaseHealthy()) {
+        isReady = true;
+        break;
+      }
+      console.log('Database not ready, retrying in 3 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    if (!isReady) {
+      throw new Error('Database failed to initialize');
+    }
+
+    console.log('Database is ready, setting up routes...');
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+    throw error;
+  }
 
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
