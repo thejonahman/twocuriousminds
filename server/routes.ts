@@ -3,14 +3,14 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import type { IncomingMessage } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
-import { sql, eq, and, desc, gt } from "drizzle-orm";
-import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
+import { sql, eq, and, desc } from "drizzle-orm";
+import { messages, users, discussionGroups, groupMessages, groupMembers } from "@db/schema";
 import { setupAuth } from "./auth";
 import { nanoid } from 'nanoid';
 import type { Session } from 'express-session';
 import { isDatabaseHealthy } from "@db";
 
-// Fix type declaration for session in request
+// Fix type declaration for session
 declare module 'express-session' {
   interface SessionData {
     passport?: {
@@ -22,7 +22,7 @@ declare module 'express-session' {
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
 
-// Define requireAuth middleware first
+// Define requireAuth middleware
 const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   if (req.session?.passport?.user) {
     return next();
@@ -31,52 +31,37 @@ const requireAuth = (req: Request, res: Response, next: NextFunction) => {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  const httpServer = createServer(app);
+  // Create HTTP server first
+  const server = createServer(app);
 
-  // Setup WebSocket server with improved error handling
-  const wss = new WebSocketServer({ 
-    server: httpServer,
-    path: '/ws',
-    verifyClient: (info: { req: IncomingMessage & { session?: Express.Session } }, callback) => {
-      // Ignore vite-hmr websocket connections
-      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
-        return callback(false);
-      }
+  // Initialize WebSocket server with noServer option
+  const wsServer = new WebSocketServer({ 
+    noServer: true,
+    path: '/chat-ws'
+  });
 
-      const res: any = {
-        writeHead: () => {},
-        setHeader: () => {},
-        end: () => {}
-      };
+  // Handle upgrades manually
+  server.on('upgrade', (request: IncomingMessage, socket, head) => {
+    if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
+      console.log('Skipping Vite HMR WebSocket upgrade');
+      return;
+    }
 
-      // Apply session middleware with proper error handling
-      try {
-        sessionMiddleware(info.req as Request, res as Response, (err?: any) => {
-          if (err) {
-            console.error('Session middleware error:', err);
-            return callback(false, 401, 'Session error');
-          }
+    const pathname = new URL(request.url!, `http://${request.headers.host}`).pathname;
+    console.log('WebSocket upgrade request for path:', pathname);
 
-          const userId = info.req.session?.passport?.user;
-          const isAuthenticated = userId != null;
-
-          if (isAuthenticated) {
-            console.log('WebSocket auth successful for user:', userId);
-            callback(true);
-          } else {
-            console.log('WebSocket auth failed: No user in session');
-            callback(false, 401, 'Unauthorized');
-          }
-        });
-      } catch (error) {
-        console.error('WebSocket verifyClient error:', error);
-        callback(false, 500, 'Internal server error');
-      }
+    if (pathname === '/chat-ws') {
+      console.log('Handling chat WebSocket upgrade');
+      wsServer.handleUpgrade(request, socket, head, (ws) => {
+        wsServer.emit('connection', ws, request);
+      });
     }
   });
 
-  // Handle WebSocket connections
-  wss.on('connection', async (ws, req: any) => {
+  console.log('WebSocket server initialized with path /chat-ws');
+
+  // WebSocket connection handler
+  wsServer.on('connection', async (ws, req: any) => {
     console.log('WebSocket connection attempt');
 
     // Get user ID from session
@@ -813,5 +798,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  return httpServer;
+  return server;
 }

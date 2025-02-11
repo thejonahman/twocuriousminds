@@ -40,11 +40,6 @@ interface WebSocketState {
   retryDelay: number;
 }
 
-interface DiscussionGroupProps {
-  videoId: number;
-  initialGroupId?: number;
-}
-
 // Optimize WebSocket connection handling
 function useWebSocket(user: any | null) {
   const { toast } = useToast();
@@ -65,8 +60,12 @@ function useWebSocket(user: any | null) {
     setWsState(prev => ({ ...prev, connecting: true }));
 
     try {
+      // Use the same host/port but with our custom path
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      const wsUrl = `${protocol}//${window.location.host}/chat-ws`;
+      console.log('Connecting to WebSocket:', wsUrl);
+
+      const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -610,4 +609,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       </CardFooter>
     </Card>
   );
+}
+
+interface DiscussionGroupProps {
+  videoId: number;
+  initialGroupId?: number;
 }
