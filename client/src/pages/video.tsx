@@ -17,7 +17,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 
 export default function Video() {
-  const { id } = useParams();
+  // Extract both video id and group id from params
+  const { id, groupId } = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
@@ -189,7 +190,10 @@ export default function Video() {
           <DelphiBubble videoId={video.id} />
 
           <div className="rounded-xl border bg-card shadow-sm">
-            <DiscussionGroup videoId={video.id} />
+            <DiscussionGroup 
+              videoId={video.id} 
+              initialGroupId={groupId ? parseInt(groupId) : undefined}
+            />
           </div>
         </div>
 

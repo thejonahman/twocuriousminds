@@ -41,9 +41,10 @@ interface WebSocketState {
 
 interface DiscussionGroupProps {
   videoId: number;
+  initialGroupId?: number;
 }
 
-export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
+export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProps) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -63,6 +64,25 @@ export function DiscussionGroup({ videoId }: DiscussionGroupProps) {
   });
   const reconnectTimeoutRef = useRef<number>();
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Query for initial group if initialGroupId is provided
+  const { data: initialGroup } = useQuery<Group>({
+    queryKey: [`/api/groups/${initialGroupId}`],
+    enabled: !!initialGroupId && !!user,
+  });
+
+  // Set initial group when data is loaded
+  useEffect(() => {
+    if (initialGroup && !currentGroup) {
+      setCurrentGroup(initialGroup);
+      // Update URL to include group ID if not already present
+      const currentPath = window.location.pathname;
+      if (!currentPath.includes('/group/')) {
+        setLocation(`/video/${videoId}/group/${initialGroup.id}`);
+      }
+    }
+  }, [initialGroup, currentGroup, videoId, setLocation]);
+
 
   // Query for video messages
   const { data: messages = [] } = useQuery<Message[]>({
