@@ -17,35 +17,57 @@ export default function JoinGroup() {
 
   console.log('JoinGroup component mounted:', { inviteCode, videoId, user, authLoading });
 
-  // Set up WebSocket connection
+  // Handle authentication state
   useEffect(() => {
-    if (!user || !inviteCode || !videoId) {
-      console.log('Missing required parameters:', { user, inviteCode, videoId });
+    console.log('Join Group Auth Effect:', { user, authLoading });
+
+    // Only proceed if auth loading is complete
+    if (authLoading) {
+      console.log('Auth state is still loading...');
+      return;
+    }
+
+    // Handle authentication
+    if (!user) {
+      console.log('User not authenticated, storing navigation data and redirecting to auth');
+      // Store the current path and search params for post-auth redirect
+      sessionStorage.setItem('targetType', 'join-group');
+      sessionStorage.setItem('targetId', videoId || '');
+      sessionStorage.setItem('inviteCode', inviteCode);
+
+      // Redirect to auth page
+      console.log('Redirecting to auth page');
+      window.location.replace('/auth');
+      return;
+    }
+
+    // If we're authenticated but missing required params, redirect
+    if (!inviteCode || !videoId) {
+      console.log('Missing required parameters:', { inviteCode, videoId });
       toast({
         title: "Invalid Link",
         description: "The invite link is invalid or incomplete.",
         variant: "destructive",
       });
-      // If we have videoId, redirect to video page, otherwise go to home
-      if (videoId) {
-        window.location.replace(`/video/${videoId}`);
-      } else {
-        window.location.replace('/');
-      }
+      window.location.replace(videoId ? `/video/${videoId}` : '/');
       return;
     }
 
+    // Set up WebSocket connection
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
     socketRef.current = ws;
 
     ws.onopen = () => {
       console.log('WebSocket connected, sending join group request');
-      ws.send(JSON.stringify({
-        type: 'join_group',
-        inviteCode,
-        videoId: parseInt(videoId, 10),
-      }));
+      // Add a slight delay to ensure WebSocket is fully ready
+      setTimeout(() => {
+        ws.send(JSON.stringify({
+          type: 'join_group',
+          inviteCode,
+          videoId: parseInt(videoId, 10),
+        }));
+      }, 500);
     };
 
     ws.onmessage = (event) => {
@@ -98,62 +120,21 @@ export default function JoinGroup() {
         socketRef.current.close();
       }
     };
-  }, [user, inviteCode, videoId, toast, setLocation]);
-
-  // Handle authentication state
-  useEffect(() => {
-    console.log('Join Group Effect:', { user, authLoading });
-
-    // Only proceed if auth loading is complete
-    if (authLoading) {
-      console.log('Auth state is still loading...');
-      return;
-    }
-
-    // Handle authentication
-    if (!user) {
-      console.log('User not authenticated, storing navigation data and redirecting to auth');
-      // Store the current path and search params for post-auth redirect
-      sessionStorage.setItem('targetType', 'join-group');
-      sessionStorage.setItem('targetId', videoId || '');
-      sessionStorage.setItem('inviteCode', inviteCode);
-
-      // Redirect to auth page
-      console.log('Redirecting to auth page');
-      window.location.replace('/auth');
-      return;
-    }
-  }, [user, authLoading, videoId, inviteCode]);
-
-  if (authLoading) {
-    return (
-      <Card className="max-w-md mx-auto mt-8">
-        <CardHeader>
-          <CardTitle>Checking authentication...</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Progress value={20} className="w-full" />
-          <p className="text-sm text-muted-foreground mt-2">
-            Please wait while we verify your authentication status...
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
+  }, [user, authLoading, inviteCode, videoId, toast]);
 
   return (
     <Card className="max-w-md mx-auto mt-8">
       <CardHeader>
-        <CardTitle>Joining Group...</CardTitle>
+        <CardTitle>
+          {authLoading ? "Checking authentication..." : "Joining Group..."}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <Progress value={20} className="w-full" />
         <p className="text-sm text-muted-foreground mt-2">
-          Please wait while we connect you to the group discussion...
+          {authLoading
+            ? "Please wait while we verify your authentication status..."
+            : "Please wait while we connect you to the group discussion..."}
         </p>
       </CardContent>
     </Card>
