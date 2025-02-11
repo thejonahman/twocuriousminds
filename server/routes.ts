@@ -1,77 +1,65 @@
 import { createServer, type Server } from "http";
-import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import { Server as SocketIOServer } from 'socket.io';
+import express, { type Express } from 'express';
+import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
-import { messages, users, discussionGroups, groupMessages, groupMembers } from "@db/schema";
+import { messages, users, discussionGroups, groupMessages, groupMembers, videos, categories } from "@db/schema";
 import { setupAuth } from "./auth";
 import { nanoid } from 'nanoid';
 import type { Session } from 'express-session';
-import { isDatabaseHealthy } from "@db";
-
-// Fix type declaration for session
-declare module 'express-session' {
-  interface SessionData {
-    passport?: {
-      user?: number;
-    };
-  }
-}
 
 // Store active socket connections
-const connectedClients = new Map<number, any>();
+const connectedClients = new Map<number, WebSocket>();
 
 // Define requireAuth middleware
-const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+const requireAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (req.session?.passport?.user) {
     return next();
   }
   res.status(401).json({ message: "Not authenticated" });
 };
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export function registerRoutes(app: Express): Server {
   // Create HTTP server first
   const server = createServer(app);
 
-  // Initialize Socket.IO with CORS settings
-  const io = new SocketIOServer(server, {
-    cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
-    },
-    path: '/socket.io'
+  // Initialize WebSocket server with specific path
+  const wss = new WebSocketServer({ 
+    server,
+    path: '/ws', // Different from Vite's HMR path
+    verifyClient: ({ req }) => {
+      const protocol = req.headers['sec-websocket-protocol'];
+      return protocol !== 'vite-hmr';
+    }
   });
 
-  // Socket.IO connection handler
-  io.on('connection', async (socket) => {
-    console.log('Socket.IO connection attempt');
+  // WebSocket connection handler
+  wss.on('connection', async (ws, req) => {
+    console.log('WebSocket connection attempt');
 
     // Get user ID from session
-    const userId = socket.request.session?.passport?.user;
+    const session = (req as any).session;
+    const userId = session?.passport?.user;
+
     if (!userId) {
-      console.log('Socket.IO - No authenticated user');
-      socket.disconnect();
+      console.log('WebSocket - No authenticated user');
+      ws.close(1008, 'Authentication required');
       return;
     }
 
-    console.log('Socket.IO connected for user:', userId);
-    connectedClients.set(userId, socket);
+    console.log('WebSocket connected for user:', userId);
+    connectedClients.set(userId, ws);
 
-    socket.on('disconnect', () => {
-      console.log('Socket.IO disconnected for user:', userId);
-      connectedClients.delete(userId);
-    });
+    // Send welcome message
+    ws.send(JSON.stringify({
+      type: 'system',
+      message: 'Connected to chat server'
+    }));
 
-    socket.on('message', async (message) => {
+    ws.on('message', async (data) => {
       try {
+        const message = JSON.parse(data.toString());
         console.log('Received message:', message);
-
-        // Check database health before processing message
-        const isHealthy = await isDatabaseHealthy();
-        if (!isHealthy) {
-          socket.emit('error', { message: 'Database is temporarily unavailable. Please try again.' });
-          return;
-        }
 
         switch (message.type) {
           case 'message':
@@ -104,14 +92,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 }
               };
 
-              console.log('Broadcasting message:', broadcastMessage);
-              io.emit('message', broadcastMessage);
+              // Broadcast to all connected clients
+              wss.clients.forEach((client) => {
+                if (client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify(broadcastMessage));
+                }
+              });
             } catch (error) {
               console.error('Error saving message:', error);
-              socket.emit('error', { message: 'Failed to save message. Please try again.' });
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Failed to save message'
+              }));
             }
             break;
-
           case 'create_group':
             const { name, description = '', videoId: groupVideoId } = message;
             const inviteCode = nanoid(10);
@@ -137,12 +131,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 role: 'admin'
               });
 
-            socket.emit('group_created', {
-              ...group,
-              inviteCode
-            });
+            ws.send(JSON.stringify({
+              type: 'group_created',
+              data: {
+                ...group,
+                inviteCode
+              }
+            }));
             break;
-
           case 'group_message':
             const { groupId, content: groupContent } = message;
             console.log('Processing group message:', { groupId, content: groupContent });
@@ -201,8 +197,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Broadcast to all members of the group
             members.forEach(member => {
               const memberSocket = connectedClients.get(member.userId);
-              if (memberSocket) {
-                memberSocket.emit('message', groupMessage);
+              if (memberSocket && memberSocket.readyState === WebSocket.OPEN) {
+                memberSocket.send(JSON.stringify(groupMessage));
               }
             });
             break;
@@ -217,14 +213,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (!groupToJoin) {
               console.log('Group not found for invite code:', joinCode);
-              socket.emit('error', { message: 'Invalid invite code' });
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid invite code' }));
               return;
             }
 
             // Verify videoId matches if provided
             if (joinVideoId && groupToJoin.videoId !== joinVideoId) {
               console.log('Video ID mismatch:', { expected: groupToJoin.videoId, received: joinVideoId });
-              socket.emit('error', { message: 'Invalid video for this group' });
+              ws.send(JSON.stringify({ type: 'error', message: 'Invalid video for this group' }));
               return;
             }
 
@@ -262,13 +258,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
             };
 
             console.log('User joined group successfully:', groupToJoin.id);
-            socket.emit('group_joined', fullGroupDetails);
+            ws.send(JSON.stringify({ type: 'group_joined', data: fullGroupDetails }));
             break;
         }
       } catch (error) {
         console.error('Message handling error:', error);
-        socket.emit('error', { message: 'Failed to process message' });
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to process message'
+        }));
       }
+    });
+
+    ws.on('close', () => {
+      console.log('WebSocket disconnected for user:', userId);
+      connectedClients.delete(userId);
+    });
+
+    ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+      connectedClients.delete(userId);
     });
   });
 
@@ -293,19 +302,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/videos", async (req, res) => {
     try {
+      console.log('Fetching videos from database...');
       const allVideos = await db.query.videos.findMany({
         with: {
           category: true,
           subcategory: true
         }
       });
+      console.log('Successfully fetched videos:', allVideos.length);
       res.json(allVideos);
     } catch (error) {
       console.error('Error fetching videos:', error);
-      res.status(500).json({
-        message: "Error fetching videos",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
+      if (error instanceof Error) {
+        res.status(500).json({
+          message: "Error fetching videos",
+          error: error.message,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        });
+      } else {
+        res.status(500).json({
+          message: "Unknown error occurred while fetching videos"
+        });
+      }
     }
   });
 

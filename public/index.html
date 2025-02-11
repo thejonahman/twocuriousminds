@@ -20,39 +20,60 @@
   <script>
     const messagesDiv = document.getElementById('messages');
     const messageInput = document.getElementById('messageInput');
-    
-    // Create WebSocket connection
+
+    // Create WebSocket connection using the correct path
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}`);
-    
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+
     ws.onopen = () => {
       console.log('Connected to WebSocket server');
       appendMessage('System: Connected to chat server');
     };
-    
+
     ws.onmessage = (event) => {
-      appendMessage(event.data);
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'system') {
+          appendMessage(`System: ${data.message}`);
+        } else if (data.type === 'new_message') {
+          const message = data.data;
+          appendMessage(`${message.user.username}: ${message.content}`);
+        } else if (data.type === 'error') {
+          appendMessage(`Error: ${data.message}`);
+        }
+      } catch (error) {
+        console.error('Error processing message:', error);
+        appendMessage('Error: Failed to process message');
+      }
     };
-    
+
     ws.onclose = () => {
       appendMessage('System: Disconnected from chat server');
+      // Try to reconnect after a delay
+      setTimeout(() => {
+        appendMessage('System: Attempting to reconnect...');
+        window.location.reload();
+      }, 3000);
     };
-    
+
     function sendMessage() {
       const message = messageInput.value;
       if (message.trim()) {
-        ws.send(message);
+        ws.send(JSON.stringify({
+          type: 'message',
+          content: message
+        }));
         messageInput.value = '';
       }
     }
-    
+
     function appendMessage(message) {
       const div = document.createElement('div');
       div.textContent = message;
       messagesDiv.appendChild(div);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
-    
+
     // Allow sending message with Enter key
     messageInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') {
