@@ -487,7 +487,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             )}
           </div>
           <div className="flex items-center gap-2">
-            {currentGroup?.inviteCode && (
+            {currentGroup?.inviteCode && currentGroup.videoId && currentGroup.videoId === videoId && (
               <ShareButton
                 url={generateInviteLink(currentGroup.inviteCode)}
                 title={`Join my discussion group: ${currentGroup.name}`}

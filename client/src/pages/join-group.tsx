@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { type Group } from "@/lib/api-types";
 
 export default function JoinGroup() {
   const [, setLocation] = useLocation();
@@ -18,9 +17,18 @@ export default function JoinGroup() {
 
   console.log('JoinGroup component mounted:', { inviteCode, videoId, user, authLoading });
 
-  // Set up WebSocket connection and handle join group
+  // Set up WebSocket connection
   useEffect(() => {
-    if (!user || !inviteCode) return;
+    if (!user || !inviteCode || !videoId) {
+      console.log('Missing required parameters:', { user, inviteCode, videoId });
+      toast({
+        title: "Invalid Link",
+        description: "The invite link is invalid or incomplete.",
+        variant: "destructive",
+      });
+      setLocation('/');
+      return;
+    }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
@@ -28,12 +36,11 @@ export default function JoinGroup() {
 
     ws.onopen = () => {
       console.log('WebSocket connected, sending join group request');
-      const joinGroupData = {
+      ws.send(JSON.stringify({
         type: 'join_group',
         inviteCode,
-        videoId,
-      };
-      ws.send(JSON.stringify(joinGroupData));
+        videoId: parseInt(videoId, 10),
+      }));
     };
 
     ws.onmessage = (event) => {
@@ -46,21 +53,30 @@ export default function JoinGroup() {
           const group = data.data;
 
           // Navigate to video page with group ID
-          if (group.videoId !== null && group.id !== null) {
-            const destination = `/video/${group.videoId}/group/${group.id}`;
-            console.log('Navigating to:', destination);
-            window.location.replace(destination);
-          }
+          const destination = `/video/${group.videoId}/group/${group.id}`;
+          console.log('Navigating to:', destination);
+          window.location.replace(destination);
         } else if (data.type === 'error') {
           toast({
             title: "Error",
             description: data.message,
             variant: "destructive",
           });
-          setLocation('/');
+          // Redirect to video page if we have videoId
+          if (videoId) {
+            setLocation(`/video/${videoId}`);
+          } else {
+            setLocation('/');
+          }
         }
       } catch (error) {
         console.error('Error processing message:', error);
+        toast({
+          title: "Error",
+          description: "Failed to process server response",
+          variant: "destructive",
+        });
+        setLocation('/');
       }
     };
 
