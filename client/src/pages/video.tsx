@@ -3,7 +3,6 @@ import { useParams, useLocation } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DelphiBubble } from "@/components/delphi-bubble";
 import { DiscussionGroup } from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
 import { Share2, Copy, Check, Mail } from "lucide-react";
@@ -210,8 +209,6 @@ export default function Video() {
               <p className="text-muted-foreground">{video?.description}</p>
             </div>
           </div>
-
-          <DelphiBubble videoId={video?.id} />
 
           <div className="rounded-xl border bg-card shadow-sm">
             <DiscussionGroup
