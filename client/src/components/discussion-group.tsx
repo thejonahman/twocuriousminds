@@ -106,10 +106,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     enabled: !!videoId,
   });
 
-  // Generate invite link with video ID
+  // Update the generateInviteLink function to properly include video ID
   const generateInviteLink = (inviteCode: string) => {
     const baseUrl = window.location.origin;
-    return `${baseUrl}/join-group/${inviteCode}?videoId=${videoId}`;
+    // Ensure videoId is included in the URL
+    return `${baseUrl}/join-group/${inviteCode}?videoId=${currentGroup?.videoId || videoId}`;
   };
 
   const addOptimisticMessage = (newMessage: Message) => {
@@ -424,7 +425,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       fetchUnreadCount();
     }
   }, [currentGroup, user]);
-
 
   useEffect(() => {
     if (currentGroup && user && !document.hidden) {

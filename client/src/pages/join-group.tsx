@@ -31,7 +31,7 @@ export default function JoinGroup() {
       const joinGroupData = {
         type: 'join_group',
         inviteCode,
-        videoId,
+        videoId, // Pass videoId to server for validation
       };
       ws.send(JSON.stringify(joinGroupData));
     };
