@@ -9,13 +9,6 @@ import { apiRequest } from "@/lib/queryClient";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 
-// Maximum number of reconnection attempts
-const MAX_RETRIES = 5;
-// Initial delay in milliseconds (1 second)
-const INITIAL_RETRY_DELAY = 1000;
-// Maximum delay between retries (30 seconds)
-const MAX_RETRY_DELAY = 30000;
-
 interface ChatMessage {
   id: number;
   content: string;
@@ -26,29 +19,57 @@ interface ChatMessage {
   };
 }
 
-interface WebSocketState {
-  connected: boolean;
-  connecting: boolean;
-  retryCount: number;
-  retryDelay: number;
-}
-
 export function ChatInterface({ videoId }: { videoId: number }) {
   const [message, setMessage] = useState("");
-  const [wsState, setWsState] = useState<WebSocketState>({
-    connected: false,
-    connecting: false,
-    retryCount: 0,
-    retryDelay: INITIAL_RETRY_DELAY,
-  });
+  const [isConnected, setIsConnected] = useState(false);
   const queryClient = useQueryClient();
   const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<number>();
   const { toast } = useToast();
 
-  const { data: messages, isLoading } = useQuery<ChatMessage[]>({
+  const { data: messages = [], isLoading } = useQuery<ChatMessage[]>({
     queryKey: [`/api/messages/${videoId}`],
   });
+
+  const connectWebSocket = () => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) return;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    socketRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setIsConnected(true);
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      setIsConnected(false);
+      setTimeout(connectWebSocket, 2000);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Received WebSocket message:', data);
+
+        if (data.type === 'message') {
+          queryClient.invalidateQueries({ queryKey: [`/api/messages/${videoId}`] });
+        }
+      } catch (error) {
+        console.error('Error processing WebSocket message:', error);
+      }
+    };
+  };
+
+  useEffect(() => {
+    connectWebSocket();
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+    };
+  }, []);
 
   const mutation = useMutation({
     mutationFn: async (content: string) => {
@@ -65,10 +86,6 @@ export function ChatInterface({ videoId }: { videoId: number }) {
       socketRef.current.send(JSON.stringify(messageData));
       return { success: true };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/messages/${videoId}`] });
-      setMessage("");
-    },
     onError: (error) => {
       toast({
         title: "Error",
@@ -78,88 +95,11 @@ export function ChatInterface({ videoId }: { videoId: number }) {
     },
   });
 
-  const connectWebSocket = () => {
-    if (wsState.connecting || socketRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    setWsState(prev => ({ ...prev, connecting: true }));
-
-    try {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      socketRef.current = ws;
-
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        setWsState({
-          connected: true,
-          connecting: false,
-          retryCount: 0,
-          retryDelay: INITIAL_RETRY_DELAY,
-        });
-      };
-
-      ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        setWsState(prev => ({
-          ...prev,
-          connected: false,
-          connecting: false,
-        }));
-
-        // Try to reconnect if we haven't exceeded max retries
-        if (wsState.retryCount < MAX_RETRIES) {
-          const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
-          console.log(`Reconnecting in ${nextDelay}ms...`);
-
-          reconnectTimeoutRef.current = window.setTimeout(() => {
-            setWsState(prev => ({
-              ...prev,
-              retryCount: prev.retryCount + 1,
-              retryDelay: nextDelay,
-            }));
-            connectWebSocket();
-          }, nextDelay);
-        } else {
-          toast({
-            title: "Connection Lost",
-            description: "Unable to connect to chat server. Please refresh the page.",
-            variant: "destructive",
-          });
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-    } catch (error) {
-      console.error('Error creating WebSocket connection:', error);
-      setWsState(prev => ({
-        ...prev,
-        connected: false,
-        connecting: false,
-      }));
-    }
-  };
-
-  useEffect(() => {
-    connectWebSocket();
-
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (socketRef.current) {
-        socketRef.current.close();
-      }
-    };
-  }, []);
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (message.trim()) {
       mutation.mutate(message);
+      setMessage("");
     }
   };
 
@@ -182,10 +122,9 @@ export function ChatInterface({ videoId }: { videoId: number }) {
         <div className="flex items-center justify-between">
           <h3 className="font-semibold">Discussion</h3>
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${wsState.connected ? 'bg-green-500' : wsState.connecting ? 'bg-yellow-500' : 'bg-red-500'}`} />
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
             <span className="text-sm text-muted-foreground">
-              {wsState.connected ? 'Connected' : wsState.connecting ? 'Connecting...' : 'Disconnected'}
-              {!wsState.connected && wsState.retryCount > 0 && ` (Attempt ${wsState.retryCount}/${MAX_RETRIES})`}
+              {isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
         </div>
@@ -193,14 +132,14 @@ export function ChatInterface({ videoId }: { videoId: number }) {
       <CardContent className="flex-1 p-4">
         <ScrollArea className="h-full">
           <div className="space-y-4">
-            {!wsState.connected && !wsState.connecting && wsState.retryCount >= MAX_RETRIES && (
+            {!isConnected && (
               <Alert variant="destructive" className="mb-4">
                 <AlertDescription>
-                  Unable to connect to the chat server. Please try refreshing the page.
+                  Not connected to chat server. Messages may not be delivered.
                 </AlertDescription>
               </Alert>
             )}
-            {messages?.map((msg) => (
+            {messages.map((msg) => (
               <div key={msg.id} className="bg-muted rounded-lg p-3">
                 {msg.user && <p className="font-medium">{msg.user.username}</p>}
                 <p>{msg.content}</p>
@@ -216,9 +155,9 @@ export function ChatInterface({ videoId }: { videoId: number }) {
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type your message..."
             className="flex-1"
-            disabled={!wsState.connected}
+            disabled={!isConnected}
           />
-          <Button type="submit" disabled={!wsState.connected || mutation.isPending}>
+          <Button type="submit" disabled={!isConnected || mutation.isPending}>
             <Send className="h-4 w-4" />
           </Button>
         </form>

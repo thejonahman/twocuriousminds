@@ -54,16 +54,16 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     enabled: !!initialGroupId && !!user,
   });
 
-  // Query for video messages
+  // Query for video messages with proper query key
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
-    queryKey: ['/api/messages', videoId],
-    enabled: !!user && !!videoId && !currentGroup,
+    queryKey: [`/api/messages/${videoId}`],
+    enabled: !!videoId && !currentGroup,
   });
 
-  // Query for group messages
+  // Query for group messages with proper query key
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
-    queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id,
+    queryKey: [`/api/group-messages/${currentGroup?.id}`],
+    enabled: !!currentGroup?.id,
   });
 
   // Query for video data
@@ -107,25 +107,25 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
+          console.log('Received WebSocket message:', data);
+
           switch (data.type) {
             case 'new_message':
-            case 'new_group_message':
-              // Refresh messages
-              if (currentGroup) {
-                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
-              } else {
-                queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
+              if (!currentGroup) {
+                queryClient.invalidateQueries({ queryKey: [`/api/messages/${videoId}`] });
+                console.log('Invalidating video messages cache');
               }
-              // Scroll to bottom on new message
-              setTimeout(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-              }, 100);
+              break;
+            case 'new_group_message':
+              if (currentGroup && data.groupId === currentGroup.id) {
+                queryClient.invalidateQueries({ queryKey: [`/api/group-messages/${currentGroup.id}`] });
+                console.log('Invalidating group messages cache');
+              }
               break;
             case 'group_created':
-              // Handle new group creation
               setCurrentGroup(data.data);
               setIsCreateGroupOpen(false);
-              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', data.data.id] });
+              queryClient.invalidateQueries({ queryKey: [`/api/group-messages/${data.data.id}`] });
               setLocation(`/video/${videoId}/group/${data.data.id}`);
               toast({
                 title: "Success",
@@ -133,8 +133,14 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
               });
               break;
           }
+          // Scroll to bottom on new message
+          setTimeout(() => {
+            if (messagesEndRef.current) {
+              messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+            }
+          }, 100);
         } catch (error) {
-          console.error('Error processing message:', error);
+          console.error('Error processing WebSocket message:', error);
         }
       };
     };
@@ -233,6 +239,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const displayMessages = currentGroup ? groupMessages : messages;
   const isLoading = isLoadingMessages || isLoadingGroupMessages;
 
+  // Sort messages by creation time
+  const sortedMessages = [...(displayMessages || [])].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -310,21 +321,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             <div className="flex items-center justify-center h-full">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>
-          ) : (!displayMessages || displayMessages.length === 0) ? (
+          ) : (!sortedMessages || sortedMessages.length === 0) ? (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
           ) : (
-            displayMessages.map((message) => (
+            sortedMessages.map((message) => (
               <div
                 key={message.id}
                 className={`flex flex-col ${
-                  message.userId === user.id ? "items-end" : "items-start"
+                  message.userId === user?.id ? "items-end" : "items-start"
                 }`}
               >
                 <div
                   className={`rounded-lg px-4 py-2 max-w-[80%] ${
-                    message.userId === user.id
+                    message.userId === user?.id
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted"
                   }`}
@@ -332,7 +343,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                   {message.user?.username && (
                     <p className="text-sm font-semibold">{message.user.username}</p>
                   )}
-                  <p>{message.content}</p>
+                  <p className="break-words">{message.content}</p>
                 </div>
               </div>
             ))
