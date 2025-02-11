@@ -32,21 +32,17 @@ export default function ProfileWizard() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
-  // Get the return URL from sessionStorage or default to home
-  const returnUrl = sessionStorage.getItem('returnUrl') || '/';
-
-  // Query to fetch categories
   const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     retry: false,
   });
 
-  // Query to fetch existing preferences
   const { data: existingPreferences, isLoading: preferencesLoading } = useQuery<Preferences>({
     queryKey: ["/api/preferences"],
     enabled: !!user,
   });
 
+  // Handle navigation when preferences already exist
   useEffect(() => {
     if (!preferencesLoading && existingPreferences) {
       const hasPreferences = (
@@ -60,32 +56,39 @@ export default function ProfileWizard() {
           title: "Preferences Already Set",
           description: "Your viewing preferences are already configured.",
         });
-        // Navigate to the stored return URL or home
-        navigate(returnUrl);
+        // Get the stored return URL, defaulting to home if none exists
+        const returnUrl = sessionStorage.getItem('returnUrl');
+        if (returnUrl) {
+          // Clear the return URL before navigating to prevent redirect loops
+          sessionStorage.removeItem('returnUrl');
+          navigate(returnUrl);
+        } else {
+          navigate('/');
+        }
       }
     }
-  }, [existingPreferences, preferencesLoading, navigate, toast, returnUrl]);
+  }, [existingPreferences, preferencesLoading, navigate, toast]);
 
   const mutation = useMutation({
     mutationFn: async (preferences: Preferences) => {
-      console.log("Saving preferences:", preferences);
       const res = await apiRequest("POST", "/api/preferences", preferences);
       if (!res.ok) {
         const error = await res.text();
-        console.error("Failed to save preferences:", error);
         throw new Error(error || 'Failed to save preferences');
       }
-      const data = await res.json();
-      console.log("Saved preferences response:", data);
-      return data;
+      return res.json();
     },
     onSuccess: () => {
       toast({
         title: "Preferences saved",
         description: "Your profile has been set up successfully!",
       });
-      // Navigate to the stored return URL or home
-      navigate(returnUrl);
+      // Get the stored return URL, defaulting to home if none exists
+      const returnUrl = sessionStorage.getItem('returnUrl');
+      // Clear the return URL before navigating to prevent redirect loops
+      sessionStorage.removeItem('returnUrl');
+      // Navigate to the return URL or home
+      navigate(returnUrl || '/');
     },
     onError: (error: Error) => {
       toast({

@@ -27,14 +27,19 @@ export default function Auth() {
   const [, navigate] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
 
-  // Get return URL from session storage or default to profile wizard
-  const returnUrl = sessionStorage.getItem('returnUrl') || '/profile/wizard';
-
   useEffect(() => {
     if (user) {
-      navigate(returnUrl); // Updated to use returnUrl
+      // Check if we need to complete profile wizard
+      const returnUrl = sessionStorage.getItem('returnUrl');
+      if (returnUrl) {
+        // User needs to complete profile wizard first
+        navigate('/profile/wizard');
+      } else {
+        // No return URL, go to home
+        navigate('/');
+      }
     }
-  }, [user, navigate, returnUrl]); //returnUrl added to dependency array
+  }, [user, navigate]);
 
   const form = useForm<LoginValues | RegisterValues>({
     resolver: zodResolver(isLogin ? loginSchema : registerSchema),
