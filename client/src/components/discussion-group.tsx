@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { io, Socket } from "socket.io-client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -21,11 +20,25 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Send, MessageSquare, Plus, Users } from "lucide-react";
-import { type Message, type Group, validateApiResponse, messageSchema, groupSchema } from "@/lib/api-types";
+import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
+import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
 import { useLocation } from "wouter";
 import { ShareButton } from "@/components/ui/share-button";
+
+// Maximum number of reconnection attempts
+const MAX_RETRIES = 5;
+// Initial delay in milliseconds (1 second)
+const INITIAL_RETRY_DELAY = 1000;
+// Maximum delay between retries (30 seconds)
+const MAX_RETRY_DELAY = 30000;
+
+interface WebSocketState {
+  connected: boolean;
+  connecting: boolean;
+  retryCount: number;
+  retryDelay: number;
+}
 
 interface DiscussionGroupProps {
   videoId: number;
@@ -40,22 +53,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
-  const [isConnected, setIsConnected] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [wsState, setWsState] = useState<WebSocketState>({
+    connected: false,
+    connecting: false,
+    retryCount: 0,
+    retryDelay: INITIAL_RETRY_DELAY,
+  });
+  const reconnectTimeoutRef = useRef<number>();
   const [unreadCount, setUnreadCount] = useState(0);
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   // Query for group if initialGroupId is provided
-  const { data: group } = useQuery<Group>({
+  const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
-    retry: 3,
-    onSuccess: (data) => {
-      if (data && !currentGroup) {
-        setCurrentGroup(data);
-      }
-    },
   });
 
   // Query for video messages
@@ -69,127 +81,30 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
     enabled: !!user && !!currentGroup?.id,
-    retry: 3,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
+    select: (data) => {
+      console.log('Received group messages:', data);
+      return validateApiResponse(z.array(messageSchema), data);
+    },
   });
+
+  // Set initial group when data is loaded
+  useEffect(() => {
+    if (group && !currentGroup) {
+      console.log('Setting initial group:', group);
+      setCurrentGroup(group);
+      // Update URL to include group ID if not already present
+      const currentPath = window.location.pathname;
+      if (!currentPath.includes('/group/')) {
+        setLocation(`/video/${videoId}/group/${group.id}`);
+      }
+    }
+  }, [group, currentGroup, videoId, setLocation]);
 
   // Add video data query
   const { data: videoData } = useQuery({
     queryKey: [`/api/videos/${videoId}`],
     enabled: !!videoId,
   });
-
-  useEffect(() => {
-    if (!user) return;
-
-    // Initialize Socket.IO connection on port 4000
-    const socket = io('http://localhost:4000', {
-      path: '/ws',
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      withCredentials: true
-    });
-
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      console.log('Socket.IO connected');
-      setIsConnected(true);
-    });
-
-    socket.on('disconnect', () => {
-      console.log('Socket.IO disconnected');
-      setIsConnected(false);
-    });
-
-    socket.on('message', (data) => {
-      console.log('Received socket message:', data);
-
-      if (data.type === 'new_message' && !currentGroup) {
-        queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-      } else if (data.type === 'new_group_message' && currentGroup && data.data.groupId === currentGroup.id) {
-        queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
-      }
-    });
-
-    socket.on('group_created', (data) => {
-      const newGroup = validateApiResponse(groupSchema, data);
-      setCurrentGroup(newGroup);
-      setIsCreateGroupOpen(false);
-      queryClient.invalidateQueries({ queryKey: ['/api/group-messages', newGroup.id] });
-      setLocation(`/video/${videoId}/group/${newGroup.id}`);
-
-      toast({
-        title: "Success",
-        description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
-      });
-    });
-
-    socket.on('error', (error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    });
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  }, [user, videoId, currentGroup, queryClient, setLocation, toast]);
-
-  const sendMessage = () => {
-    if (!socketRef.current?.connected) {
-      toast({
-        title: "Error",
-        description: "Not connected to chat server",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const messageData = currentGroup 
-      ? {
-          type: 'group_message',
-          groupId: currentGroup.id,
-          content: messageInput,
-        }
-      : {
-          type: 'message',
-          videoId,
-          content: messageInput,
-        };
-
-    socketRef.current.emit('message', messageData);
-    setMessageInput('');
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  const createGroup = () => {
-    if (!socketRef.current?.connected) {
-      toast({
-        title: "Error",
-        description: "Not connected to server",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
-    socketRef.current.emit('message', {
-      type: 'create_group',
-      name: groupName,
-      videoId,
-      description: `Discussion group for ${videoData?.title}`,
-    });
-
-    setGroupNameInput('');
-  };
 
   const generateShareUrl = () => {
     const baseUrl = window.location.origin;
@@ -199,6 +114,262 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
     return `${baseUrl}/video/${videoId}/group/${currentGroup.id}`;
   };
+
+  const addOptimisticMessage = (newMessage: Message) => {
+    const queryKey = currentGroup
+      ? ['/api/group-messages', currentGroup.id]
+      : ['/api/messages', videoId];
+
+    queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
+      return [...old, newMessage];
+    });
+  };
+
+  const connectWebSocket = useCallback(() => {
+    if (!user || wsState.connecting) return;
+
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      console.log('WebSocket already connected');
+      return;
+    }
+
+    if (socketRef.current) {
+      console.log('Closing existing WebSocket connection');
+      socketRef.current.close();
+    }
+
+    setWsState(prev => ({ ...prev, connecting: true }));
+
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        console.log('WebSocket connected');
+        setWsState({
+          connected: true,
+          connecting: false,
+          retryCount: 0,
+          retryDelay: INITIAL_RETRY_DELAY,
+        });
+
+        if (reconnectTimeoutRef.current) {
+          window.clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = undefined;
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
+        setWsState(prev => ({
+          ...prev,
+          connected: false,
+          connecting: false,
+        }));
+
+        if (event.code !== 1000 && event.code !== 1008 && user && wsState.retryCount < MAX_RETRIES) {
+          const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
+          console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
+
+          reconnectTimeoutRef.current = window.setTimeout(() => {
+            setWsState(prev => ({
+              ...prev,
+              retryCount: prev.retryCount + 1,
+              retryDelay: nextDelay,
+            }));
+            connectWebSocket();
+          }, nextDelay);
+        } else if (wsState.retryCount >= MAX_RETRIES) {
+          toast({
+            title: "Connection Error",
+            description: "Maximum reconnection attempts reached. Please refresh the page.",
+            variant: "destructive",
+          });
+        }
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('Received websocket message:', data);
+
+          // Validate websocket message format
+          const message = validateApiResponse(wsMessageSchema, data);
+
+          switch (message.type) {
+            case 'new_message':
+              if (!currentGroup) {
+                console.log('Invalidating messages query');
+                queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
+                // Scroll to bottom on new message
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }
+              break;
+
+            case 'new_group_message':
+              if (currentGroup && message.data.groupId === currentGroup.id) {
+                console.log('Invalidating group messages query');
+                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
+                // Update unread count if not currently viewing
+                if (document.hidden) {
+                  setUnreadCount(prev => prev + 1);
+                }
+                // Scroll to bottom on new message
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }
+              break;
+
+            case 'group_created':
+              console.log("Group Created:", message.data);
+              // Validate group data
+              const newGroup = validateApiResponse(groupSchema, message.data);
+              setCurrentGroup(newGroup);
+              setIsCreateGroupOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', newGroup.id] });
+
+              // Update URL with group ID
+              setLocation(`/video/${videoId}/group/${newGroup.id}`);
+
+              toast({
+                title: "Success",
+                description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
+              });
+              break;
+
+            case 'error':
+              toast({
+                title: "Error",
+                description: message.message,
+                variant: "destructive",
+              });
+              break;
+          }
+        } catch (error) {
+          console.error('Error processing message:', error);
+          toast({
+            title: "Error",
+            description: "Failed to process server message",
+            variant: "destructive",
+          });
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        toast({
+          title: "Connection Error",
+          description: "Failed to connect to chat server",
+          variant: "destructive",
+        });
+      };
+    } catch (error) {
+      console.error('Error creating WebSocket connection:', error);
+      setWsState(prev => ({
+        ...prev,
+        connected: false,
+        connecting: false,
+      }));
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to chat server. Please try again later.",
+        variant: "destructive",
+      });
+    }
+  }, [user, toast, wsState.retryCount, wsState.retryDelay, videoId]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    connectWebSocket();
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (socketRef.current) {
+        socketRef.current.close(1000, 'Component unmounting');
+      }
+    };
+  }, [user, connectWebSocket]);
+
+  const sendMessage = () => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      toast({
+        title: "Error",
+        description: "Not connected to chat server",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const messageData = currentGroup ? {
+      type: 'group_message',
+      groupId: currentGroup.id,
+      content: messageInput,
+    } : {
+      type: 'message',
+      videoId,
+      content: messageInput,
+    };
+
+    // Add optimistic update
+    const optimisticMessage: Message = {
+      id: Date.now(), // Temporary ID
+      content: messageInput,
+      userId: user!.id,
+      createdAt: new Date().toISOString(),
+      user: {
+        username: user!.username,
+      },
+      ...(currentGroup ? { groupId: currentGroup.id } : { videoId }),
+    };
+
+    addOptimisticMessage(optimisticMessage);
+
+    console.log('Sending WebSocket message:', messageData);
+    socketRef.current.send(JSON.stringify(messageData));
+    setMessageInput('');
+
+    // Scroll to bottom after sending
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const createGroup = () => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      toast({
+        title: "Error",
+        description: "Not connected to server",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
+    const createGroupData = {
+      type: 'create_group',
+      name: groupName,
+      videoId,
+      description: `Discussion group for ${videoData?.title}`,
+    };
+
+    console.log('Sending create group request:', createGroupData);
+    socketRef.current.send(JSON.stringify(createGroupData));
+    setGroupNameInput('');
+  };
+
+  const leaveGroup = () => {
+    setCurrentGroup(null);
+    // Update URL to remove group ID
+    setLocation(`/video/${videoId}`);
+  };
+
+  // Auto-scroll when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length, groupMessages.length]);
+
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   useEffect(() => {
     if (currentGroup && user) {
@@ -236,26 +407,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
   }, [currentGroup, user, groupMessages]);
 
-
-  const addOptimisticMessage = (newMessage: Message) => {
-    const queryKey = currentGroup
-      ? ['/api/group-messages', currentGroup.id]
-      : ['/api/messages', videoId];
-
-    queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
-      return [...old, newMessage];
-    });
-  };
-
-  const leaveGroup = () => {
-    setCurrentGroup(null);
-    setLocation(`/video/${videoId}`);
-  };
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, groupMessages.length]);
-
   if (!user) {
     return (
       <Card className="mt-6">
@@ -272,7 +423,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   }
 
   const displayMessages = currentGroup ? groupMessages : messages;
-  const isLoading = isLoadingMessages || isLoadingGroupMessages;
+  const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages;
 
   if (isLoading) {
     return (
@@ -332,39 +483,42 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       <CardContent>
         <div className="flex items-center justify-between gap-2 mb-4">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <div className={`w-2 h-2 rounded-full ${wsState.connected ? 'bg-green-500' : wsState.connecting ? 'bg-yellow-500' : 'bg-red-500'}`} />
             <span className="text-sm text-muted-foreground">
-              {isConnected ? 'Connected' : 'Disconnected'}
+              {wsState.connected ? 'Connected' : wsState.connecting ? 'Connecting...' : 'Disconnected'}
+              {!wsState.connected && wsState.retryCount > 0 && ` (Attempt ${wsState.retryCount}/${MAX_RETRIES})`}
             </span>
           </div>
-
           {!currentGroup && (
-            <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Group
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create Discussion Group</DialogTitle>
-                  <DialogDescription>
-                    Create a group to discuss this video with friends. You'll get a shareable link after creating the group.
-                  </DialogDescription>
-                </DialogHeader>
-                <Input
-                  value={groupNameInput}
-                  onChange={(e) => setGroupNameInput(e.target.value)}
-                  placeholder={videoData?.title || "Group name..."}
-                />
-                <DialogFooter>
-                  <Button onClick={createGroup} disabled={!isConnected}>
+            <div className="flex items-center gap-2">
+              <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Plus className="h-4 w-4 mr-2" />
                     Create Group
                   </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create Discussion Group</DialogTitle>
+                    <DialogDescription>
+                      Create a group to discuss this video with friends. You'll get a shareable link after creating the group.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <Input
+                    value={groupNameInput}
+                    onChange={(e) => setGroupNameInput(e.target.value)}
+                    placeholder={videoData?.title || "Group name..."}
+                    className="mb-2"
+                  />
+                  <DialogFooter>
+                    <Button onClick={createGroup} disabled={!wsState.connected}>
+                      Create Group
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
           )}
         </div>
 
@@ -416,7 +570,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           <Button
             type="submit"
             size="icon"
-            disabled={!messageInput.trim() || !isConnected}
+            disabled={!messageInput.trim() || !wsState.connected}
           >
             <Send className="h-4 w-4" />
           </Button>
