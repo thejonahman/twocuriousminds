@@ -83,7 +83,7 @@ export default function JoinGroup() {
           const group = data.data;
 
           // Navigate to video page with group ID
-          const destination = `/video/${videoId}/group/${group.id}`;
+          const destination = `/video/${videoId}?groupId=${group.id}`;
           console.log('Navigating to:', destination);
           window.location.replace(destination);
         } else if (data.type === 'error') {

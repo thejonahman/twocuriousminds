@@ -288,10 +288,25 @@ export function registerRoutes(app: Express): Server {
                 });
             }
 
+            // Get full group details to send back
+            const fullGroupDetails = {
+              ...groupToJoin,
+              members: await db.query.groupMembers.findMany({
+                where: eq(groupMembers.groupId, groupToJoin.id),
+                with: {
+                  user: {
+                    columns: {
+                      username: true
+                    }
+                  }
+                }
+              })
+            };
+
             console.log('User joined group successfully:', groupToJoin.id);
             ws.send(JSON.stringify({
               type: 'group_joined',
-              data: groupToJoin
+              data: fullGroupDetails
             }));
             break;
         }

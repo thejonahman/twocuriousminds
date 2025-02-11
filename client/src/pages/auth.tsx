@@ -30,7 +30,17 @@ export default function Auth() {
   useEffect(() => {
     if (user) {
       console.log('User authenticated, checking for redirect data');
-      // Check stored navigation data
+
+      // First check for complete redirect URL
+      const redirectUrl = sessionStorage.getItem('redirectUrl');
+      if (redirectUrl) {
+        console.log('Found complete redirect URL:', redirectUrl);
+        sessionStorage.removeItem('redirectUrl');
+        window.location.replace(redirectUrl);
+        return;
+      }
+
+      // Fall back to separate parameters if no complete URL
       const targetType = sessionStorage.getItem('targetType');
       const targetId = sessionStorage.getItem('targetId');
       const inviteCode = sessionStorage.getItem('inviteCode');
@@ -40,16 +50,21 @@ export default function Auth() {
       if (targetType === 'join-group' && inviteCode) {
         const destination = `/join-group/${inviteCode}${targetId ? `?videoId=${targetId}` : ''}`;
         console.log('Redirecting to join group:', destination);
-        // Use replace to prevent back button from returning to login
         window.location.replace(destination);
       } else if (targetType === 'group' && targetId) {
         const destination = `/video/${targetId}/group/${targetId}`;
         console.log('Redirecting to group:', destination);
         window.location.replace(destination);
       } else {
-        // No target URL, go to home
+        // No target URL or parameters, go to home
+        console.log('No redirect data found, going to home');
         navigate('/');
       }
+
+      // Clean up storage
+      sessionStorage.removeItem('targetType');
+      sessionStorage.removeItem('targetId');
+      sessionStorage.removeItem('inviteCode');
     }
   }, [user, navigate]);
 
