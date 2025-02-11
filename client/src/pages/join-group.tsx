@@ -26,7 +26,12 @@ export default function JoinGroup() {
         description: "The invite link is invalid or incomplete.",
         variant: "destructive",
       });
-      setLocation('/');
+      // If we have videoId, redirect to video page, otherwise go to home
+      if (videoId) {
+        window.location.replace(`/video/${videoId}`);
+      } else {
+        window.location.replace('/');
+      }
       return;
     }
 
@@ -53,7 +58,7 @@ export default function JoinGroup() {
           const group = data.data;
 
           // Navigate to video page with group ID
-          const destination = `/video/${group.videoId}/group/${group.id}`;
+          const destination = `/video/${videoId}/group/${group.id}`;
           console.log('Navigating to:', destination);
           window.location.replace(destination);
         } else if (data.type === 'error') {
@@ -62,12 +67,8 @@ export default function JoinGroup() {
             description: data.message,
             variant: "destructive",
           });
-          // Redirect to video page if we have videoId
-          if (videoId) {
-            setLocation(`/video/${videoId}`);
-          } else {
-            setLocation('/');
-          }
+          // Redirect to video page since we have the videoId
+          window.location.replace(`/video/${videoId}`);
         }
       } catch (error) {
         console.error('Error processing message:', error);
@@ -76,7 +77,8 @@ export default function JoinGroup() {
           description: "Failed to process server response",
           variant: "destructive",
         });
-        setLocation('/');
+        // Redirect to video page since we have the videoId
+        window.location.replace(`/video/${videoId}`);
       }
     };
 
@@ -87,6 +89,8 @@ export default function JoinGroup() {
         description: "Failed to connect to chat server",
         variant: "destructive",
       });
+      // Redirect to video page since we have the videoId
+      window.location.replace(`/video/${videoId}`);
     };
 
     return () => {

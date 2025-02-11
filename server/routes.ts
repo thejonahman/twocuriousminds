@@ -244,7 +244,7 @@ export function registerRoutes(app: Express): Server {
 
           case 'join_group':
             const { inviteCode: joinCode, videoId: joinVideoId } = message;
-            console.log('Join group request received:', joinCode);
+            console.log('Join group request received:', { joinCode, joinVideoId });
 
             // Find group
             const groupToJoin = await db.query.discussionGroups.findFirst({
