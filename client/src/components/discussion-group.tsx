@@ -187,8 +187,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const port = window.location.port ? `:${window.location.port}` : '';
-      const wsUrl = `${protocol}//${window.location.hostname}${port}/ws`;
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
 
       console.log('Attempting to connect to WebSocket:', wsUrl, 'Environment:', process.env.NODE_ENV);
       console.log('Connection details:', {
