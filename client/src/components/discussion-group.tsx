@@ -95,12 +95,17 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   // Query for group messages with proper error handling
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id, // Remove WebSocket dependency
+    enabled: !!user && !!currentGroup?.id, // Only depend on user and group
     retry: 3,
     refetchInterval: 3000, // Poll every 3 seconds for updates
     select: (data) => {
       console.log('Received group messages:', data);
-      return validateApiResponse(z.array(messageSchema), data);
+      try {
+        return validateApiResponse(z.array(messageSchema), data);
+      } catch (error) {
+        console.error('Failed to validate messages:', error);
+        return [];
+      }
     },
     onError: (error) => {
       console.error('Error loading group messages:', error);
@@ -158,11 +163,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       return;
     }
 
-    if (socketRef.current) {
-      console.log('Closing existing WebSocket connection');
-      socketRef.current.close();
-    }
-
     setWsState(prev => ({ ...prev, connecting: true }));
 
     try {
@@ -171,18 +171,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       socketRef.current = ws;
 
       ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log('WebSocket connected successfully');
         setWsState({
           connected: true,
           connecting: false,
           retryCount: 0,
           retryDelay: INITIAL_RETRY_DELAY,
         });
-
-        if (reconnectTimeoutRef.current) {
-          window.clearTimeout(reconnectTimeoutRef.current);
-          reconnectTimeoutRef.current = undefined;
-        }
       };
 
       ws.onclose = (event) => {
@@ -193,7 +188,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           connecting: false,
         }));
 
-        if (event.code !== 1000 && event.code !== 1008 && user && wsState.retryCount < MAX_RETRIES) {
+        if (event.code !== 1000 && event.code !== 1008 && wsState.retryCount < MAX_RETRIES) {
           const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
           console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
 
@@ -205,12 +200,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             }));
             connectWebSocket();
           }, nextDelay);
-        } else if (wsState.retryCount >= MAX_RETRIES) {
-          toast({
-            title: "Connection Error",
-            description: "Maximum reconnection attempts reached. Please refresh the page.",
-            variant: "destructive",
-          });
         }
       };
 
@@ -218,11 +207,17 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         try {
           const data = JSON.parse(event.data);
           console.log('Received websocket message:', data);
-
-          // Validate websocket message format
           const message = validateApiResponse(wsMessageSchema, data);
 
           switch (message.type) {
+            case 'new_group_message':
+              if (currentGroup && message.data.groupId === currentGroup.id) {
+                queryClient.invalidateQueries({ 
+                  queryKey: ['/api/group-messages', currentGroup.id],
+                  exact: true
+                });
+              }
+              break;
             case 'new_message':
               if (!currentGroup) {
                 console.log('Invalidating messages query');
@@ -231,25 +226,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
               break;
-
-            case 'new_group_message':
-              if (currentGroup && message.data.groupId === currentGroup.id) {
-                console.log('Invalidating group messages query for new message');
-                await queryClient.invalidateQueries({ 
-                  queryKey: ['/api/group-messages', currentGroup.id],
-                  exact: true,
-                  refetchType: 'all'
-                });
-
-                // Update unread count if not currently viewing
-                if (document.hidden) {
-                  setUnreadCount(prev => prev + 1);
-                }
-                // Scroll to bottom on new message
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-              }
-              break;
-
             case 'group_created':
               console.log("Group Created:", message.data);
               // Validate group data
@@ -266,7 +242,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
               });
               break;
-
             case 'error':
               toast({
                 title: "Error",
@@ -306,7 +281,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         variant: "destructive",
       });
     }
-  }, [user, toast, wsState.retryCount, wsState.retryDelay, videoId]);
+  }, [user, toast, wsState.retryCount, wsState.retryDelay, videoId, queryClient, currentGroup]);
 
   useEffect(() => {
     if (!user) return;

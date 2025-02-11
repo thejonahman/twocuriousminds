@@ -1,5 +1,6 @@
 import { createServer, type Server } from "http";
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import type { IncomingMessage } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
@@ -38,7 +39,7 @@ export function registerRoutes(app: Express): Server {
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws',
-    verifyClient: (info, callback) => {
+    verifyClient: (info: { req: IncomingMessage & { session?: Express.Session } }, callback) => {
       // Ignore vite-hmr websocket connections
       if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
         return callback(false);
@@ -58,9 +59,11 @@ export function registerRoutes(app: Express): Server {
             return callback(false, 401, 'Session error');
           }
 
-          const isAuthenticated = info.req.session?.passport?.user != null;
+          const userId = info.req.session?.passport?.user;
+          const isAuthenticated = userId != null;
+
           if (isAuthenticated) {
-            console.log('WebSocket auth successful for user:', info.req.session?.passport?.user);
+            console.log('WebSocket auth successful for user:', userId);
             callback(true);
           } else {
             console.log('WebSocket auth failed: No user in session');
@@ -541,6 +544,18 @@ export function registerRoutes(app: Express): Server {
 
       console.log('Fetching messages for group:', groupId);
 
+      // First verify user is a member of the group
+      const member = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user!.id)
+        )
+      });
+
+      if (!member) {
+        return res.status(403).json({ message: "Not a member of this group" });
+      }
+
       // Fetch messages with user details, ordered by creation time
       const messagesList = await db.query.groupMessages.findMany({
         where: eq(groupMessages.groupId, groupId),
@@ -555,7 +570,7 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      console.log('Retrieved messages:', messagesList.length);
+      console.log(`Retrieved ${messagesList.length} messages for group ${groupId}`);
 
       // Return messages in chronological order (oldest first)
       res.json(messagesList.reverse());
