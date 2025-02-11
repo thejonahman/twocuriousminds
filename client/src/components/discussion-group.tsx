@@ -95,9 +95,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   // Query for group messages with proper error handling
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id && wsState.connected,
+    enabled: !!user && !!currentGroup?.id, // Remove WebSocket dependency
     retry: 3,
-    refetchInterval: 5000, // Polling backup
+    refetchInterval: 3000, // Poll every 3 seconds for updates
     select: (data) => {
       console.log('Received group messages:', data);
       return validateApiResponse(z.array(messageSchema), data);
@@ -235,7 +235,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             case 'new_group_message':
               if (currentGroup && message.data.groupId === currentGroup.id) {
                 console.log('Invalidating group messages query for new message');
-                // Force an immediate refresh of messages
                 await queryClient.invalidateQueries({ 
                   queryKey: ['/api/group-messages', currentGroup.id],
                   exact: true,
