@@ -69,11 +69,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: initialGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
+    retry: 3,
   });
 
   // Set initial group when data is loaded
   useEffect(() => {
     if (initialGroup && !currentGroup) {
+      console.log('Setting initial group:', initialGroup);
       setCurrentGroup(initialGroup);
       // Update URL to include group ID if not already present
       const currentPath = window.location.pathname;
