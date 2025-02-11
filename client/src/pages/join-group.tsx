@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
@@ -19,29 +18,9 @@ export default function JoinGroup() {
 
   console.log('JoinGroup component mounted:', { inviteCode, videoId, user, authLoading });
 
-  // Query group details from invite code
-  const { data: groupData, isLoading: groupLoading, error } = useQuery<Group>({
-    queryKey: [`/api/groups/invite/${inviteCode}`],
-    enabled: !!inviteCode && !!user,
-    retry: false,
-    staleTime: 0,
-  });
-
   // Set up WebSocket connection and handle join group
   useEffect(() => {
-    if (!user || !inviteCode || !videoId || !groupData) return;
-
-    // Verify video ID matches if provided
-    if (groupData.videoId !== null && groupData.videoId.toString() !== videoId) {
-      console.log('Video ID mismatch:', { expected: groupData.videoId, received: videoId });
-      toast({
-        title: "Error",
-        description: "Invalid video for this group",
-        variant: "destructive",
-      });
-      setLocation('/');
-      return;
-    }
+    if (!user || !inviteCode) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
@@ -99,11 +78,11 @@ export default function JoinGroup() {
         socketRef.current.close();
       }
     };
-  }, [user, inviteCode, videoId, groupData, toast, setLocation]);
+  }, [user, inviteCode, videoId, toast, setLocation]);
 
   // Handle authentication state
   useEffect(() => {
-    console.log('Join Group Effect:', { user, authLoading, groupData, groupLoading, error });
+    console.log('Join Group Effect:', { user, authLoading });
 
     // Only proceed if auth loading is complete
     if (authLoading) {
@@ -124,7 +103,7 @@ export default function JoinGroup() {
       window.location.replace('/auth');
       return;
     }
-  }, [user, authLoading, groupData, groupLoading, setLocation, toast, videoId, inviteCode]);
+  }, [user, authLoading, videoId, inviteCode]);
 
   if (authLoading) {
     return (
@@ -146,28 +125,13 @@ export default function JoinGroup() {
     return null;
   }
 
-  if (error) {
-    return (
-      <Card className="max-w-md mx-auto mt-8">
-        <CardHeader>
-          <CardTitle className="text-destructive">Invalid Invite Link</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">
-            This invite link is invalid or has expired. Please request a new invite link.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
     <Card className="max-w-md mx-auto mt-8">
       <CardHeader>
         <CardTitle>Joining Group...</CardTitle>
       </CardHeader>
       <CardContent>
-        <Progress value={groupLoading ? 20 : 100} className="w-full" />
+        <Progress value={20} className="w-full" />
         <p className="text-sm text-muted-foreground mt-2">
           Please wait while we connect you to the group discussion...
         </p>
