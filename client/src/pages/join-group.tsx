@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ export default function JoinGroup() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
+  const socketRef = useRef<WebSocket | null>(null);
 
   // Extract invite code and videoId from URL
   const inviteCode = window.location.pathname.split('/join-group/')[1];
@@ -25,6 +26,68 @@ export default function JoinGroup() {
     retry: false,
     staleTime: 0,
   });
+
+  // Set up WebSocket connection
+  useEffect(() => {
+    if (!user || !inviteCode || !videoId) return;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    socketRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected, sending join group request');
+      const joinGroupData = {
+        type: 'join_group',
+        inviteCode,
+        videoId,
+      };
+      ws.send(JSON.stringify(joinGroupData));
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        console.log('Received websocket message:', data);
+
+        if (data.type === 'group_joined') {
+          console.log('Successfully joined group:', data.data);
+          const group = data.data;
+
+          // Navigate to video page with group ID
+          if (group.videoId !== null && group.id !== null) {
+            const destination = `/video/${group.videoId}/group/${group.id}`;
+            console.log('Navigating to:', destination);
+            window.location.replace(destination);
+          }
+        } else if (data.type === 'error') {
+          toast({
+            title: "Error",
+            description: data.message,
+            variant: "destructive",
+          });
+          setLocation('/');
+        }
+      } catch (error) {
+        console.error('Error processing message:', error);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to connect to chat server",
+        variant: "destructive",
+      });
+    };
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+      }
+    };
+  }, [user, inviteCode, videoId, toast, setLocation]);
 
   useEffect(() => {
     console.log('Join Group Effect:', { user, authLoading, groupData, groupLoading, error });
@@ -47,45 +110,6 @@ export default function JoinGroup() {
       console.log('Redirecting to auth page');
       window.location.replace('/auth');
       return;
-    }
-
-    // Handle successful group data fetch
-    if (groupData && !groupLoading) {
-      console.log('Group data received:', groupData);
-
-      // Verify video ID matches if provided
-      if (videoId && groupData.videoId !== null && groupData.videoId.toString() !== videoId) {
-        console.log('Video ID mismatch:', { expected: groupData.videoId, received: videoId });
-        toast({
-          title: "Error",
-          description: "Invalid video for this group",
-          variant: "destructive",
-        });
-        setLocation('/');
-        return;
-      }
-
-      // Show success message
-      toast({
-        title: "Success",
-        description: `Joined group "${groupData.name}"!`,
-      });
-
-      // Navigate to video page with group ID
-      if (groupData.videoId !== null && groupData.id !== null) {
-        const destination = `/video/${groupData.videoId}/group/${groupData.id}`;
-        console.log('Navigating to:', destination);
-        // Use window.location.replace for a full page refresh to ensure proper WebSocket connection
-        window.location.replace(destination);
-      } else {
-        console.error('Invalid group data:', groupData);
-        toast({
-          title: "Error",
-          description: "Invalid group data",
-          variant: "destructive",
-        });
-        setLocation('/');
-      }
     }
   }, [user, authLoading, groupData, groupLoading, setLocation, toast, videoId, inviteCode]);
 
