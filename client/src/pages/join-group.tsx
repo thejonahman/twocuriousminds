@@ -16,6 +16,8 @@ export default function JoinGroup() {
   const inviteCode = window.location.pathname.split('/join-group/')[1];
   const videoId = new URLSearchParams(window.location.search).get('videoId');
 
+  console.log('JoinGroup component mounted:', { inviteCode, videoId, user });
+
   // Query group details from invite code
   const { data: groupData, isLoading, error } = useQuery<Group>({
     queryKey: [`/api/groups/invite/${inviteCode}`],
@@ -29,13 +31,18 @@ export default function JoinGroup() {
 
     // Handle authentication
     if (!user) {
-      const currentPath = window.location.pathname + window.location.search;
-      sessionStorage.setItem('redirectAfterAuth', currentPath);
+      console.log('User not authenticated, storing navigation data and redirecting to auth');
+      // Store the current path and search params for post-auth redirect
+      sessionStorage.setItem('targetType', 'join-group');
+      sessionStorage.setItem('targetId', videoId || '');
+      sessionStorage.setItem('inviteCode', inviteCode);
+
+      // Redirect to auth page
       setLocation('/auth');
       return;
     }
 
-    // Handle successful group join
+    // Handle successful group data fetch
     if (groupData && !isLoading) {
       console.log('Group data received:', groupData);
 
@@ -61,8 +68,8 @@ export default function JoinGroup() {
       if (groupData.videoId !== null && groupData.id !== null) {
         const destination = `/video/${groupData.videoId}/group/${groupData.id}`;
         console.log('Navigating to:', destination);
-        // Use direct window location change to force navigation
-        window.location.replace(destination);
+        // Use window.location.replace for a full page refresh to ensure proper WebSocket connection
+        window.location.href = destination;
       } else {
         console.error('Invalid group data:', groupData);
         toast({
@@ -73,7 +80,7 @@ export default function JoinGroup() {
         setLocation('/');
       }
     }
-  }, [user, groupData, setLocation, toast, videoId, isLoading]);
+  }, [user, groupData, setLocation, toast, videoId, inviteCode, isLoading]);
 
   if (!user) {
     return null;

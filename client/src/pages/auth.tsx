@@ -36,11 +36,14 @@ export default function Auth() {
 
       console.log('Auth redirect data:', { targetType, targetId, inviteCode });
 
-      if (targetType === 'join-group' && targetId && inviteCode) {
-        // User needs to complete profile wizard first
-        window.location.replace('/profile/wizard');
+      if (targetType === 'join-group' && inviteCode) {
+        const destination = `/join-group/${inviteCode}${targetId ? `?videoId=${targetId}` : ''}`;
+        console.log('Redirecting to:', destination);
+        window.location.href = destination;
       } else if (targetType === 'group' && targetId) {
-        window.location.replace('/profile/wizard');
+        const destination = `/video/${targetId}/group/${targetId}`;
+        console.log('Redirecting to:', destination);
+        window.location.href = destination;
       } else {
         // No target URL, go to home
         navigate('/');
