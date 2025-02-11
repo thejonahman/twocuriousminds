@@ -106,7 +106,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     enabled: !!user && !!currentGroup?.id && wsState.connected,
     select: (data) => {
       console.log('Received group messages:', data);
-      return validateApiResponse(z.array(messageSchema), data);
+      // Ensure messages are sorted by creation time
+      const sortedMessages = validateApiResponse(z.array(messageSchema), data).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+      return sortedMessages;
     },
     onError: (error) => {
       console.error('Error loading group messages:', error);
@@ -116,7 +120,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         variant: "destructive",
       });
     },
-    initialData: currentGroup?.messages || []
+    initialData: currentGroup?.messages?.sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    ) || []
   });
 
   // Set initial group when data is loaded
@@ -475,6 +481,34 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       </Card>
     );
   }
+
+  // Add function to track last accessed group
+  const updateLastAccessedGroup = useCallback(async () => {
+    if (!user || !videoId || !currentGroup?.id) return;
+
+    try {
+      await fetch('/api/user-preferences/last-group', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          videoId,
+          groupId: currentGroup.id
+        })
+      });
+    } catch (error) {
+      console.error('Failed to update last accessed group:', error);
+    }
+  }, [user, videoId, currentGroup?.id]);
+
+  // Add effect to track when user accesses a group
+  useEffect(() => {
+    if (currentGroup?.id) {
+      updateLastAccessedGroup();
+    }
+  }, [currentGroup?.id, updateLastAccessedGroup]);
+
 
   return (
     <Card>

@@ -69,6 +69,17 @@ export const videos = pgTable("videos", {
   titleIdx: index("video_title_idx").on(table.title)
 }));
 
+export const lastAccessedGroups = pgTable("last_accessed_groups", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  videoId: integer("video_id").notNull().references(() => videos.id),
+  groupId: integer("group_id").notNull().references(() => discussionGroups.id),
+  accessedAt: timestamp("accessed_at").defaultNow(),
+}, (table) => ({
+  userVideoIdx: index("last_accessed_groups_user_video_idx").on(table.userId, table.videoId),
+  groupIdIdx: index("last_accessed_groups_group_id_idx").on(table.groupId),
+}));
+
 export const discussionGroups = pgTable("discussion_groups", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -93,6 +104,7 @@ export const groupMembers = pgTable("group_members", {
   notificationsEnabled: boolean("notifications_enabled").default(true),
   emailNotifications: boolean("email_notifications").default(true),
   lastReadAt: timestamp("last_read_at").defaultNow(),
+  lastNotificationSent: timestamp("last_notification_sent").defaultNow(),
   unreadCount: integer("unread_count").default(0),
   joinedAt: timestamp("joined_at").defaultNow(),
 }, (table) => ({
@@ -224,6 +236,22 @@ export const groupMessageRelations = relations(groupMessages, ({ one }) => ({
     references: [discussionGroups.id],
   }),
 }));
+
+export const lastAccessedGroupsRelations = relations(lastAccessedGroups, ({ one }) => ({
+  user: one(users, {
+    fields: [lastAccessedGroups.userId],
+    references: [users.id],
+  }),
+  video: one(videos, {
+    fields: [lastAccessedGroups.videoId],
+    references: [videos.id],
+  }),
+  group: one(discussionGroups, {
+    fields: [lastAccessedGroups.groupId],
+    references: [discussionGroups.id],
+  }),
+}));
+
 
 export const insertUserSchema = createInsertSchema(users, {
   username: z.string().min(3).max(50),

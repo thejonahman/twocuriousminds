@@ -15,12 +15,26 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/use-auth"; // Import useAuth
 
 export default function Video() {
   const { id, groupId } = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const { user } = useAuth(); // Add user state
+
+  // Query for last accessed group if no groupId is provided
+  const { data: lastAccessedGroup } = useQuery({
+    queryKey: [`/api/last-accessed-group/${id}`],
+    enabled: !!user && !!id && !groupId,
+    onSuccess: (data) => {
+      if (data?.groupId) {
+        // Redirect to the last accessed group
+        setLocation(`/video/${id}/group/${data.groupId}`);
+      }
+    }
+  });
 
   const { data: video, isLoading } = useQuery<{
     id: number;
@@ -58,7 +72,7 @@ export default function Video() {
   const handleShare = async (type: string) => {
     // Always include the groupId in the share URL if we're in a group discussion
     const baseUrl = window.location.origin;
-    const shareUrl = groupId 
+    const shareUrl = groupId
       ? `${baseUrl}/video/${id}/group/${groupId}`
       : window.location.href;
 
@@ -193,8 +207,8 @@ export default function Video() {
           <DelphiBubble videoId={video?.id} />
 
           <div className="rounded-xl border bg-card shadow-sm">
-            <DiscussionGroup 
-              videoId={video?.id} 
+            <DiscussionGroup
+              videoId={video?.id}
               initialGroupId={groupId ? parseInt(groupId) : undefined}
             />
           </div>
