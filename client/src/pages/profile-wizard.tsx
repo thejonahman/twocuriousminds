@@ -42,7 +42,21 @@ export default function ProfileWizard() {
     enabled: !!user,
   });
 
-  // Handle navigation when preferences already exist
+  const handleRedirectToReturnUrl = () => {
+    const returnUrl = sessionStorage.getItem('returnUrl');
+    if (returnUrl) {
+      sessionStorage.removeItem('returnUrl');
+      try {
+        const url = new URL(returnUrl);
+        navigate(url.pathname + url.search + url.hash);
+      } catch {
+        navigate(returnUrl);
+      }
+    } else {
+      navigate('/');
+    }
+  };
+
   useEffect(() => {
     if (!preferencesLoading && existingPreferences) {
       const hasPreferences = (
@@ -56,17 +70,7 @@ export default function ProfileWizard() {
           title: "Preferences Already Set",
           description: "Your viewing preferences are already configured.",
         });
-
-        // Get the stored return URL
-        const returnUrl = sessionStorage.getItem('returnUrl');
-        if (returnUrl) {
-          // Clear the return URL before navigating
-          sessionStorage.removeItem('returnUrl');
-          // Use window.location.href for external URLs or complex paths
-          window.location.href = returnUrl;
-        } else {
-          navigate('/');
-        }
+        handleRedirectToReturnUrl();
       }
     }
   }, [existingPreferences, preferencesLoading, navigate, toast]);
@@ -85,17 +89,7 @@ export default function ProfileWizard() {
         title: "Preferences saved",
         description: "Your profile has been set up successfully!",
       });
-
-      // Get the stored return URL
-      const returnUrl = sessionStorage.getItem('returnUrl');
-      if (returnUrl) {
-        // Clear the return URL before navigating
-        sessionStorage.removeItem('returnUrl');
-        // Use window.location.href for external URLs or complex paths
-        window.location.href = returnUrl;
-      } else {
-        navigate('/');
-      }
+      handleRedirectToReturnUrl();
     },
     onError: (error: Error) => {
       toast({
