@@ -30,12 +30,14 @@ export default function Auth() {
   useEffect(() => {
     if (user) {
       // Check if we need to complete profile wizard
-      const returnUrl = sessionStorage.getItem('returnUrl');
-      if (returnUrl) {
+      const targetType = sessionStorage.getItem('targetType');
+      const targetId = sessionStorage.getItem('targetId');
+
+      if (targetType || targetId) {
         // User needs to complete profile wizard first
         navigate('/profile/wizard');
       } else {
-        // No return URL, go to home
+        // No target URL, go to home
         navigate('/');
       }
     }

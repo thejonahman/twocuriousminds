@@ -25,11 +25,16 @@ export function ProtectedRoute({
     );
   }
 
-  // Store the current URL before redirecting to auth
+  // Store navigation data before redirecting to auth
   if (!user) {
-    // Store the full URL including search params and hash
-    const fullUrl = window.location.pathname + window.location.search + window.location.hash;
-    sessionStorage.setItem('returnUrl', fullUrl);
+    const pathParts = window.location.pathname.split('/');
+    if (pathParts.includes('group')) {
+      const groupIndex = pathParts.indexOf('group');
+      if (groupIndex > 0 && pathParts[groupIndex + 1]) {
+        sessionStorage.setItem('targetType', 'group');
+        sessionStorage.setItem('targetId', pathParts[groupIndex + 1]);
+      }
+    }
   }
 
   // Check for user authentication and admin status if required

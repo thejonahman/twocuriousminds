@@ -43,14 +43,18 @@ export default function ProfileWizard() {
   });
 
   const handleRedirectToReturnUrl = () => {
-    const returnUrl = sessionStorage.getItem('returnUrl');
-    if (returnUrl) {
-      sessionStorage.removeItem('returnUrl');
-      try {
-        const url = new URL(returnUrl);
-        navigate(url.pathname + url.search + url.hash);
-      } catch {
-        navigate(returnUrl);
+    const targetType = sessionStorage.getItem('targetType');
+    const targetId = sessionStorage.getItem('targetId');
+
+    // Clear stored navigation data
+    sessionStorage.removeItem('targetType');
+    sessionStorage.removeItem('targetId');
+
+    if (targetType && targetId) {
+      if (targetType === 'group') {
+        navigate(`/video/${targetId}/group/${targetId}`);
+      } else {
+        navigate('/');
       }
     } else {
       navigate('/');
