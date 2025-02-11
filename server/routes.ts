@@ -531,7 +531,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Add group messages endpoint
+  // Update group messages endpoint to include more details
   app.get("/api/group-messages", requireAuth, async (req, res) => {
     try {
       const groupId = parseInt(req.query.groupId as string);
@@ -540,6 +540,18 @@ export function registerRoutes(app: Express): Server {
       }
 
       console.log('Fetching messages for group:', groupId);
+
+      // Check if user is a member of the group
+      const member = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user!.id)
+        )
+      });
+
+      if (!member) {
+        return res.status(403).json({ message: "Not a member of this group" });
+      }
 
       // Fetch messages with user details, ordered by creation time
       const messagesList = await db.query.groupMessages.findMany({
@@ -550,12 +562,11 @@ export function registerRoutes(app: Express): Server {
             columns: {
               username: true
             }
-          },
-          group: true
+          }
         }
       });
 
-      console.log('Retrieved messages:', messagesList.length);
+      console.log('Retrieved', messagesList.length, 'messages for group:', groupId);
 
       // Return messages in chronological order (oldest first)
       res.json(messagesList.reverse());
@@ -576,7 +587,9 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Invalid group ID" });
       }
 
-      // Get group with members
+      console.log('Fetching group:', groupId, 'for user:', req.user?.id);
+
+      // Get group with members and messages
       const group = await db.query.discussionGroups.findFirst({
         where: eq(discussionGroups.id, groupId),
         with: {
@@ -588,6 +601,16 @@ export function registerRoutes(app: Express): Server {
                 }
               }
             }
+          },
+          messages: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            },
+            orderBy: [desc(groupMessages.createdAt)]
           }
         }
       });
@@ -595,6 +618,8 @@ export function registerRoutes(app: Express): Server {
       if (!group) {
         return res.status(404).json({ message: "Group not found" });
       }
+
+      console.log('Found group with', group.messages?.length || 0, 'messages');
 
       // Check if user is already a member
       const existingMember = group.members.find(member => member.userId === req.user!.id);

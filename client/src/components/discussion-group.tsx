@@ -68,6 +68,25 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
+    onSuccess: (data) => {
+      console.log('Group data loaded:', data);
+      if (data && !currentGroup) {
+        setCurrentGroup(data);
+        // Update URL to include group ID if not already present
+        const currentPath = window.location.pathname;
+        if (!currentPath.includes('/group/')) {
+          setLocation(`/video/${videoId}/group/${data.id}`);
+        }
+      }
+    },
+    onError: (error) => {
+      console.error('Error loading group:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load group discussion",
+        variant: "destructive",
+      });
+    }
   });
 
   // Query for video messages
@@ -77,14 +96,22 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
 
-  // Query for group messages
+  // Update group messages query with better error handling
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id,
+    enabled: !!user && !!currentGroup?.id && wsState.connected,
     select: (data) => {
       console.log('Received group messages:', data);
       return validateApiResponse(z.array(messageSchema), data);
     },
+    onError: (error) => {
+      console.error('Error loading group messages:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load group messages",
+        variant: "destructive",
+      });
+    }
   });
 
   // Set initial group when data is loaded
@@ -407,6 +434,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
   }, [currentGroup, user, groupMessages]);
 
+  // Add loading state component
   if (!user) {
     return (
       <Card className="mt-6">
@@ -423,7 +451,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   }
 
   const displayMessages = currentGroup ? groupMessages : messages;
-  const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages;
+  const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages || !wsState.connected;
 
   if (isLoading) {
     return (
@@ -432,8 +460,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           <CardTitle>Discussion</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-center p-8">
+          <div className="flex flex-col items-center justify-center gap-4 p-8">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <p className="text-sm text-muted-foreground">
+              {!wsState.connected ? 'Connecting to chat...' : 'Loading messages...'}
+            </p>
           </div>
         </CardContent>
       </Card>
