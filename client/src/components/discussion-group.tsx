@@ -51,16 +51,15 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   // Query for group if initialGroupId is provided
   const { data: group } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
-    enabled: !!initialGroupId && !!user,
+    enabled: !!initialGroupId,
   });
 
-  // Query for video messages with proper query key
+  // Query for messages
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
     queryKey: [`/api/messages/${videoId}`],
     enabled: !!videoId && !currentGroup,
   });
 
-  // Query for group messages with proper query key
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: [`/api/group-messages/${currentGroup?.id}`],
     enabled: !!currentGroup?.id,
@@ -113,13 +112,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             case 'new_message':
               if (!currentGroup) {
                 queryClient.invalidateQueries({ queryKey: [`/api/messages/${videoId}`] });
-                console.log('Invalidating video messages cache');
               }
               break;
             case 'new_group_message':
               if (currentGroup && data.groupId === currentGroup.id) {
                 queryClient.invalidateQueries({ queryKey: [`/api/group-messages/${currentGroup.id}`] });
-                console.log('Invalidating group messages cache');
               }
               break;
             case 'group_created':
@@ -236,11 +233,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     );
   }
 
+  // Get the current messages to display
   const displayMessages = currentGroup ? groupMessages : messages;
   const isLoading = isLoadingMessages || isLoadingGroupMessages;
 
   // Sort messages by creation time
-  const sortedMessages = [...(displayMessages || [])].sort(
+  const sortedMessages = [...displayMessages].sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
 
@@ -321,7 +319,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             <div className="flex items-center justify-center h-full">
               <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             </div>
-          ) : (!sortedMessages || sortedMessages.length === 0) ? (
+          ) : sortedMessages.length === 0 ? (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
