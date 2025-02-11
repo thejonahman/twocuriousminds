@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,9 +26,11 @@ import { z } from "zod";
 import { useLocation } from "wouter";
 import { ShareButton } from "@/components/ui/share-button";
 
-// Constants for WebSocket connection management
+// Maximum number of reconnection attempts
 const MAX_RETRIES = 5;
+// Initial delay in milliseconds (1 second)
 const INITIAL_RETRY_DELAY = 1000;
+// Maximum delay between retries (30 seconds)
 const MAX_RETRY_DELAY = 30000;
 
 interface WebSocketState {
@@ -62,17 +64,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const reconnectTimeoutRef = useRef<number>();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Define sortMessages function first using useMemo to avoid the error
-  const sortMessages = useMemo(() => {
-    return (messages: Message[]) => {
-      return [...messages].sort((a, b) => {
-        const timeA = new Date(a.createdAt).getTime();
-        const timeB = new Date(b.createdAt).getTime();
-        return timeA === timeB ? a.id - b.id : timeA - timeB;
-      });
-    };
-  }, []);
-
   // Query for group if initialGroupId is provided
   const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
@@ -84,19 +75,15 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     enabled: !!user && !!videoId && !currentGroup,
-    select: (data) => sortMessages(validateApiResponse(z.array(messageSchema), data)),
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
 
   // Update group messages query with better error handling
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
     enabled: !!user && !!currentGroup?.id && wsState.connected,
-    select: useCallback((data: Message[]) => {
-      console.log('Processing group messages:', data);
-      const validatedData = validateApiResponse(z.array(messageSchema), data);
-      return sortMessages(validatedData);
-    }, [sortMessages]),
-    initialData: currentGroup?.messages ? sortMessages(currentGroup.messages) : [],
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
+    initialData: currentGroup?.messages || [],
   });
 
   // Set initial group when data is loaded
@@ -119,7 +106,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   });
 
   // Query for user's last active group in this video
-  const { data: lastActiveGroupData } = useQuery<Group>({
+  const { data: lastActiveGroup } = useQuery<Group>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
     select: (data) => validateApiResponse(groupSchema, data),
@@ -141,18 +128,15 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     return `${baseUrl}/video/${videoId}/group/${currentGroup.id}`;
   };
 
-  // Update optimistic message handling
-  const addOptimisticMessage = useCallback((newMessage: Message) => {
+  const addOptimisticMessage = (newMessage: Message) => {
     const queryKey = currentGroup
       ? ['/api/group-messages', currentGroup.id]
       : ['/api/messages', videoId];
 
     queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
-      const merged = [...old, newMessage];
-      console.log('Merging messages:', { old, newMessage, merged });
-      return sortMessages(merged);
+      return [...old, newMessage];
     });
-  }, [currentGroup, videoId, sortMessages, queryClient]);
+  };
 
   const connectWebSocket = useCallback(() => {
     if (!user || wsState.connecting) return;
@@ -229,21 +213,17 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           switch (message.type) {
             case 'new_message':
               if (!currentGroup) {
-                queryClient.setQueryData<Message[]>(['/api/messages', videoId], (old = []) => {
-                  return sortMessages([...old, message.data]);
-                });
+                console.log('Invalidating messages query');
+                queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
                 // Scroll to bottom on new message
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
               break;
+
             case 'new_group_message':
               if (currentGroup && message.data.groupId === currentGroup.id) {
-                console.log('Processing new group message:', message.data);
-                queryClient.setQueryData<Message[]>(['/api/group-messages', currentGroup.id], (old = []) => {
-                  const merged = [...old, message.data];
-                  console.log('Merging group messages:', { old, new: message.data, merged });
-                  return sortMessages(merged);
-                });
+                console.log('Invalidating group messages query');
+                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
                 // Update unread count if not currently viewing
                 if (document.hidden) {
                   setUnreadCount(prev => prev + 1);
@@ -252,6 +232,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
               break;
+
             case 'group_created':
               console.log("Group Created:", message.data);
               // Validate group data
@@ -268,6 +249,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
               });
               break;
+
             case 'error':
               toast({
                 title: "Error",
@@ -337,7 +319,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     const messageData = currentGroup ? {
       type: 'group_message',
       groupId: currentGroup.id,
-      videoId, // Add videoId for tracking last active group
       content: messageInput,
     } : {
       type: 'message',
@@ -347,7 +328,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     // Add optimistic update
     const optimisticMessage: Message = {
-      id: Date.now(),
+      id: Date.now(), // Temporary ID
       content: messageInput,
       userId: user!.id,
       createdAt: new Date().toISOString(),
@@ -396,12 +377,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     setLocation(`/video/${videoId}`);
   };
 
-  // The displayMessages computation remains the same but uses the memoized sortMessages
-  const displayMessages = useMemo(() => {
-    const messagesToShow = currentGroup ? groupMessages : messages;
-    return sortMessages(messagesToShow);
-  }, [currentGroup, groupMessages, messages, sortMessages]);
+  // Update display messages to show in chronological order (oldest first)
+  const sortedMessages = [...(currentGroup ? groupMessages : messages)].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
 
+  // Auto-scroll when new messages arrive
   const scrollToBottom = useCallback(() => {
     if (messagesEndRef.current) {
       const container = messagesEndRef.current.parentElement;
@@ -420,7 +401,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [displayMessages.length, scrollToBottom]);
+  }, [sortedMessages.length, scrollToBottom]);
 
 
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
@@ -459,7 +440,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
       markAsRead();
     }
-  }, [currentGroup, user, displayMessages.length]);
+  }, [currentGroup, user, sortedMessages.length]);
 
   // Handle visibility change to mark messages as read when tab becomes visible
   useEffect(() => {
@@ -493,6 +474,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     );
   }
 
+  const displayMessages = currentGroup ? groupMessages : messages;
   const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages || !wsState.connected;
 
   if (isLoading) {
@@ -596,12 +578,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {displayMessages.length === 0 && (
+          {sortedMessages.length === 0 && (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
           )}
-          {displayMessages.map((message) => (
+          {sortedMessages.map((message) => (
             <div
               key={message.id}
               className={`flex flex-col ${
