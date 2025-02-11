@@ -94,17 +94,14 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       socketRef.current = ws;
 
       ws.onopen = () => {
+        console.log('WebSocket connected');
         setIsConnected(true);
       };
 
       ws.onclose = () => {
+        console.log('WebSocket disconnected');
         setIsConnected(false);
-        // Simple reconnect after 2 seconds
         setTimeout(connectWebSocket, 2000);
-      };
-
-      ws.onerror = () => {
-        setIsConnected(false);
       };
 
       ws.onmessage = (event) => {
@@ -119,6 +116,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
               } else {
                 queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
               }
+              // Scroll to bottom on new message
+              setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }, 100);
               break;
             case 'group_created':
               // Handle new group creation
@@ -132,8 +133,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
               });
               break;
           }
-          // Scroll to bottom on new message
-          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         } catch (error) {
           console.error('Error processing message:', error);
         }
@@ -270,11 +269,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         </CardTitle>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
         {!currentGroup && (
           <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="mb-4">
+              <Button variant="outline">
                 <Plus className="h-4 w-4 mr-2" />
                 Create Group
               </Button>
@@ -330,7 +329,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                       : "bg-muted"
                   }`}
                 >
-                  <p className="text-sm font-semibold">{message.user.username}</p>
+                  {message.user?.username && (
+                    <p className="text-sm font-semibold">{message.user.username}</p>
+                  )}
                   <p>{message.content}</p>
                 </div>
               </div>
