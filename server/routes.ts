@@ -38,6 +38,7 @@ export function registerRoutes(app: Express): Server {
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws',
+    clientTracking: true,
     verifyClient: (info, callback) => {
       console.log('WebSocket connection attempt from:', info.origin);
       console.log('Headers:', info.req.headers);
