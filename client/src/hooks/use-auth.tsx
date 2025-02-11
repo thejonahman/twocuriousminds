@@ -1,4 +1,4 @@
-import { ReactNode, createContext, useContext } from "react";
+import { ReactNode, createContext, useContext, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -7,6 +7,7 @@ interface User {
   id: number;
   username: string;
   email: string;
+  isAdmin?: boolean;
 }
 
 interface AuthContextType {
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Use staleTime to prevent unnecessary refetches
   const {
     data: user,
     error,
@@ -40,6 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   } = useQuery<User | null>({
     queryKey: ["/api/user"],
     retry: false,
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    refetchInterval: 300000, // Refetch every 5 minutes
   });
 
   const loginMutation = useMutation({
@@ -70,7 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registerMutation = useMutation({
     mutationFn: async (newUser: RegisterData) => {
       const res = await apiRequest("POST", "/api/register", newUser);
-       if (!res.ok) {
+      if (!res.ok) {
         const error = await res.text();
         throw new Error(error || 'Registration failed');
       }
@@ -94,16 +98,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/logout");
+      const res = await apiRequest("POST", "/api/logout");
+      if (!res.ok) {
+        throw new Error('Logout failed');
+      }
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
+      queryClient.clear(); // Clear all queries on logout
       toast({
         title: "Logged out",
         description: "See you next time!",
       });
     },
+    onError: (error: Error) => {
+      toast({
+        title: "Logout failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
+
+  // Clear stored navigation data on unmount
+  useEffect(() => {
+    return () => {
+      sessionStorage.removeItem('targetType');
+      sessionStorage.removeItem('targetId');
+      sessionStorage.removeItem('inviteCode');
+    };
+  }, []);
 
   return (
     <AuthContext.Provider

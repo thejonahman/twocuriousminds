@@ -31,29 +31,32 @@ export function ProtectedRoute({
     const searchParams = new URLSearchParams(window.location.search);
     const videoId = searchParams.get('videoId');
 
-    if (pathParts.includes('join-group')) {
-      const joinGroupIndex = pathParts.indexOf('join-group');
-      if (joinGroupIndex > 0 && pathParts[joinGroupIndex + 1] && videoId) {
-        sessionStorage.setItem('targetType', 'join-group');
-        sessionStorage.setItem('targetId', videoId);
-        sessionStorage.setItem('inviteCode', pathParts[joinGroupIndex + 1]);
-        console.log('Storing join-group navigation data:', {
-          type: 'join-group',
-          videoId,
-          inviteCode: pathParts[joinGroupIndex + 1],
-          fullPath: window.location.pathname + window.location.search
-        });
-      }
-    } else if (pathParts.includes('group')) {
-      const groupIndex = pathParts.indexOf('group');
-      if (groupIndex > 0 && pathParts[groupIndex + 1]) {
-        sessionStorage.setItem('targetType', 'group');
-        sessionStorage.setItem('targetId', pathParts[groupIndex + 1]);
-        console.log('Storing navigation data:', {
-          type: 'group',
-          id: pathParts[groupIndex + 1],
-          fullPath: window.location.pathname
-        });
+    // Only store navigation data if we're on a group-related path
+    if (pathParts.includes('join-group') || pathParts.includes('group')) {
+      if (pathParts.includes('join-group')) {
+        const joinGroupIndex = pathParts.indexOf('join-group');
+        if (joinGroupIndex > 0 && pathParts[joinGroupIndex + 1] && videoId) {
+          sessionStorage.setItem('targetType', 'join-group');
+          sessionStorage.setItem('targetId', videoId);
+          sessionStorage.setItem('inviteCode', pathParts[joinGroupIndex + 1]);
+          console.log('Storing join-group navigation data:', {
+            type: 'join-group',
+            videoId,
+            inviteCode: pathParts[joinGroupIndex + 1],
+            fullPath: window.location.pathname + window.location.search
+          });
+        }
+      } else if (pathParts.includes('group')) {
+        const groupIndex = pathParts.indexOf('group');
+        if (groupIndex > 0 && pathParts[groupIndex + 1]) {
+          sessionStorage.setItem('targetType', 'group');
+          sessionStorage.setItem('targetId', pathParts[groupIndex + 1]);
+          console.log('Storing group navigation data:', {
+            type: 'group',
+            id: pathParts[groupIndex + 1],
+            fullPath: window.location.pathname
+          });
+        }
       }
     }
   }
