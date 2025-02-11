@@ -33,6 +33,11 @@ export function ProtectedRoute({
       if (groupIndex > 0 && pathParts[groupIndex + 1]) {
         sessionStorage.setItem('targetType', 'group');
         sessionStorage.setItem('targetId', pathParts[groupIndex + 1]);
+        console.log('Storing navigation data:', {
+          type: 'group',
+          id: pathParts[groupIndex + 1],
+          fullPath: window.location.pathname
+        });
       }
     }
   }

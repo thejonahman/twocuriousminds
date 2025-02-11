@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -46,13 +46,17 @@ export default function ProfileWizard() {
     const targetType = sessionStorage.getItem('targetType');
     const targetId = sessionStorage.getItem('targetId');
 
+    console.log('Redirect data:', { targetType, targetId });
+
     // Clear stored navigation data
     sessionStorage.removeItem('targetType');
     sessionStorage.removeItem('targetId');
 
     if (targetType && targetId) {
       if (targetType === 'group') {
-        navigate(`/video/${targetId}/group/${targetId}`);
+        const path = `/video/${targetId}/group/${targetId}`;
+        console.log('Redirecting to:', path);
+        navigate(path);
       } else {
         navigate('/');
       }
