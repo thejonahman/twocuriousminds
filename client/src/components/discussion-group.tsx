@@ -170,6 +170,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     });
   };
 
+  const wsHost = window.location.host.includes('localhost') ?
+    `${window.location.hostname}:${import.meta.env.VITE_PORT || 3000}` :
+    window.location.host;
+
   const connectWebSocket = useCallback(() => {
     if (!user || wsState.connecting) return;
 
@@ -187,21 +191,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-      console.log('Attempting to connect to WebSocket:', wsUrl, 'Environment:', process.env.NODE_ENV);
-      console.log('Connection details:', {
-        protocol,
-        hostname: wsHost,
-        port: process.env.NODE_ENV === 'production' ? null : 5000,
-        fullUrl: wsUrl,
-        environment: process.env.NODE_ENV
-      });
-
+      const wsUrl = `${protocol}//${wsHost}/ws`;
+      console.log('Attempting to connect to WebSocket:', wsUrl);
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
-      let connectionTimeout = setTimeout(() => {
+      const connectionTimeout = setTimeout(() => {
         console.error('WebSocket connection timeout');
         ws.close();
         setWsState(prev => ({
@@ -352,7 +347,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         variant: "destructive",
       });
     }
-  }, [user, toast, wsState.retryCount, wsState.retryDelay]);
+  }, [user, toast, wsState.retryCount, wsState.retryDelay, wsHost]);
 
   useEffect(() => {
     if (!user) return;
