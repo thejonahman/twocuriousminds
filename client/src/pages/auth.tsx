@@ -27,11 +27,14 @@ export default function Auth() {
   const [, navigate] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
 
+  // Get return URL from session storage or default to profile wizard
+  const returnUrl = sessionStorage.getItem('returnUrl') || '/profile/wizard';
+
   useEffect(() => {
     if (user) {
-      navigate("/profile/wizard");
+      navigate(returnUrl); // Updated to use returnUrl
     }
-  }, [user, navigate]);
+  }, [user, navigate, returnUrl]); //returnUrl added to dependency array
 
   const form = useForm<LoginValues | RegisterValues>({
     resolver: zodResolver(isLogin ? loginSchema : registerSchema),

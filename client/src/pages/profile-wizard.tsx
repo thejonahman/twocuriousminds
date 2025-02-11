@@ -32,21 +32,8 @@ export default function ProfileWizard() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
-  // Query to fetch categories
-  const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery<Category[]>({
-    queryKey: ["/api/categories"],
-    queryFn: async () => {
-      console.log("Fetching categories...");
-      const res = await fetch('/api/categories');
-      if (!res.ok) {
-        console.error("Failed to fetch categories:", await res.text());
-        throw new Error('Failed to fetch categories');
-      }
-      const data = await res.json();
-      console.log("Fetched categories:", data);
-      return data;
-    },
-  });
+  // Get the return URL from sessionStorage or default to home
+  const returnUrl = sessionStorage.getItem('returnUrl') || '/';
 
   // Query to fetch existing preferences
   const { data: existingPreferences, isLoading: preferencesLoading } = useQuery<Preferences>({
@@ -77,10 +64,11 @@ export default function ProfileWizard() {
           title: "Preferences Already Set",
           description: "Your viewing preferences are already configured.",
         });
-        navigate("/");
+        // Navigate to the stored return URL or home
+        navigate(returnUrl);
       }
     }
-  }, [existingPreferences, preferencesLoading, navigate, toast]);
+  }, [existingPreferences, preferencesLoading, navigate, toast, returnUrl]);
 
   const mutation = useMutation({
     mutationFn: async (preferences: Preferences) => {
@@ -100,7 +88,8 @@ export default function ProfileWizard() {
         title: "Preferences saved",
         description: "Your profile has been set up successfully!",
       });
-      navigate("/");
+      // Navigate to the stored return URL or home
+      navigate(returnUrl);
     },
     onError: (error: Error) => {
       toast({
@@ -110,6 +99,7 @@ export default function ProfileWizard() {
       });
     },
   });
+
 
   if (categoriesError) {
     return (
@@ -264,8 +254,8 @@ export default function ProfileWizard() {
               Back
             </Button>
           )}
-          <Button 
-            onClick={handleNext} 
+          <Button
+            onClick={handleNext}
             disabled={mutation.isPending}
             className={step === 1 ? "ml-auto" : ""}
           >

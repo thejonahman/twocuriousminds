@@ -25,6 +25,12 @@ export function ProtectedRoute({
     );
   }
 
+  // Store the current URL before redirecting to auth
+  if (!user) {
+    // Store the full URL including search params
+    sessionStorage.setItem('returnUrl', window.location.pathname + window.location.search);
+  }
+
   // Check for user authentication and admin status if required
   if (!user || (adminRequired && !user.isAdmin)) {
     return (
