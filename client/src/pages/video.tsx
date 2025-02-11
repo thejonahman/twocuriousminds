@@ -42,6 +42,19 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
+  // Add query for last active group
+  const { data: lastActiveGroup } = useQuery({
+    queryKey: [`/api/videos/${id}/last-active-group`],
+    enabled: !!id && !groupId, // Only run if no groupId provided
+  });
+
+  // If there's a last active group and no current groupId, redirect
+  useEffect(() => {
+    if (lastActiveGroup?.id && !groupId) {
+      setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
+    }
+  }, [lastActiveGroup, id, groupId, setLocation]);
+
   // Scroll to top whenever the video ID changes
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -58,7 +71,7 @@ export default function Video() {
   const handleShare = async (type: string) => {
     // Always include the groupId in the share URL if we're in a group discussion
     const baseUrl = window.location.origin;
-    const shareUrl = groupId 
+    const shareUrl = groupId
       ? `${baseUrl}/video/${id}/group/${groupId}`
       : window.location.href;
 
@@ -193,8 +206,8 @@ export default function Video() {
           <DelphiBubble videoId={video?.id} />
 
           <div className="rounded-xl border bg-card shadow-sm">
-            <DiscussionGroup 
-              videoId={video?.id} 
+            <DiscussionGroup
+              videoId={video?.id}
               initialGroupId={groupId ? parseInt(groupId) : undefined}
             />
           </div>

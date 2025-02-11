@@ -71,19 +71,17 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     select: (data) => validateApiResponse(groupSchema, data),
   });
 
-  // Query for video messages
-  const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
-    queryKey: ['/api/messages', videoId],
-    enabled: !!user && !!videoId && !currentGroup,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
-  });
-
-  // Update group messages query with better error handling
-  const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
-    queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id && wsState.connected,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
-    initialData: currentGroup?.messages || [],
+  // Add query for user's last active group in this video
+  const { data: lastActiveGroup } = useQuery<Group>({
+    queryKey: [`/api/videos/${videoId}/last-active-group`],
+    enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
+    select: (data) => validateApiResponse(groupSchema, data),
+    onSuccess: (data) => {
+      if (data && !currentGroup) {
+        setCurrentGroup(data);
+        setLocation(`/video/${videoId}/group/${data.id}`);
+      }
+    },
   });
 
   // Set initial group when data is loaded
@@ -99,23 +97,26 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
   }, [group, currentGroup, videoId, setLocation]);
 
+  // Query for video messages
+  const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
+    queryKey: ['/api/messages', videoId],
+    enabled: !!user && !!videoId && !currentGroup,
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
+  });
+
+  // Update group messages query with better error handling
+  const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
+    queryKey: ['/api/group-messages', currentGroup?.id],
+    enabled: !!user && !!currentGroup?.id && wsState.connected,
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
+    initialData: currentGroup?.messages || [],
+  });
+
+
   // Add video data query
   const { data: videoData } = useQuery({
     queryKey: [`/api/videos/${videoId}`],
     enabled: !!videoId,
-  });
-
-  // Query for user's last active group in this video
-  const { data: lastActiveGroup } = useQuery<Group>({
-    queryKey: [`/api/videos/${videoId}/last-active-group`],
-    enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
-    select: (data) => validateApiResponse(groupSchema, data),
-    onSuccess: (data) => {
-      if (data && !currentGroup) {
-        setCurrentGroup(data);
-        setLocation(`/video/${videoId}/group/${data.id}`);
-      }
-    },
   });
 
 
