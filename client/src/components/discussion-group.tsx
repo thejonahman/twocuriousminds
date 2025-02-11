@@ -20,10 +20,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Send, MessageSquare, Plus, UserPlus, Users, Link, Copy, Check } from "lucide-react";
+import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
 import { useLocation, useRoute } from "wouter";
+import { ShareButton } from "@/components/ui/share-button";
 
 // Maximum number of reconnection attempts
 const MAX_RETRIES = 5;
@@ -53,7 +54,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const [groupNameInput, setGroupNameInput] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
-  const [copied, setCopied] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [wsState, setWsState] = useState<WebSocketState>({
@@ -110,26 +110,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const generateInviteLink = (inviteCode: string) => {
     const baseUrl = window.location.origin;
     return `${baseUrl}/join-group/${inviteCode}?videoId=${videoId}`;
-  };
-
-  // Copy invite link handler
-  const copyInviteLink = async (inviteCode: string) => {
-    const link = generateInviteLink(inviteCode);
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      toast({
-        title: "Success",
-        description: "Invite link copied to clipboard!",
-      });
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      toast({
-        title: "Error",
-        description: "Failed to copy invite link",
-        variant: "destructive",
-      });
-    }
   };
 
   const addOptimisticMessage = (newMessage: Message) => {
@@ -504,19 +484,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           </div>
           <div className="flex items-center gap-2">
             {currentGroup?.inviteCode && (
-              <Button
-                variant="outline"
-                size="sm"
+              <ShareButton
+                url={generateInviteLink(currentGroup.inviteCode)}
+                title={`Join my discussion group: ${currentGroup.name}`}
+                text={`Join our discussion group for "${videoData?.title}". Click the link to join!`}
                 className="gap-2"
-                onClick={() => copyInviteLink(currentGroup.inviteCode)}
-              >
-                {copied ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Link className="h-4 w-4" />
-                )}
-                Share Group
-              </Button>
+              />
             )}
             {currentGroup && (
               <Button variant="outline" size="sm" onClick={leaveGroup}>
