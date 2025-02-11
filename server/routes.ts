@@ -451,7 +451,18 @@ export function registerRoutes(app: Express): Server {
 
       // Find group by invite code
       const group = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.inviteCode, inviteCode)
+        where: eq(discussionGroups.inviteCode, inviteCode),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
+        }
       });
 
       if (!group) {
@@ -460,21 +471,21 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Check if user is already a member
-      const existingMember = await db.query.groupMembers.findFirst({
-        where: and(
-          eq(groupMembers.groupId, group.id),
-          eq(groupMembers.userId, req.user!.id)
-        )
-      });
+      const existingMember = group.members.find(member => member.userId === req.user!.id);
 
       if (!existingMember) {
         // Add user as member
         await db.insert(groupMembers)
           .values({
-            groupId: group.id,
             userId: req.user!.id,
+            groupId: group.id,
             role: 'member'
           });
+
+        console.log('Added new member to group:', {
+          userId: req.user!.id,
+          groupId: group.id
+        });
       }
 
       console.log('Successfully joined group:', group.id);

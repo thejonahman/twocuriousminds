@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
@@ -7,7 +6,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
 
 export default function JoinGroup() {
-  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
 
@@ -20,7 +18,9 @@ export default function JoinGroup() {
 
     if (!user) {
       // Store current URL for post-auth redirect
-      sessionStorage.setItem('redirectUrl', window.location.href);
+      const currentUrl = window.location.href;
+      console.log('Storing redirect URL:', currentUrl);
+      sessionStorage.setItem('redirectUrl', currentUrl);
       window.location.replace('/auth');
       return;
     }
@@ -38,11 +38,15 @@ export default function JoinGroup() {
     // Join group via REST API
     const joinGroup = async () => {
       try {
+        console.log('Attempting to join group with invite code:', inviteCode);
         const response = await apiRequest('GET', `/api/groups/invite/${inviteCode}`);
         const group = await response.json();
+        console.log('Successfully joined group:', group);
 
         // Navigate to video page with group ID
-        window.location.replace(`/video/${videoId}?groupId=${group.id}`);
+        const destination = `/video/${videoId}/group/${group.id}`;
+        console.log('Redirecting to:', destination);
+        window.location.replace(destination);
       } catch (error) {
         console.error('Error joining group:', error);
         toast({
