@@ -1,21 +1,25 @@
-import passport from "passport";
-import { Strategy as LocalStrategy } from "passport-local";
 import { Express } from "express";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { users, insertUserSchema, type SelectUser } from "@db/schema";
+import { users } from "@db/schema";
 import { db, pool } from "@db";
 import { eq } from "drizzle-orm";
-import { fromZodError } from "zod-validation-error";
 
 const scryptAsync = promisify(scrypt);
 const PostgresSessionStore = connectPg(session);
 
 declare global {
   namespace Express {
-    interface User extends SelectUser {}
+    interface Request {
+      user?: {
+        id: number;
+        username: string;
+        email: string;
+        isAdmin: boolean;
+      }
+    }
   }
 }
 
@@ -26,154 +30,150 @@ async function hashPassword(password: string) {
 }
 
 async function comparePasswords(supplied: string, stored: string) {
-  try {
-    const [hashedPassword, salt] = stored.split(".");
-    const buf = (await scryptAsync(supplied, salt, 32)) as Buffer;
-    const storedBuf = Buffer.from(hashedPassword, "hex");
-    return timingSafeEqual(buf, storedBuf);
-  } catch (error) {
-    console.error("Password comparison error:", error);
-    return false;
-  }
-}
-
-async function getUserByUsername(username: string) {
-  return db.select().from(users).where(eq(users.username, username)).limit(1);
+  const [hashedPassword, salt] = stored.split(".");
+  const buf = (await scryptAsync(supplied, salt, 32)) as Buffer;
+  const storedBuf = Buffer.from(hashedPassword, "hex");
+  return timingSafeEqual(buf, storedBuf);
 }
 
 export function setupAuth(app: Express) {
-  // Create session store without automatic table creation
+  // Create session store with retry logic
   const store = new PostgresSessionStore({
     pool,
-    createTableIfMissing: false, // Don't try to create table
-    tableName: 'session'  // Use the existing table name
+    createTableIfMissing: true,
+    tableName: 'session',
+    pruneSessionInterval: 60, // Prune expired sessions every minute
+    errorLog: console.error.bind(console),
   });
 
   // Configure session middleware
-  const sessionMiddleware = session({
+  app.use(session({
     store,
-    secret: process.env.REPL_ID || 'fallback-secret-key',
+    secret: process.env.REPL_ID || 'dev-secret-key',
     resave: false,
     saveUninitialized: false,
     cookie: {
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
-      sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     },
-  });
-
-  // Set up session handling
-  app.use(sessionMiddleware);
-  app.use(passport.initialize());
-  app.use(passport.session());
-
-  // Configure local strategy for username/password auth
-  passport.use(new LocalStrategy(async (username, password, done) => {
-    try {
-      console.log(`Attempting login for user: ${username}`);
-      const [user] = await getUserByUsername(username);
-
-      if (!user) {
-        console.log(`User not found: ${username}`);
-        return done(null, false);
-      }
-
-      const isValid = await comparePasswords(password, user.password);
-      console.log(`Password validation result: ${isValid}`);
-
-      if (!isValid) {
-        return done(null, false);
-      }
-
-      return done(null, user);
-    } catch (error) {
-      console.error("Login error:", error);
-      return done(error);
-    }
+    rolling: true, // Refresh session with each request
   }));
 
-  // Serialize user into the session
-  passport.serializeUser((user, done) => {
-    console.log('Serializing user:', user.id);
-    done(null, user.id);
-  });
-
-  // Deserialize user from the session
-  passport.deserializeUser(async (id: number, done) => {
-    try {
-      console.log('Deserializing user:', id);
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, id))
-        .limit(1);
-
-      if (!user) {
-        console.log('User not found during deserialization:', id);
-        return done(null, false);
-      }
-
-      done(null, user);
-    } catch (error) {
-      console.error('Deserialization error:', error);
-      done(error);
+  // Add user data to request if session exists
+  app.use((req, res, next) => {
+    if (req.session?.userId) {
+      req.user = req.session.user;
     }
+    next();
   });
 
-  // Auth endpoints
-  app.post("/api/register", async (req, res, next) => {
+  // Register endpoint
+  app.post("/api/register", async (req, res) => {
     try {
-      const result = insertUserSchema.safeParse(req.body);
-      if (!result.success) {
-        const error = fromZodError(result.error);
-        return res.status(400).send(error.toString());
+      const { username, email, password } = req.body;
+
+      if (!username || !email || !password) {
+        return res.status(400).json({ message: "All fields are required" });
       }
 
-      const [existingUser] = await getUserByUsername(result.data.username);
+      // Check if user exists
+      const existingUser = await db.query.users.findFirst({
+        where: eq(users.username, username)
+      });
+
       if (existingUser) {
-        return res.status(400).send("Username already exists");
+        return res.status(400).json({ message: "Username already exists" });
       }
 
-      const hashedPassword = await hashPassword(result.data.password);
+      // Create new user
       const [user] = await db
         .insert(users)
         .values({
-          ...result.data,
-          password: hashedPassword,
+          username,
+          email,
+          password: await hashPassword(password),
+          isAdmin: false
         })
         .returning();
 
-      req.login(user, (err) => {
-        if (err) return next(err);
-        res.status(201).json(user);
+      // Set up session
+      req.session.userId = user.id;
+      req.session.user = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        isAdmin: user.isAdmin
+      };
+
+      res.status(201).json({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        isAdmin: user.isAdmin
       });
     } catch (error) {
-      next(error);
+      console.error('Registration error:', error);
+      res.status(500).json({ message: "Registration failed" });
     }
   });
 
-  app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    res.status(200).json(req.user);
+  // Login endpoint
+  app.post("/api/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
+      // Find user
+      const user = await db.query.users.findFirst({
+        where: eq(users.username, username)
+      });
+
+      if (!user || !(await comparePasswords(password, user.password))) {
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+
+      // Set up session
+      req.session.userId = user.id;
+      req.session.user = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        isAdmin: user.isAdmin
+      };
+
+      res.json({
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        isAdmin: user.isAdmin
+      });
+    } catch (error) {
+      console.error('Login error:', error);
+      res.status(500).json({ message: "Login failed" });
+    }
   });
 
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
+  // Logout endpoint
+  app.post("/api/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Logout error:', err);
+        return res.status(500).json({ message: "Logout failed" });
+      }
+      res.clearCookie('connect.sid');
+      res.json({ message: "Logged out successfully" });
     });
   });
 
+  // Get current user endpoint
   app.get("/api/user", (req, res) => {
-    console.log('GET /api/user - isAuthenticated:', req.isAuthenticated());
-    console.log('Session:', req.session);
-    console.log('User:', req.user);
-
-    if (!req.isAuthenticated()) {
-      return res.sendStatus(401);
+    if (!req.user) {
+      return res.status(401).json({ message: "Not authenticated" });
     }
     res.json(req.user);
   });
-
-  return sessionMiddleware;
 }

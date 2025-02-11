@@ -3,7 +3,6 @@ const { Pool } = pkg;
 import { drizzle } from 'drizzle-orm/node-postgres';
 import * as schema from "./schema";
 
-// Add logging for database connection debugging
 console.log('Initializing database connection...');
 console.log('Using database URL:', process.env.DATABASE_URL?.split('@')[1]); // Log only host part for security
 
@@ -13,17 +12,15 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Conservative pool configuration for sleeping endpoints
+// Configure pool with settings optimized for Neon serverless
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 2, // Minimize concurrent connections
-  idleTimeoutMillis: 60000, // 1 minute
-  connectionTimeoutMillis: 60000, // 1 minute
+  max: 1, // Minimize connections for serverless
+  idleTimeoutMillis: 20000, // Lower timeout for serverless
+  connectionTimeoutMillis: 10000,
   ssl: {
-    rejectUnauthorized: false
-  },
-  statement_timeout: 120000, // 2 minutes
-  query_timeout: 120000, // 2 minutes
+    rejectUnauthorized: false // Required for Neon
+  }
 });
 
 // Export the drizzle instance
@@ -33,8 +30,9 @@ export const db = drizzle(pool, { schema });
 export async function isDatabaseHealthy(): Promise<boolean> {
   try {
     const client = await pool.connect();
-    await client.query('SELECT 1');
+    const result = await client.query('SELECT 1');
     client.release();
+    console.log('Database health check succeeded:', result.rows[0]);
     return true;
   } catch (error) {
     console.error('Database health check failed:', error);
@@ -42,18 +40,7 @@ export async function isDatabaseHealthy(): Promise<boolean> {
   }
 }
 
-// Monitor pool health periodically
-const MONITORING_INTERVAL = 15000; // 15 seconds
-setInterval(() => {
-  const poolStatus = {
-    totalCount: pool.totalCount,
-    idleCount: pool.idleCount,
-    waitingCount: pool.waitingCount,
-  };
-  console.log('Pool status:', poolStatus);
-}, MONITORING_INTERVAL);
-
-// Add pool event handlers
+// Monitor pool events for better debugging
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client:', err);
 });
@@ -69,3 +56,27 @@ pool.on('acquire', () => {
 pool.on('remove', () => {
   console.log('Client removed from pool');
 });
+
+// Perform initial health check
+isDatabaseHealthy()
+  .then(healthy => {
+    if (healthy) {
+      console.log('Database connection initialized successfully');
+    } else {
+      console.error('Failed to establish database connection');
+    }
+  })
+  .catch(error => {
+    console.error('Error during initial database health check:', error);
+  });
+
+// Monitor pool health periodically
+const MONITORING_INTERVAL = 15000; // 15 seconds
+setInterval(() => {
+  const poolStatus = {
+    totalCount: pool.totalCount,
+    idleCount: pool.idleCount,
+    waitingCount: pool.waitingCount,
+  };
+  console.log('Pool status:', poolStatus);
+}, MONITORING_INTERVAL);
