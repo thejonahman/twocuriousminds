@@ -77,6 +77,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         if (!currentPath.includes('/group/')) {
           setLocation(`/video/${videoId}/group/${data.id}`);
         }
+        // If the group has messages, display them immediately
+        if (data.messages) {
+          queryClient.setQueryData(['/api/group-messages', data.id], data.messages);
+        }
       }
     },
     onError: (error) => {
@@ -111,7 +115,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         description: "Failed to load group messages",
         variant: "destructive",
       });
-    }
+    },
+    initialData: currentGroup?.messages || []
   });
 
   // Set initial group when data is loaded

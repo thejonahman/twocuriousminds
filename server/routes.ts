@@ -644,6 +644,11 @@ export function registerRoutes(app: Express): Server {
         });
       }
 
+      // Sort messages in chronological order
+      if (group.messages) {
+        group.messages = group.messages.reverse();
+      }
+
       res.json(group);
     } catch (error) {
       console.error('Error accessing group:', error);
