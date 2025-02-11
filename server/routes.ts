@@ -17,6 +17,16 @@ declare module 'express-session' {
   }
 }
 
+// Add last active group tracking
+type LastActiveGroup = {
+  userId: number;
+  videoId: number;
+  groupId: number;
+  lastActivity: Date;
+};
+
+const activeGroups = new Map<number, LastActiveGroup>();
+
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
 
@@ -30,8 +40,6 @@ const requireAuth = (req: Request, res: Response, next: NextFunction) => {
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
-
-  // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
   // Setup WebSocket server with improved error handling
@@ -39,7 +47,6 @@ export function registerRoutes(app: Express): Server {
     server: httpServer,
     path: '/ws',
     verifyClient: (info, callback) => {
-      // Ignore vite-hmr websocket connections
       if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
         return callback(false);
       }
@@ -52,19 +59,10 @@ export function registerRoutes(app: Express): Server {
           end: () => {}
         };
 
-        sessionMiddleware(info.req as Request, res as Response, (err?: any) => {
-          if (err) {
-            console.error('Session middleware error:', err);
-            resolve(false);
-          } else {
-            const isAuthenticated = info.req.session?.passport?.user != null;
-            console.log('WebSocket auth check:', {
-              session: info.req.session,
-              isAuthenticated,
-              userId: info.req.session?.passport?.user
-            });
-            resolve(isAuthenticated);
-          }
+        sessionMiddleware(info.req as Request, res as Response, () => {
+          const session = (info.req as any).session;
+          const isAuthenticated = session?.passport?.user != null;
+          resolve(isAuthenticated);
         });
       });
 
@@ -72,10 +70,8 @@ export function registerRoutes(app: Express): Server {
       handleSession()
         .then((isAuthenticated) => {
           if (isAuthenticated) {
-            console.log('WebSocket auth successful for user:', info.req.session?.passport?.user);
             callback(true);
           } else {
-            console.log('WebSocket auth failed: No authenticated user');
             callback(false, 401, 'Unauthorized');
           }
         })
@@ -87,10 +83,9 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Handle WebSocket connections
-  wss.on('connection', (ws, req: any) => {
+  wss.on('connection', async (ws, req: any) => {
     console.log('WebSocket connection attempt');
 
-    // Get user ID from session
     const userId = req.session?.passport?.user;
     if (!userId) {
       console.log('WebSocket - No authenticated user');
@@ -103,9 +98,7 @@ export function registerRoutes(app: Express): Server {
 
     ws.onmessage = async (event) => {
       try {
-        const rawData = event.data.toString();
-        console.log('Raw WebSocket data received:', rawData);
-        const message = JSON.parse(rawData);
+        const message = JSON.parse(event.data.toString());
         console.log('Received message:', message);
 
         switch (message.type) {
@@ -130,7 +123,7 @@ export function registerRoutes(app: Express): Server {
               }
             });
 
-            // Broadcast
+            // Broadcast message
             const broadcastMessage = {
               type: 'new_message',
               data: {
@@ -149,7 +142,6 @@ export function registerRoutes(app: Express): Server {
               client.send(JSON.stringify(broadcastMessage));
             });
             break;
-
           case 'create_group':
             const { name, description = '', videoId: groupVideoId } = message;
             const inviteCode = nanoid(10);
@@ -185,44 +177,51 @@ export function registerRoutes(app: Express): Server {
               data: groupResponse
             }));
             break;
-
           case 'group_message':
             const { groupId, content: groupContent } = message;
             console.log('Processing group message:', { groupId, content: groupContent });
 
-            // Save group message with optimized query
+            // Update last active group
+            activeGroups.set(userId, {
+              userId,
+              videoId: message.videoId,
+              groupId,
+              lastActivity: new Date()
+            });
+
+            // Save group message with timestamp
             const [savedGroupMessage] = await db.insert(groupMessages)
               .values({
                 groupId,
                 userId,
-                content: groupContent
+                content: groupContent,
+                createdAt: new Date()
               })
               .returning();
 
-            console.log('Saved group message:', savedGroupMessage);
-
-            // Get sender info efficiently
+            // Get sender info
             const sender = await db.query.users.findFirst({
               where: eq(users.id, userId),
-              columns: {
-                username: true
-              }
+              columns: { username: true }
             });
 
-            // Get group members efficiently and update unread counts
+            // Get group members and update unread counts
             const members = await db.query.groupMembers.findMany({
               where: eq(groupMembers.groupId, groupId)
             });
 
-            // Update unread count for other members
+            // Update unread count and notification time for other members
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
             await Promise.all(
               members
                 .filter(member => member.userId !== userId)
                 .map(member =>
-                  db
-                    .update(groupMembers)
+                  db.update(groupMembers)
                     .set({
-                      unreadCount: sql`${groupMembers.unreadCount} + 1`
+                      unreadCount: sql`${groupMembers.unreadCount} + 1`,
+                      lastNotificationAt: member.lastNotificationAt && 
+                        new Date(member.lastNotificationAt) < oneHourAgo ? 
+                        new Date() : member.lastNotificationAt
                     })
                     .where(
                       and(
@@ -237,13 +236,11 @@ export function registerRoutes(app: Express): Server {
               type: 'new_group_message',
               data: {
                 ...savedGroupMessage,
-                user: {
-                  username: sender?.username
-                }
+                user: { username: sender?.username }
               }
             };
 
-            // Efficient broadcasting to group members using Set and Array methods
+            // Broadcast to group members
             const memberIds = new Set(members.map(m => m.userId));
             Array.from(connectedClients.entries())
               .filter(([clientId]) => memberIds.has(clientId))
@@ -253,7 +250,6 @@ export function registerRoutes(app: Express): Server {
                 }
               });
             break;
-
           case 'join_group':
             const { inviteCode: joinCode, videoId: joinVideoId } = message;
             console.log('Join group request received:', { joinCode, joinVideoId });
@@ -323,9 +319,12 @@ export function registerRoutes(app: Express): Server {
             break;
         }
       } catch (error) {
-        console.error('Message handling error:', error);
-        if (error instanceof Error) {
-          console.error('Error details:', error.message);
+        console.error('Error processing message:', error);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Failed to process message'
+          }));
         }
       }
     };
@@ -804,6 +803,67 @@ export function registerRoutes(app: Express): Server {
       console.error('Error marking messages as read:', error);
       res.status(500).json({
         message: "Error marking messages as read",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Add endpoint to get last active group for a video
+  app.get("/api/videos/:videoId/last-active-group", requireAuth, async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.videoId);
+      const userId = req.user!.id;
+
+      // Get last active group from memory first
+      const lastActive = activeGroups.get(userId);
+      if (lastActive?.videoId === videoId) {
+        const group = await db.query.discussionGroups.findFirst({
+          where: eq(discussionGroups.id, lastActive.groupId),
+          with: {
+            members: {
+              with: {
+                user: {
+                  columns: { username: true }
+                }
+              }
+            }
+          }
+        });
+
+        if (group) {
+          return res.json(group);
+        }
+      }
+
+      // If no active group in memory, get from database
+      const memberGroups = await db.query.groupMembers.findMany({
+        where: eq(groupMembers.userId, userId),
+        orderBy: [desc(groupMembers.lastActivity)],
+        with: {
+          group: {
+            with: {
+              members: {
+                with: {
+                  user: {
+                    columns: { username: true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      const lastActiveGroup = memberGroups.find(mg => mg.group.videoId === videoId);
+      if (lastActiveGroup) {
+        return res.json(lastActiveGroup.group);
+      }
+
+      res.json(null);
+    } catch (error) {
+      console.error('Error fetching last active group:', error);
+      res.status(500).json({
+        message: "Error fetching last active group",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }

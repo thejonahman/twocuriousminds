@@ -26,11 +26,9 @@ import { z } from "zod";
 import { useLocation } from "wouter";
 import { ShareButton } from "@/components/ui/share-button";
 
-// Maximum number of reconnection attempts
+// Constants for WebSocket connection management
 const MAX_RETRIES = 5;
-// Initial delay in milliseconds (1 second)
 const INITIAL_RETRY_DELAY = 1000;
-// Maximum delay between retries (30 seconds)
 const MAX_RETRY_DELAY = 30000;
 
 interface WebSocketState {
@@ -64,17 +62,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const reconnectTimeoutRef = useRef<number>();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Define sortMessages function first using useMemo
+  // Define sortMessages function first using useMemo to avoid the error
   const sortMessages = useMemo(() => {
     return (messages: Message[]) => {
       return [...messages].sort((a, b) => {
         const timeA = new Date(a.createdAt).getTime();
         const timeB = new Date(b.createdAt).getTime();
-        if (timeA === timeB) {
-          // If timestamps are equal, use message ID as secondary sort
-          return a.id - b.id;
-        }
-        return timeA - timeB;
+        return timeA === timeB ? a.id - b.id : timeA - timeB;
       });
     };
   }, []);
@@ -125,7 +119,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   });
 
   // Query for user's last active group in this video
-  const { data: lastActiveGroup } = useQuery<Group>({
+  const { data: lastActiveGroupData } = useQuery<Group>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
     select: (data) => validateApiResponse(groupSchema, data),
@@ -177,9 +171,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`, {
-        credentials: 'include'
-      });
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -244,7 +236,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
               break;
-
             case 'new_group_message':
               if (currentGroup && message.data.groupId === currentGroup.id) {
                 console.log('Processing new group message:', message.data);
@@ -261,7 +252,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
               break;
-
             case 'group_created':
               console.log("Group Created:", message.data);
               // Validate group data
@@ -278,7 +268,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
               });
               break;
-
             case 'error':
               toast({
                 title: "Error",
@@ -348,6 +337,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     const messageData = currentGroup ? {
       type: 'group_message',
       groupId: currentGroup.id,
+      videoId, // Add videoId for tracking last active group
       content: messageInput,
     } : {
       type: 'message',
@@ -357,7 +347,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     // Add optimistic update
     const optimisticMessage: Message = {
-      id: Date.now(), // Temporary ID
+      id: Date.now(),
       content: messageInput,
       userId: user!.id,
       createdAt: new Date().toISOString(),
