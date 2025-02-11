@@ -45,18 +45,19 @@ export default function ProfileWizard() {
   const handleRedirectToReturnUrl = () => {
     const targetType = sessionStorage.getItem('targetType');
     const targetId = sessionStorage.getItem('targetId');
+    const inviteCode = sessionStorage.getItem('inviteCode');
 
-    console.log('Redirect data:', { targetType, targetId });
+    console.log('Redirect data:', { targetType, targetId, inviteCode });
 
-    // Clear stored navigation data
     sessionStorage.removeItem('targetType');
     sessionStorage.removeItem('targetId');
+    sessionStorage.removeItem('inviteCode');
 
     if (targetType && targetId) {
-      if (targetType === 'group') {
-        const path = `/video/${targetId}/group/${targetId}`;
-        console.log('Redirecting to:', path);
-        navigate(path);
+      if (targetType === 'join-group' && inviteCode) {
+        window.location.href = `/join-group/${inviteCode}?videoId=${targetId}`;
+      } else if (targetType === 'group') {
+        window.location.href = `/video/${targetId}/group/${targetId}`;
       } else {
         navigate('/');
       }

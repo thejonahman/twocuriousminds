@@ -32,10 +32,13 @@ export default function Auth() {
       // Check if we need to complete profile wizard
       const targetType = sessionStorage.getItem('targetType');
       const targetId = sessionStorage.getItem('targetId');
+      const inviteCode = sessionStorage.getItem('inviteCode');
 
-      if (targetType || targetId) {
+      if (targetType === 'join-group' && targetId && inviteCode) {
         // User needs to complete profile wizard first
-        navigate('/profile/wizard');
+        window.location.href = '/profile/wizard';
+      } else if (targetType === 'group' && targetId) {
+        window.location.href = '/profile/wizard';
       } else {
         // No target URL, go to home
         navigate('/');
