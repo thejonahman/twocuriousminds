@@ -50,20 +50,20 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  wss.on('connection', (ws, request) => {
+  wss.handleUpgrade = (info, socket, head, callback) => {
       console.log('WebSocket connection attempt');
-      console.log('Headers:', request.headers);
-      console.log('URL:', request.url);
+      console.log('Headers:', info.headers);
+      console.log('URL:', info.url);
       console.log('Environment:', process.env.NODE_ENV);
 
       // Ignore vite-hmr websocket connections
-      if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
+      if (info.headers['sec-websocket-protocol'] === 'vite-hmr') {
         console.log('Ignoring vite-hmr connection');
         return callback(false);
       }
 
       // Allow requests from any origin in production
-      const origin = info.origin || info.req.headers.origin;
+      const origin = info.headers.origin;
       if (origin) {
         console.log('WebSocket request origin:', origin);
       }
