@@ -109,8 +109,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   // Update the generateInviteLink function to properly include video ID
   const generateInviteLink = (inviteCode: string) => {
     const baseUrl = window.location.origin;
-    // Ensure videoId is included in the URL
-    return `${baseUrl}/join-group/${inviteCode}?videoId=${currentGroup?.videoId || videoId}`;
+    // Always use the currentGroup's videoId for the share link
+    if (!currentGroup?.videoId) {
+      console.error('No video ID available for group');
+      return '';
+    }
+    return `${baseUrl}/join-group/${inviteCode}?videoId=${currentGroup.videoId}`;
   };
 
   const addOptimisticMessage = (newMessage: Message) => {
