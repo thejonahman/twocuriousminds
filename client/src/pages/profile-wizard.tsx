@@ -35,20 +35,16 @@ export default function ProfileWizard() {
   // Get the return URL from sessionStorage or default to home
   const returnUrl = sessionStorage.getItem('returnUrl') || '/';
 
+  // Query to fetch categories
+  const { data: categories = [], isLoading: categoriesLoading, error: categoriesError } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+    retry: false,
+  });
+
   // Query to fetch existing preferences
   const { data: existingPreferences, isLoading: preferencesLoading } = useQuery<Preferences>({
     queryKey: ["/api/preferences"],
     enabled: !!user,
-    queryFn: async () => {
-      const res = await fetch('/api/preferences');
-      if (!res.ok) {
-        if (res.status === 404) return null;
-        throw new Error('Failed to fetch preferences');
-      }
-      const data = await res.json();
-      console.log("Fetched preferences:", data);
-      return data;
-    },
   });
 
   useEffect(() => {
@@ -99,7 +95,6 @@ export default function ProfileWizard() {
       });
     },
   });
-
 
   if (categoriesError) {
     return (
