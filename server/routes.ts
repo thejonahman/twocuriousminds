@@ -34,13 +34,23 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Setup WebSocket server with improved error handling and CORS support
+  // Setup WebSocket server with simplified configuration
   const wss = new WebSocketServer({ 
-    server: httpServer,
-    path: '/ws',
+    noServer: true,
     clientTracking: true,
     perMessageDeflate: false,
-    verifyClient: (info, callback) => {
+  });
+
+  // Handle upgrade requests manually
+  httpServer.on('upgrade', (request, socket, head) => {
+    if (request.url === '/ws') {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    }
+  });
+
+  wss.on('connection', (ws, request) => {
       console.log('WebSocket connection attempt from:', info.origin);
       console.log('Headers:', info.req.headers);
       console.log('URL:', info.req.url);
