@@ -27,9 +27,21 @@ export default function JoinGroup() {
     staleTime: 0,
   });
 
-  // Set up WebSocket connection
+  // Set up WebSocket connection and handle join group
   useEffect(() => {
-    if (!user || !inviteCode || !videoId) return;
+    if (!user || !inviteCode || !videoId || !groupData) return;
+
+    // Verify video ID matches if provided
+    if (groupData.videoId !== null && groupData.videoId.toString() !== videoId) {
+      console.log('Video ID mismatch:', { expected: groupData.videoId, received: videoId });
+      toast({
+        title: "Error",
+        description: "Invalid video for this group",
+        variant: "destructive",
+      });
+      setLocation('/');
+      return;
+    }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
@@ -87,8 +99,9 @@ export default function JoinGroup() {
         socketRef.current.close();
       }
     };
-  }, [user, inviteCode, videoId, toast, setLocation]);
+  }, [user, inviteCode, videoId, groupData, toast, setLocation]);
 
+  // Handle authentication state
   useEffect(() => {
     console.log('Join Group Effect:', { user, authLoading, groupData, groupLoading, error });
 
