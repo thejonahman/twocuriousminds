@@ -41,21 +41,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
   } = useQuery<User | null>({
     queryKey: ["/api/user"],
-    retry: false,
+    retry: 3, // Increase retries for auth state
     staleTime: 30000, // Consider data fresh for 30 seconds
     refetchInterval: 300000, // Refetch every 5 minutes
   });
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
+      console.log('Attempting login:', { username: credentials.username });
       const res = await apiRequest("POST", "/api/login", credentials);
       if (!res.ok) {
         const error = await res.text();
+        console.error('Login failed:', error);
         throw new Error(error || 'Login failed');
       }
       return res.json();
     },
     onSuccess: (user: User) => {
+      console.log('Login successful:', user);
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome back!",
@@ -63,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error: Error) => {
+      console.error('Login error:', error);
       toast({
         title: "Login failed",
         description: error.message,
@@ -73,14 +77,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerMutation = useMutation({
     mutationFn: async (newUser: RegisterData) => {
+      console.log('Attempting registration:', { username: newUser.username });
       const res = await apiRequest("POST", "/api/register", newUser);
       if (!res.ok) {
         const error = await res.text();
+        console.error('Registration failed:', error);
         throw new Error(error || 'Registration failed');
       }
       return res.json();
     },
     onSuccess: (user: User) => {
+      console.log('Registration successful:', user);
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome!",
@@ -88,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error: Error) => {
+      console.error('Registration error:', error);
       toast({
         title: "Registration failed",
         description: error.message,
@@ -112,6 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error: Error) => {
+      console.error('Logout error:', error);
       toast({
         title: "Logout failed",
         description: error.message,

@@ -29,7 +29,8 @@ export default function Auth() {
 
   useEffect(() => {
     if (user) {
-      // Check if we need to complete profile wizard
+      console.log('User authenticated, checking for redirect data');
+      // Check stored navigation data
       const targetType = sessionStorage.getItem('targetType');
       const targetId = sessionStorage.getItem('targetId');
       const inviteCode = sessionStorage.getItem('inviteCode');
@@ -38,12 +39,13 @@ export default function Auth() {
 
       if (targetType === 'join-group' && inviteCode) {
         const destination = `/join-group/${inviteCode}${targetId ? `?videoId=${targetId}` : ''}`;
-        console.log('Redirecting to:', destination);
-        window.location.href = destination;
+        console.log('Redirecting to join group:', destination);
+        // Use replace to prevent back button from returning to login
+        window.location.replace(destination);
       } else if (targetType === 'group' && targetId) {
         const destination = `/video/${targetId}/group/${targetId}`;
-        console.log('Redirecting to:', destination);
-        window.location.href = destination;
+        console.log('Redirecting to group:', destination);
+        window.location.replace(destination);
       } else {
         // No target URL, go to home
         navigate('/');
@@ -61,6 +63,7 @@ export default function Auth() {
   });
 
   const onSubmit = async (values: LoginValues | RegisterValues) => {
+    console.log('Form submitted:', { isLogin, values });
     try {
       if (isLogin) {
         await loginMutation.mutateAsync(values as LoginValues);
@@ -68,6 +71,7 @@ export default function Auth() {
         await registerMutation.mutateAsync(values as RegisterValues);
       }
     } catch (error) {
+      console.error('Auth error:', error);
       // Error is handled by the mutation callbacks
     }
   };
