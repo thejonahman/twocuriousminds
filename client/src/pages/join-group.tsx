@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { type Group } from "@/lib/api-types";
 
 export default function JoinGroup() {
-  const [, navigate] = useLocation();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
 
@@ -20,20 +20,22 @@ export default function JoinGroup() {
   const { data: groupData, isLoading, error } = useQuery<Group>({
     queryKey: [`/api/groups/invite/${inviteCode}`],
     enabled: !!inviteCode && !!user,
-    retry: false, // Don't retry on failure
-    staleTime: 0, // Always fetch fresh data
+    retry: false,
+    staleTime: 0,
   });
 
   useEffect(() => {
     console.log('Join Group Effect:', { user, groupData, isLoading, error });
 
+    // Handle authentication
     if (!user) {
-      // Store the invite URL in sessionStorage to redirect back after auth
-      sessionStorage.setItem('redirectAfterAuth', window.location.pathname + window.location.search);
-      navigate('/auth');
+      const currentPath = window.location.pathname + window.location.search;
+      sessionStorage.setItem('redirectAfterAuth', currentPath);
+      setLocation('/auth');
       return;
     }
 
+    // Handle successful group join
     if (groupData && !isLoading) {
       console.log('Group data received:', groupData);
 
@@ -45,21 +47,22 @@ export default function JoinGroup() {
           description: "Invalid video for this group",
           variant: "destructive",
         });
-        navigate('/');
+        setLocation('/');
         return;
       }
 
+      // Show success message
       toast({
         title: "Success",
         description: `Joined group "${groupData.name}"!`,
       });
 
-      // Navigate to video page with group ID immediately
+      // Navigate to video page with group ID
       if (groupData.videoId !== null && groupData.id !== null) {
         const destination = `/video/${groupData.videoId}/group/${groupData.id}`;
         console.log('Navigating to:', destination);
-        // Force immediate navigation
-        window.location.href = destination;
+        // Use direct window location change to force navigation
+        window.location.replace(destination);
       } else {
         console.error('Invalid group data:', groupData);
         toast({
@@ -67,12 +70,11 @@ export default function JoinGroup() {
           description: "Invalid group data",
           variant: "destructive",
         });
-        navigate('/');
+        setLocation('/');
       }
     }
-  }, [user, groupData, navigate, toast, videoId, isLoading]);
+  }, [user, groupData, setLocation, toast, videoId, isLoading]);
 
-  // Show nothing while redirecting to auth
   if (!user) {
     return null;
   }
