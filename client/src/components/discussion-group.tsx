@@ -64,6 +64,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const reconnectTimeoutRef = useRef<number>();
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Define sortMessages function first using useMemo
+  const sortMessages = useMemo(() => {
+    return (messages: Message[]) => {
+      return [...messages].sort((a, b) => {
+        const timeA = new Date(a.createdAt).getTime();
+        const timeB = new Date(b.createdAt).getTime();
+        if (timeA === timeB) {
+          // If timestamps are equal, use message ID as secondary sort
+          return a.id - b.id;
+        }
+        return timeA - timeB;
+      });
+    };
+  }, []);
+
   // Query for group if initialGroupId is provided
   const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
@@ -75,7 +90,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
     enabled: !!user && !!videoId && !currentGroup,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
+    select: (data) => sortMessages(validateApiResponse(z.array(messageSchema), data)),
   });
 
   // Update group messages query with better error handling
@@ -131,19 +146,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
     return `${baseUrl}/video/${videoId}/group/${currentGroup.id}`;
   };
-
-  // Update message sorting function to be more robust
-  const sortMessages = useCallback((messages: Message[]) => {
-    return [...messages].sort((a, b) => {
-      const timeA = new Date(a.createdAt).getTime();
-      const timeB = new Date(b.createdAt).getTime();
-      if (timeA === timeB) {
-        // If timestamps are equal, use message ID as secondary sort
-        return a.id - b.id;
-      }
-      return timeA - timeB;
-    });
-  }, []);
 
   // Update optimistic message handling
   const addOptimisticMessage = useCallback((newMessage: Message) => {
