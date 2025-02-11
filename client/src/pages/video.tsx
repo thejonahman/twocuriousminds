@@ -3,6 +3,7 @@ import { useParams, useLocation } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DelphiBubble } from "@/components/delphi-bubble";
 import { DiscussionGroup } from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
 import { Share2, Copy, Check, Mail } from "lucide-react";
@@ -14,53 +15,31 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { useAuth } from "@/hooks/use-auth";
-
-interface LastAccessedGroup {
-  groupId: number;
-}
-
-interface Video {
-  id: number;
-  title: string;
-  description: string;
-  url: string;
-  platform: string;
-  categoryId: number;
-  category: {
-    id: number;
-    name: string;
-  };
-  subcategoryId: number | undefined;
-  subcategory: {
-    id: number;
-    name: string;
-  } | null;
-}
 
 export default function Video() {
   const { id, groupId } = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
-  const { user } = useAuth();
 
-  // Query for last accessed group if no groupId is provided
-  const { data: lastAccessedGroup } = useQuery<LastAccessedGroup>({
-    queryKey: [`/api/last-accessed-group/${id}`],
-    enabled: !!user && !!id && !groupId,
-  });
-
-  // Handle redirect to last accessed group
-  useEffect(() => {
-    if (lastAccessedGroup?.groupId && !groupId) {
-      setLocation(`/video/${id}/group/${lastAccessedGroup.groupId}`);
-    }
-  }, [lastAccessedGroup, id, groupId, setLocation]);
-
-  const { data: video, isLoading } = useQuery<Video>({
+  const { data: video, isLoading } = useQuery<{
+    id: number;
+    title: string;
+    description: string;
+    url: string;
+    platform: string;
+    categoryId: number;
+    category: {
+      id: number;
+      name: string;
+    };
+    subcategoryId: number | undefined;
+    subcategory: {
+      id: number;
+      name: string;
+    } | null;
+  }>({
     queryKey: [`/api/videos/${id}`],
-    enabled: !!id
   });
 
   // Scroll to top whenever the video ID changes
@@ -77,8 +56,9 @@ export default function Video() {
   };
 
   const handleShare = async (type: string) => {
+    // Always include the groupId in the share URL if we're in a group discussion
     const baseUrl = window.location.origin;
-    const shareUrl = groupId
+    const shareUrl = groupId 
       ? `${baseUrl}/video/${id}/group/${groupId}`
       : window.location.href;
 
@@ -210,9 +190,11 @@ export default function Video() {
             </div>
           </div>
 
+          <DelphiBubble videoId={video?.id} />
+
           <div className="rounded-xl border bg-card shadow-sm">
-            <DiscussionGroup
-              videoId={video?.id}
+            <DiscussionGroup 
+              videoId={video?.id} 
               initialGroupId={groupId ? parseInt(groupId) : undefined}
             />
           </div>
