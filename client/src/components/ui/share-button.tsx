@@ -1,6 +1,13 @@
-import { Share2 } from "lucide-react";
+import { Share2, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface ShareButtonProps {
   url: string;
@@ -11,27 +18,18 @@ interface ShareButtonProps {
 
 export function ShareButton({ url, title, text, className }: ShareButtonProps) {
   const { toast } = useToast();
+  const [copied, setCopied] = useState(false);
 
-  const handleShare = async () => {
-    // Ensure the URL is absolute
-    const absoluteUrl = new URL(url, window.location.origin).toString();
+  // Ensure the URL is absolute
+  const absoluteUrl = new URL(url, window.location.origin).toString();
 
+  const handleNativeShare = async () => {
     try {
-      if (navigator.share) {
-        // Use Native Share API if available
-        await navigator.share({
-          url: absoluteUrl,
-          title,
-          text,
-        });
-      } else {
-        // Fallback to clipboard copy
-        await navigator.clipboard.writeText(absoluteUrl);
-        toast({
-          title: "Link copied!",
-          description: "The invite link has been copied to your clipboard.",
-        });
-      }
+      await navigator.share({
+        url: absoluteUrl,
+        title,
+        text,
+      });
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
         toast({
@@ -43,15 +41,66 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
     }
   };
 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(absoluteUrl);
+      setCopied(true);
+      toast({
+        title: "Link copied!",
+        description: "The link has been copied to your clipboard.",
+      });
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      toast({
+        title: "Couldn't copy link",
+        description: "Please try copying the link manually.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // If native sharing is available, show both options in a dropdown
+  if (navigator.share) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className={className}>
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent>
+          <DropdownMenuItem onClick={handleNativeShare}>
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={handleCopy}>
+            {copied ? (
+              <Check className="h-4 w-4 mr-2" />
+            ) : (
+              <Copy className="h-4 w-4 mr-2" />
+            )}
+            Copy Link
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  // If native sharing is not available, show only copy button
   return (
     <Button
       variant="outline"
       size="sm"
       className={className}
-      onClick={handleShare}
+      onClick={handleCopy}
     >
-      <Share2 className="h-4 w-4 mr-2" />
-      Share
+      {copied ? (
+        <Check className="h-4 w-4 mr-2" />
+      ) : (
+        <Copy className="h-4 w-4 mr-2" />
+      )}
+      Copy Link
     </Button>
   );
 }

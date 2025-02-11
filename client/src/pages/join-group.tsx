@@ -10,16 +10,16 @@ import { type Group } from "@/lib/api-types";
 export default function JoinGroup() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
 
   // Extract invite code and videoId from URL
   const inviteCode = window.location.pathname.split('/join-group/')[1];
   const videoId = new URLSearchParams(window.location.search).get('videoId');
 
-  console.log('JoinGroup component mounted:', { inviteCode, videoId, user });
+  console.log('JoinGroup component mounted:', { inviteCode, videoId, user, authLoading });
 
   // Query group details from invite code
-  const { data: groupData, isLoading, error } = useQuery<Group>({
+  const { data: groupData, isLoading: groupLoading, error } = useQuery<Group>({
     queryKey: [`/api/groups/invite/${inviteCode}`],
     enabled: !!inviteCode && !!user,
     retry: false,
@@ -27,7 +27,13 @@ export default function JoinGroup() {
   });
 
   useEffect(() => {
-    console.log('Join Group Effect:', { user, groupData, isLoading, error });
+    console.log('Join Group Effect:', { user, authLoading, groupData, groupLoading, error });
+
+    // Only proceed if auth loading is complete
+    if (authLoading) {
+      console.log('Auth state is still loading...');
+      return;
+    }
 
     // Handle authentication
     if (!user) {
@@ -38,12 +44,13 @@ export default function JoinGroup() {
       sessionStorage.setItem('inviteCode', inviteCode);
 
       // Redirect to auth page
-      setLocation('/auth');
+      console.log('Redirecting to auth page');
+      window.location.replace('/auth');
       return;
     }
 
     // Handle successful group data fetch
-    if (groupData && !isLoading) {
+    if (groupData && !groupLoading) {
       console.log('Group data received:', groupData);
 
       // Verify video ID matches if provided
@@ -69,7 +76,7 @@ export default function JoinGroup() {
         const destination = `/video/${groupData.videoId}/group/${groupData.id}`;
         console.log('Navigating to:', destination);
         // Use window.location.replace for a full page refresh to ensure proper WebSocket connection
-        window.location.href = destination;
+        window.location.replace(destination);
       } else {
         console.error('Invalid group data:', groupData);
         toast({
@@ -80,7 +87,23 @@ export default function JoinGroup() {
         setLocation('/');
       }
     }
-  }, [user, groupData, setLocation, toast, videoId, inviteCode, isLoading]);
+  }, [user, authLoading, groupData, groupLoading, setLocation, toast, videoId, inviteCode]);
+
+  if (authLoading) {
+    return (
+      <Card className="max-w-md mx-auto mt-8">
+        <CardHeader>
+          <CardTitle>Checking authentication...</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Progress value={20} className="w-full" />
+          <p className="text-sm text-muted-foreground mt-2">
+            Please wait while we verify your authentication status...
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!user) {
     return null;
@@ -107,7 +130,7 @@ export default function JoinGroup() {
         <CardTitle>Joining Group...</CardTitle>
       </CardHeader>
       <CardContent>
-        <Progress value={isLoading ? 20 : 100} className="w-full" />
+        <Progress value={groupLoading ? 20 : 100} className="w-full" />
         <p className="text-sm text-muted-foreground mt-2">
           Please wait while we connect you to the group discussion...
         </p>
