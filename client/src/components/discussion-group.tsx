@@ -187,9 +187,26 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/ws`;
-      console.log('Attempting to connect to WebSocket:', wsUrl);
+      const hostname = window.location.hostname;
+      const port = window.location.port;
+
+      let wsUrl;
+      if (process.env.NODE_ENV === 'production') {
+        // In production, use the same hostname without port
+        wsUrl = `${protocol}//${hostname}/ws`;
+      } else {
+        // In development, include port if it exists
+        wsUrl = `${protocol}//${hostname}${port ? ':' + port : ''}/ws`;
+      }
+
+      console.log('Attempting to connect to WebSocket:', wsUrl, 'Environment:', process.env.NODE_ENV);
+      console.log('Connection details:', {
+        protocol,
+        hostname,
+        port,
+        fullUrl: wsUrl,
+        environment: process.env.NODE_ENV
+      });
 
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;

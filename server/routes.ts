@@ -40,9 +40,13 @@ export function registerRoutes(app: Express): Server {
     path: '/ws',
     verifyClient: (info, callback) => {
       console.log('WebSocket connection attempt from:', info.origin);
+      console.log('Headers:', info.req.headers);
+      console.log('URL:', info.req.url);
+      console.log('Environment:', process.env.NODE_ENV);
 
       // Ignore vite-hmr websocket connections
       if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        console.log('Ignoring vite-hmr connection');
         return callback(false);
       }
 
