@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@db";
-import { groupMessages, users, groupMembers } from "@db/schema";
+import { groupMessages, users, groupMembers, discussionGroups } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
 import { Router } from "express";
 

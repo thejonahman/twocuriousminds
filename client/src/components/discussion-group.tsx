@@ -68,29 +68,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
-    onSuccess: (data) => {
-      console.log('Group data loaded:', data);
-      if (data && !currentGroup) {
-        setCurrentGroup(data);
-        // Update URL to include group ID if not already present
-        const currentPath = window.location.pathname;
-        if (!currentPath.includes('/group/')) {
-          setLocation(`/video/${videoId}/group/${data.id}`);
-        }
-        // If the group has messages, display them immediately
-        if (data.messages) {
-          queryClient.setQueryData(['/api/group-messages', data.id], data.messages);
-        }
-      }
-    },
-    onError: (error) => {
-      console.error('Error loading group:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load group discussion",
-        variant: "destructive",
-      });
-    }
+    select: (data) => validateApiResponse(groupSchema, data),
   });
 
   // Query for video messages
@@ -104,19 +82,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
     enabled: !!user && !!currentGroup?.id && wsState.connected,
-    select: (data) => {
-      console.log('Received group messages:', data);
-      return validateApiResponse(z.array(messageSchema), data);
-    },
-    onError: (error) => {
-      console.error('Error loading group messages:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load group messages",
-        variant: "destructive",
-      });
-    },
-    initialData: currentGroup?.messages || []
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
+    initialData: currentGroup?.messages || [],
   });
 
   // Set initial group when data is loaded
@@ -142,12 +109,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: lastActiveGroup } = useQuery<Group>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
+    select: (data) => validateApiResponse(groupSchema, data),
     onSuccess: (data) => {
       if (data && !currentGroup) {
         setCurrentGroup(data);
         setLocation(`/video/${videoId}/group/${data.id}`);
       }
-    }
+    },
   });
 
 

@@ -31,6 +31,7 @@ export const groupSchema = baseEntitySchema.extend({
   creatorId: z.number(),
   isPrivate: z.boolean(),
   inviteCode: z.string(),
+  messages: z.array(groupMessageSchema).optional(),
 });
 
 // WebSocket message schemas
