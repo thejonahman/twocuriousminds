@@ -54,11 +54,12 @@ export default function JoinGroup() {
         description: `Joined group "${groupData.name}"!`,
       });
 
-      // Navigate to video page with group ID
+      // Navigate to video page with group ID immediately
       if (groupData.videoId !== null && groupData.id !== null) {
         const destination = `/video/${groupData.videoId}/group/${groupData.id}`;
         console.log('Navigating to:', destination);
-        navigate(destination);
+        // Force immediate navigation
+        window.location.href = destination;
       } else {
         console.error('Invalid group data:', groupData);
         toast({
@@ -71,8 +72,9 @@ export default function JoinGroup() {
     }
   }, [user, groupData, navigate, toast, videoId, isLoading]);
 
+  // Show nothing while redirecting to auth
   if (!user) {
-    return null; // Will redirect to auth
+    return null;
   }
 
   if (error) {
