@@ -50,13 +50,14 @@ export default function Video() {
   const { data: lastAccessedGroup } = useQuery<LastAccessedGroup>({
     queryKey: [`/api/last-accessed-group/${id}`],
     enabled: !!user && !!id && !groupId,
-    staleTime: 0,
-    onSuccess: (data: LastAccessedGroup) => {
-      if (data?.groupId) {
-        setLocation(`/video/${id}/group/${data.groupId}`);
-      }
-    }
   });
+
+  // Handle redirect to last accessed group
+  useEffect(() => {
+    if (lastAccessedGroup?.groupId && !groupId) {
+      setLocation(`/video/${id}/group/${lastAccessedGroup.groupId}`);
+    }
+  }, [lastAccessedGroup, id, groupId, setLocation]);
 
   const { data: video, isLoading } = useQuery<Video>({
     queryKey: [`/api/videos/${id}`],
