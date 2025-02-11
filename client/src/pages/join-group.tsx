@@ -10,6 +10,7 @@ export default function JoinGroup() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
   const socketRef = useRef<WebSocket | null>(null);
+  const joinAttemptedRef = useRef(false);
 
   // Extract invite code and videoId from URL
   const inviteCode = window.location.pathname.split('/join-group/')[1];
@@ -27,13 +28,16 @@ export default function JoinGroup() {
       return;
     }
 
+    // If we've already attempted to join, don't try again
+    if (joinAttemptedRef.current) {
+      return;
+    }
+
     // Handle authentication
     if (!user) {
       console.log('User not authenticated, storing navigation data and redirecting to auth');
-      // Store the current path and search params for post-auth redirect
-      sessionStorage.setItem('targetType', 'join-group');
-      sessionStorage.setItem('targetId', videoId || '');
-      sessionStorage.setItem('inviteCode', inviteCode);
+      // Store the complete URL for post-auth redirect
+      sessionStorage.setItem('redirectUrl', window.location.href);
 
       // Redirect to auth page
       console.log('Redirecting to auth page');
@@ -60,14 +64,13 @@ export default function JoinGroup() {
 
     ws.onopen = () => {
       console.log('WebSocket connected, sending join group request');
-      // Add a slight delay to ensure WebSocket is fully ready
-      setTimeout(() => {
-        ws.send(JSON.stringify({
-          type: 'join_group',
-          inviteCode,
-          videoId: parseInt(videoId, 10),
-        }));
-      }, 500);
+      joinAttemptedRef.current = true;
+      // Send join request immediately when socket opens
+      ws.send(JSON.stringify({
+        type: 'join_group',
+        inviteCode,
+        videoId: parseInt(videoId, 10),
+      }));
     };
 
     ws.onmessage = (event) => {
