@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,8 +82,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
     enabled: !!user && !!currentGroup?.id && wsState.connected,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
-    initialData: currentGroup?.messages || [],
+    select: useCallback((data: Message[]) => {
+      console.log('Processing group messages:', data);
+      const validatedData = validateApiResponse(z.array(messageSchema), data);
+      return sortMessages(validatedData);
+    }, [sortMessages]),
+    initialData: currentGroup?.messages ? sortMessages(currentGroup.messages) : [],
   });
 
   // Set initial group when data is loaded
@@ -128,15 +132,31 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     return `${baseUrl}/video/${videoId}/group/${currentGroup.id}`;
   };
 
-  const addOptimisticMessage = (newMessage: Message) => {
+  // Update message sorting function to be more robust
+  const sortMessages = useCallback((messages: Message[]) => {
+    return [...messages].sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime();
+      const timeB = new Date(b.createdAt).getTime();
+      if (timeA === timeB) {
+        // If timestamps are equal, use message ID as secondary sort
+        return a.id - b.id;
+      }
+      return timeA - timeB;
+    });
+  }, []);
+
+  // Update optimistic message handling
+  const addOptimisticMessage = useCallback((newMessage: Message) => {
     const queryKey = currentGroup
       ? ['/api/group-messages', currentGroup.id]
       : ['/api/messages', videoId];
 
     queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
-      return [...old, newMessage];
+      const merged = [...old, newMessage];
+      console.log('Merging messages:', { old, newMessage, merged });
+      return sortMessages(merged);
     });
-  };
+  }, [currentGroup, videoId, sortMessages, queryClient]);
 
   const connectWebSocket = useCallback(() => {
     if (!user || wsState.connecting) return;
@@ -155,7 +175,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`, {
+        credentials: 'include'
+      });
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -213,8 +235,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           switch (message.type) {
             case 'new_message':
               if (!currentGroup) {
-                console.log('Invalidating messages query');
-                queryClient.invalidateQueries({ queryKey: ['/api/messages', videoId] });
+                queryClient.setQueryData<Message[]>(['/api/messages', videoId], (old = []) => {
+                  return sortMessages([...old, message.data]);
+                });
                 // Scroll to bottom on new message
                 messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
               }
@@ -222,8 +245,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
             case 'new_group_message':
               if (currentGroup && message.data.groupId === currentGroup.id) {
-                console.log('Invalidating group messages query');
-                queryClient.invalidateQueries({ queryKey: ['/api/group-messages', currentGroup.id] });
+                console.log('Processing new group message:', message.data);
+                queryClient.setQueryData<Message[]>(['/api/group-messages', currentGroup.id], (old = []) => {
+                  const merged = [...old, message.data];
+                  console.log('Merging group messages:', { old, new: message.data, merged });
+                  return sortMessages(merged);
+                });
                 // Update unread count if not currently viewing
                 if (document.hidden) {
                   setUnreadCount(prev => prev + 1);
@@ -377,12 +404,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     setLocation(`/video/${videoId}`);
   };
 
-  // Update display messages to show in chronological order (oldest first)
-  const sortedMessages = [...(currentGroup ? groupMessages : messages)].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-  );
+  // The displayMessages computation remains the same but uses the memoized sortMessages
+  const displayMessages = useMemo(() => {
+    const messagesToShow = currentGroup ? groupMessages : messages;
+    return sortMessages(messagesToShow);
+  }, [currentGroup, groupMessages, messages, sortMessages]);
 
-  // Auto-scroll when new messages arrive
   const scrollToBottom = useCallback(() => {
     if (messagesEndRef.current) {
       const container = messagesEndRef.current.parentElement;
@@ -401,7 +428,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [sortedMessages.length, scrollToBottom]);
+  }, [displayMessages.length, scrollToBottom]);
 
 
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
@@ -440,7 +467,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
       markAsRead();
     }
-  }, [currentGroup, user, sortedMessages.length]);
+  }, [currentGroup, user, displayMessages.length]);
 
   // Handle visibility change to mark messages as read when tab becomes visible
   useEffect(() => {
@@ -474,7 +501,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     );
   }
 
-  const displayMessages = currentGroup ? groupMessages : messages;
   const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages || !wsState.connected;
 
   if (isLoading) {
@@ -578,12 +604,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {sortedMessages.length === 0 && (
+          {displayMessages.length === 0 && (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
           )}
-          {sortedMessages.map((message) => (
+          {displayMessages.map((message) => (
             <div
               key={message.id}
               className={`flex flex-col ${

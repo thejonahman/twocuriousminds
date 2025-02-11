@@ -8,35 +8,40 @@ const router = Router();
 
 router.get("/api/groups/:groupId/messages", async (req, res) => {
   const { groupId } = req.params;
-  const messages = await db.query.groupMessages.findMany({
-    where: eq(groupMessages.groupId, parseInt(groupId)),
-    with: {
-      user: {
-        columns: {
-          id: true,
-          username: true,
-          email: true,
+
+  try {
+    const messages = await db.query.groupMessages.findMany({
+      where: eq(groupMessages.groupId, parseInt(groupId)),
+      with: {
+        user: {
+          columns: {
+            id: true,
+            username: true,
+          }
         }
-      }
-    },
-    orderBy: desc(groupMessages.createdAt),
-  });
+      },
+      orderBy: [groupMessages.createdAt],  // Ascending order (oldest first)
+    });
 
-  // Update last read timestamp for the current user
-  if (req.user) {
-    await db
-      .update(groupMembers)
-      .set({ 
-        lastReadAt: new Date(),
-        unreadCount: 0
-      })
-      .where(and(
-        eq(groupMembers.groupId, parseInt(groupId)),
-        eq(groupMembers.userId, req.user.id)
-      ));
+    // Update last read timestamp for the current user
+    if (req.user) {
+      await db
+        .update(groupMembers)
+        .set({ 
+          lastReadAt: new Date(),
+          unreadCount: 0
+        })
+        .where(and(
+          eq(groupMembers.groupId, parseInt(groupId)),
+          eq(groupMembers.userId, req.user.id)
+        ));
+    }
+
+    res.json(messages);
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ error: "Failed to fetch messages" });
   }
-
-  res.json(messages);
 });
 
 router.post("/api/groups/:groupId/messages", async (req, res) => {

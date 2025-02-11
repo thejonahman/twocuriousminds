@@ -44,33 +44,45 @@ export function registerRoutes(app: Express): Server {
         return callback(false);
       }
 
-      const res: any = {
-        writeHead: () => {},
-        setHeader: () => {},
-        end: () => {}
-      };
+      // Create a promise-based wrapper for session middleware
+      const handleSession = () => new Promise((resolve) => {
+        const res: any = {
+          writeHead: () => {},
+          setHeader: () => {},
+          end: () => {}
+        };
 
-      // Apply session middleware with proper error handling
-      try {
         sessionMiddleware(info.req as Request, res as Response, (err?: any) => {
           if (err) {
             console.error('Session middleware error:', err);
-            return callback(false, 401, 'Session error');
+            resolve(false);
+          } else {
+            const isAuthenticated = info.req.session?.passport?.user != null;
+            console.log('WebSocket auth check:', {
+              session: info.req.session,
+              isAuthenticated,
+              userId: info.req.session?.passport?.user
+            });
+            resolve(isAuthenticated);
           }
+        });
+      });
 
-          const isAuthenticated = info.req.session?.passport?.user != null;
+      // Handle authentication check
+      handleSession()
+        .then((isAuthenticated) => {
           if (isAuthenticated) {
             console.log('WebSocket auth successful for user:', info.req.session?.passport?.user);
             callback(true);
           } else {
-            console.log('WebSocket auth failed: No user in session');
+            console.log('WebSocket auth failed: No authenticated user');
             callback(false, 401, 'Unauthorized');
           }
+        })
+        .catch((error) => {
+          console.error('WebSocket auth error:', error);
+          callback(false, 500, 'Internal server error');
         });
-      } catch (error) {
-        console.error('WebSocket verifyClient error:', error);
-        callback(false, 500, 'Internal server error');
-      }
     }
   });
 
