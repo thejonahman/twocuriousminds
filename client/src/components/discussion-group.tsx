@@ -68,6 +68,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
+    retry: 3,
+    onSuccess: (data) => {
+      console.log('Successfully loaded group data:', data);
+      if (data && !currentGroup) {
+        setCurrentGroup(data);
+      }
+    },
+    onError: (error) => {
+      console.error('Error loading group:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load group data",
+        variant: "destructive",
+      });
+    }
   });
 
   // Query for video messages
@@ -77,14 +92,24 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
 
-  // Query for group messages
+  // Query for group messages with proper error handling
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id,
+    enabled: !!user && !!currentGroup?.id && wsState.connected,
+    retry: 3,
+    refetchInterval: 5000, // Polling backup
     select: (data) => {
       console.log('Received group messages:', data);
       return validateApiResponse(z.array(messageSchema), data);
     },
+    onError: (error) => {
+      console.error('Error loading group messages:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load messages",
+        variant: "destructive",
+      });
+    }
   });
 
   // Set initial group when data is loaded
@@ -213,7 +238,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                 // Force an immediate refresh of messages
                 await queryClient.invalidateQueries({ 
                   queryKey: ['/api/group-messages', currentGroup.id],
-                  exact: true 
+                  exact: true,
+                  refetchType: 'all'
                 });
 
                 // Update unread count if not currently viewing
@@ -411,20 +437,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       markAsRead();
     }
   }, [currentGroup, user, groupMessages]);
-
-  // Add polling interval for messages
-  useEffect(() => {
-    if (currentGroup?.id) {
-      // Poll for new messages every 5 seconds as a backup
-      const interval = setInterval(() => {
-        queryClient.invalidateQueries({ 
-          queryKey: ['/api/group-messages', currentGroup.id] 
-        });
-      }, 5000);
-
-      return () => clearInterval(interval);
-    }
-  }, [currentGroup?.id, queryClient]);
 
 
   if (!user) {
