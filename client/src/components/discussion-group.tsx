@@ -138,6 +138,19 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     enabled: !!videoId,
   });
 
+  // Query for user's last active group in this video
+  const { data: lastActiveGroup } = useQuery<Group>({
+    queryKey: [`/api/videos/${videoId}/last-active-group`],
+    enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
+    onSuccess: (data) => {
+      if (data && !currentGroup) {
+        setCurrentGroup(data);
+        setLocation(`/video/${videoId}/group/${data.id}`);
+      }
+    }
+  });
+
+
   const generateShareUrl = () => {
     const baseUrl = window.location.origin;
     if (!currentGroup?.id) {
@@ -396,10 +409,32 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     setLocation(`/video/${videoId}`);
   };
 
-  // Auto-scroll when messages change
+  // Update display messages to show in chronological order (oldest first)
+  const sortedMessages = [...(currentGroup ? groupMessages : messages)].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+
+  // Auto-scroll when new messages arrive
+  const scrollToBottom = useCallback(() => {
+    if (messagesEndRef.current) {
+      const container = messagesEndRef.current.parentElement;
+      if (container) {
+        // Only smooth scroll if user is near bottom
+        const shouldSmoothScroll =
+          container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+
+        messagesEndRef.current.scrollIntoView({
+          behavior: shouldSmoothScroll ? "smooth" : "auto"
+        });
+      }
+    }
+  }, []);
+
+  // Scroll to bottom when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, groupMessages.length]);
+    scrollToBottom();
+  }, [sortedMessages.length, scrollToBottom]);
+
 
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
@@ -423,7 +458,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   }, [currentGroup, user]);
 
   useEffect(() => {
-    if (currentGroup && user && !document.hidden) {
+    if (currentGroup && user && document.visibilityState === 'visible') {
       const markAsRead = async () => {
         try {
           await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
@@ -437,7 +472,23 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
       markAsRead();
     }
-  }, [currentGroup, user, groupMessages]);
+  }, [currentGroup, user, sortedMessages.length]);
+
+  // Handle visibility change to mark messages as read when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && currentGroup && user) {
+        fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+          method: 'POST',
+        }).catch(console.error);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentGroup, user]);
 
   // Add loading state component
   if (!user) {
@@ -559,26 +610,31 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         </div>
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {displayMessages.length === 0 && (
+          {sortedMessages.length === 0 && (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
           )}
-          {displayMessages.map((message) => (
+          {sortedMessages.map((message) => (
             <div
               key={message.id}
               className={`flex flex-col ${
-                message.userId === user.id ? "items-end" : "items-start"
+                message.userId === user?.id ? "items-end" : "items-start"
               }`}
             >
               <div
                 className={`rounded-lg px-4 py-2 ${
-                  message.userId === user.id
+                  message.userId === user?.id
                     ? "bg-primary text-primary-foreground"
                     : "bg-muted"
                 }`}
               >
-                <p className="text-sm font-semibold">{message.user.username}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold">{message.user.username}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(message.createdAt).toLocaleTimeString()}
+                  </p>
+                </div>
                 <p>{message.content}</p>
               </div>
             </div>
