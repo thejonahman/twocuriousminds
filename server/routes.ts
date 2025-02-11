@@ -33,32 +33,6 @@ const requireAuth = (req: Request, res: Response, next: NextFunction) => {
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
 
-  // Wait for database to be ready before setting up routes
-  try {
-    console.log('Waiting for database to be ready...');
-    let isReady = false;
-    for (let i = 0; i < 5; i++) {
-      if (await isDatabaseHealthy()) {
-        isReady = true;
-        break;
-      }
-      console.log('Database not ready, retrying in 3 seconds...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
-    }
-
-    if (!isReady) {
-      throw new Error('Database failed to initialize');
-    }
-
-    console.log('Database is ready, setting up routes...');
-  } catch (error) {
-    console.error('Failed to initialize database:', error);
-    throw error;
-  }
-
-  // Setup auth and get session middleware
-  const sessionMiddleware = setupAuth(app);
-
   // Setup WebSocket server with improved error handling
   const wss = new WebSocketServer({ 
     server: httpServer,
@@ -102,7 +76,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Handle WebSocket connections
-  wss.on('connection', (ws, req: any) => {
+  wss.on('connection', async (ws, req: any) => {
     console.log('WebSocket connection attempt');
 
     // Get user ID from session
@@ -116,6 +90,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log('WebSocket connected for user:', userId);
     connectedClients.set(userId, ws);
 
+    let isAlive = true;
+    const pingInterval = setInterval(() => {
+      if (!isAlive) {
+        console.log('Client not responding to ping, closing connection');
+        clearInterval(pingInterval);
+        connectedClients.delete(userId);
+        ws.terminate();
+        return;
+      }
+      isAlive = false;
+      ws.ping();
+    }, 30000);
+
+    ws.on('pong', () => {
+      isAlive = true;
+    });
+
     ws.onmessage = async (event) => {
       try {
         const rawData = event.data.toString();
@@ -123,48 +114,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const message = JSON.parse(rawData);
         console.log('Received message:', message);
 
+        // Check database health before processing message
+        const isHealthy = await isDatabaseHealthy();
+        if (!isHealthy) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Database is temporarily unavailable. Please try again.'
+          }));
+          return;
+        }
+
         switch (message.type) {
           case 'message':
             const { videoId, content } = message;
             console.log('Processing video message:', { videoId, content });
 
-            // Save message with optimized query
-            const [savedMessage] = await db.insert(messages)
-              .values({
-                videoId,
-                userId,
-                content
-              })
-              .returning();
+            try {
+              // Save message with optimized query
+              const [savedMessage] = await db.insert(messages)
+                .values({
+                  videoId,
+                  userId,
+                  content
+                })
+                .returning();
 
-            // Get username efficiently
-            const user = await db.query.users.findFirst({
-              where: eq(users.id, userId),
-              columns: {
-                username: true
-              }
-            });
+              // Get username efficiently
+              const user = await db.query.users.findFirst({
+                where: eq(users.id, userId),
+                columns: {
+                  username: true
+                }
+              });
 
-            // Broadcast
-            const broadcastMessage = {
-              type: 'new_message',
-              data: {
-                ...savedMessage,
-                user: { username: user?.username }
-              }
-            };
+              const broadcastMessage = {
+                type: 'new_message',
+                data: {
+                  ...savedMessage,
+                  user: { username: user?.username }
+                }
+              };
 
-            console.log('Broadcasting message:', broadcastMessage);
+              console.log('Broadcasting message:', broadcastMessage);
 
-            // Efficient broadcasting using Array
-            const activeClients = [...connectedClients.values()]
-              .filter(client => client.readyState === WebSocket.OPEN);
-
-            activeClients.forEach(client => {
-              client.send(JSON.stringify(broadcastMessage));
-            });
+              // Efficient broadcasting using Array.from()
+              Array.from(connectedClients.values())
+                .filter(client => client.readyState === WebSocket.OPEN)
+                .forEach(client => {
+                  client.send(JSON.stringify(broadcastMessage));
+                });
+            } catch (error) {
+              console.error('Error saving message:', error);
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Failed to save message. Please try again.'
+              }));
+            }
             break;
-
           case 'create_group':
             const { name, description = '', videoId: groupVideoId } = message;
             const inviteCode = nanoid(10);
@@ -200,7 +206,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
               data: groupResponse
             }));
             break;
-
           case 'group_message':
             const { groupId, content: groupContent } = message;
             console.log('Processing group message:', { groupId, content: groupContent });
@@ -268,7 +273,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 }
               });
             break;
-
           case 'join_group':
             const { inviteCode: joinCode, videoId: joinVideoId } = message;
             console.log('Join group request received:', { joinCode, joinVideoId });
@@ -339,19 +343,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       } catch (error) {
         console.error('Message handling error:', error);
-        if (error instanceof Error) {
-          console.error('Error details:', error.message);
-        }
+        ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Failed to process message'
+        }));
       }
     };
 
     ws.on('close', () => {
       console.log('WebSocket disconnected for user:', userId);
+      clearInterval(pingInterval);
       connectedClients.delete(userId);
     });
 
     ws.on('error', (error) => {
       console.error('WebSocket error:', error);
+      clearInterval(pingInterval);
       connectedClients.delete(userId);
     });
   });

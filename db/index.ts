@@ -13,21 +13,17 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-// Enhanced pool configuration with conservative settings for sleeping endpoints
+// Conservative pool configuration for sleeping endpoints
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 3, // Further reduce max connections to prevent overwhelming the endpoint
-  idleTimeoutMillis: 10000, // 10 seconds
-  connectionTimeoutMillis: 10000, // 10 seconds
-  maxUses: 7500,
+  max: 2, // Minimize concurrent connections
+  idleTimeoutMillis: 60000, // 1 minute
+  connectionTimeoutMillis: 60000, // 1 minute
   ssl: {
     rejectUnauthorized: false
   },
-  statement_timeout: 30000,
-  query_timeout: 30000,
-  application_name: 'video_learning_platform',
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 5000 // Shorter delay for faster endpoint wake-up
+  statement_timeout: 120000, // 2 minutes
+  query_timeout: 120000, // 2 minutes
 });
 
 // Add query logging middleware with detailed error tracking
@@ -48,15 +44,25 @@ pool.query = (...args: any[]) => {
       console.error(`Query failed after ${duration}ms:`, query);
       console.error('Error details:', error);
 
-      // Special handling for endpoint disabled errors
+      // Special handling for endpoint disabled errors with exponential backoff
       if (error.message?.includes('endpoint is disabled')) {
-        console.log('Database endpoint is disabled, waiting for activation...');
-        // Return a promise that will retry after a delay
+        console.log('Database endpoint is disabled, retrying with backoff...');
         return new Promise((resolve, reject) => {
-          setTimeout(() => {
-            console.log('Retrying query after endpoint disabled error');
-            pool.query(...args).then(resolve).catch(reject);
-          }, 5000); // Wait 5 seconds before retrying
+          const retryWithBackoff = (attempt = 1, delay = 1000) => {
+            console.log(`Retry attempt ${attempt} after ${delay}ms`);
+            setTimeout(() => {
+              pool.query(...args)
+                .then(resolve)
+                .catch(err => {
+                  if (err.message?.includes('endpoint is disabled') && attempt < 5) {
+                    retryWithBackoff(attempt + 1, Math.min(delay * 2, 10000));
+                  } else {
+                    reject(err);
+                  }
+                });
+            }, delay);
+          };
+          retryWithBackoff();
         });
       }
 
@@ -64,13 +70,10 @@ pool.query = (...args: any[]) => {
     });
 };
 
-// Enhanced error handling for the pool
-pool.on('error', (err, client) => {
-  console.error('Unexpected error on idle client', err);
-  if (client) {
-    console.log('Releasing client due to error');
-    client.release(true);
-  }
+// Add error handling for the pool with reconnection logic
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client:', err);
+  // Don't exit process, just log the error and let the pool handle reconnection
 });
 
 pool.on('connect', () => {
@@ -85,54 +88,7 @@ pool.on('remove', () => {
   console.log('Client removed from pool');
 });
 
-// Test the connection with improved retry logic for sleeping endpoints
-const MAX_RETRIES = 5; // Reduced retries for faster feedback
-const INITIAL_RETRY_DELAY = 2000; // Start with 2 seconds
-const MAX_RETRY_DELAY = 15000; // Cap at 15 seconds
-
-async function connectWithRetry(retries = MAX_RETRIES, delay = INITIAL_RETRY_DELAY) {
-  try {
-    console.log('Attempting database connection...');
-    const client = await pool.connect();
-    console.log('Database connection successful');
-
-    // Test query to verify connection
-    await client.query('SELECT 1');
-    console.log('Database query test successful');
-
-    client.release();
-    return true;
-  } catch (err) {
-    console.error(`Database connection attempt failed (${MAX_RETRIES - retries + 1}/${MAX_RETRIES}):`, err);
-
-    if (retries > 1) {
-      const nextDelay = Math.min(delay * 1.5, MAX_RETRY_DELAY); // Gentler backoff
-      console.log(`Retrying in ${nextDelay/1000} seconds...`);
-      await new Promise(resolve => setTimeout(resolve, nextDelay));
-      return connectWithRetry(retries - 1, nextDelay);
-    } else {
-      console.error('All database connection attempts failed');
-      throw err;
-    }
-  }
-}
-
-// Initialize connection with retry logic
-const INITIAL_WARMUP_DELAY = 5000; // Increased initial delay to 5 seconds
-console.log(`Waiting ${INITIAL_WARMUP_DELAY/1000} seconds for endpoint initialization...`);
-
-setTimeout(() => {
-  connectWithRetry()
-    .then(() => {
-      console.log('Database connection initialization complete');
-    })
-    .catch(err => {
-      console.error('Fatal database connection error:', err);
-      process.exit(1);
-    });
-}, INITIAL_WARMUP_DELAY);
-
-// Monitor pool health more frequently during startup
+// Monitor pool health periodically
 const MONITORING_INTERVAL = 15000; // 15 seconds
 setInterval(() => {
   const poolStatus = {
