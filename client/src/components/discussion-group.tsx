@@ -65,9 +65,26 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Query for group if initialGroupId is provided
-  const { data: group } = useQuery<Group>({
+  const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
+  });
+
+  // Query for video messages
+  const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
+    queryKey: ['/api/messages', videoId],
+    enabled: !!user && !!videoId && !currentGroup,
+    select: (data) => validateApiResponse(z.array(messageSchema), data),
+  });
+
+  // Query for group messages
+  const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
+    queryKey: ['/api/group-messages', currentGroup?.id],
+    enabled: !!user && !!currentGroup?.id,
+    select: (data) => {
+      console.log('Received group messages:', data);
+      return validateApiResponse(z.array(messageSchema), data);
+    },
   });
 
   // Set initial group when data is loaded
@@ -82,20 +99,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       }
     }
   }, [group, currentGroup, videoId, setLocation]);
-
-  // Query for video messages
-  const { data: messages = [] } = useQuery<Message[]>({
-    queryKey: ['/api/messages', videoId],
-    enabled: !!user && !!videoId && !currentGroup,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
-  });
-
-  // Query for group messages
-  const { data: groupMessages = [] } = useQuery<Message[]>({
-    queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
-  });
 
   // Add video data query
   const { data: videoData } = useQuery({
@@ -420,6 +423,22 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   }
 
   const displayMessages = currentGroup ? groupMessages : messages;
+  const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages;
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Discussion</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center p-8">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

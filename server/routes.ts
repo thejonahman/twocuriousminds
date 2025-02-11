@@ -539,6 +539,9 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Group ID is required" });
       }
 
+      console.log('Fetching messages for group:', groupId);
+
+      // Fetch messages with user details, ordered by creation time
       const messagesList = await db.query.groupMessages.findMany({
         where: eq(groupMessages.groupId, groupId),
         orderBy: [desc(groupMessages.createdAt)],
@@ -552,6 +555,9 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
+      console.log('Retrieved messages:', messagesList.length);
+
+      // Return messages in chronological order (oldest first)
       res.json(messagesList.reverse());
     } catch (error) {
       console.error('Error fetching group messages:', error);
