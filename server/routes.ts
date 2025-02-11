@@ -562,6 +562,68 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add direct group access endpoint
+  app.get("/api/groups/:groupId", requireAuth, async (req, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      // Get group with members
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, groupId),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      // Check if user is already a member
+      const existingMember = group.members.find(member => member.userId === req.user!.id);
+
+      if (!existingMember) {
+        // Add user as member
+        await db.insert(groupMembers)
+          .values({
+            groupId: group.id,
+            userId: req.user!.id,
+            role: 'member'
+          });
+
+        // Add the new member to the response
+        group.members.push({
+          userId: req.user!.id,
+          groupId: group.id,
+          role: 'member',
+          user: {
+            username: req.user!.username
+          }
+        });
+      }
+
+      res.json(group);
+    } catch (error) {
+      console.error('Error accessing group:', error);
+      res.status(500).json({
+        message: "Error accessing group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+
   // Preferences endpoints
   app.get("/api/preferences", requireAuth, async (req: Request, res: Response) => {
     try {

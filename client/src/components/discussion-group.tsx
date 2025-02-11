@@ -23,7 +23,7 @@ import {
 import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
-import { useLocation, useRoute } from "wouter";
+import { useLocation } from "wouter";
 import { ShareButton } from "@/components/ui/share-button";
 
 // Maximum number of reconnection attempts
@@ -52,7 +52,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const [, setLocation] = useLocation();
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
-  const [inviteCode, setInviteCode] = useState("");
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -65,25 +64,24 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const reconnectTimeoutRef = useRef<number>();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Query for initial group if initialGroupId is provided
-  const { data: initialGroup } = useQuery<Group>({
+  // Query for group if initialGroupId is provided
+  const { data: group } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
   });
 
   // Set initial group when data is loaded
   useEffect(() => {
-    if (initialGroup && !currentGroup) {
-      console.log('Setting initial group:', initialGroup);
-      setCurrentGroup(initialGroup);
+    if (group && !currentGroup) {
+      console.log('Setting initial group:', group);
+      setCurrentGroup(group);
       // Update URL to include group ID if not already present
       const currentPath = window.location.pathname;
       if (!currentPath.includes('/group/')) {
-        setLocation(`/video/${videoId}/group/${initialGroup.id}`);
+        setLocation(`/video/${videoId}/group/${group.id}`);
       }
     }
-  }, [initialGroup, currentGroup, videoId, setLocation]);
-
+  }, [group, currentGroup, videoId, setLocation]);
 
   // Query for video messages
   const { data: messages = [] } = useQuery<Message[]>({
@@ -105,15 +103,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     enabled: !!videoId,
   });
 
-  // Update the generateInviteLink function to properly include video ID
-  const generateInviteLink = (inviteCode: string) => {
+  const generateShareUrl = () => {
     const baseUrl = window.location.origin;
-    // Always use the currentGroup's videoId for the share link
-    if (!currentGroup?.videoId) {
-      console.error('No video ID available for group');
+    if (!currentGroup?.id) {
+      console.error('No group ID available for sharing');
       return '';
     }
-    return `${baseUrl}/join-group/${inviteCode}?videoId=${currentGroup.videoId}`;
+    return `${baseUrl}/video/${videoId}/group/${currentGroup.id}`;
   };
 
   const addOptimisticMessage = (newMessage: Message) => {
@@ -129,7 +125,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   const connectWebSocket = useCallback(() => {
     if (!user || wsState.connecting) return;
 
-    // Close existing connection if any
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       console.log('WebSocket already connected');
       return;
@@ -170,7 +165,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
           connecting: false,
         }));
 
-        // Don't reconnect if the socket was closed intentionally or unauthorized
         if (event.code !== 1000 && event.code !== 1008 && user && wsState.retryCount < MAX_RETRIES) {
           const nextDelay = Math.min(wsState.retryDelay * 2, MAX_RETRY_DELAY);
           console.log(`Scheduling reconnection attempt ${wsState.retryCount + 1}/${MAX_RETRIES} in ${nextDelay}ms`);
@@ -230,26 +224,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
               setCurrentGroup(newGroup);
               setIsCreateGroupOpen(false);
               queryClient.invalidateQueries({ queryKey: ['/api/group-messages', newGroup.id] });
-              toast({
-                title: "Success",
-                description: `Group "${newGroup.name}" created! Share this invite code with friends: ${newGroup.inviteCode}`,
-              });
-              break;
 
-            case 'group_joined':
-              console.log("Group Joined:", message.data);
-              // Validate group data
-              const joinedGroup = validateApiResponse(groupSchema, message.data);
-              setCurrentGroup(joinedGroup);
-              setIsJoinGroupOpen(false);
-              queryClient.invalidateQueries({ queryKey: ['/api/group-messages', joinedGroup.id] });
-
-              // Update URL with group ID for deep linking
-              setLocation(`/video/${videoId}/group/${joinedGroup.id}`);
+              // Update URL with group ID
+              setLocation(`/video/${videoId}/group/${newGroup.id}`);
 
               toast({
                 title: "Success",
-                description: `Joined group "${joinedGroup.name}"!`,
+                description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
               });
               break;
 
@@ -299,14 +280,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
     connectWebSocket();
 
-    // Cleanup function
     return () => {
-      console.log('Cleaning up WebSocket connection');
       if (reconnectTimeoutRef.current) {
         window.clearTimeout(reconnectTimeoutRef.current);
       }
       if (socketRef.current) {
-        // Use code 1000 to indicate intentional closure
         socketRef.current.close(1000, 'Component unmounting');
       }
     };
@@ -336,10 +314,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     const optimisticMessage: Message = {
       id: Date.now(), // Temporary ID
       content: messageInput,
-      userId: user.id,
+      userId: user!.id,
       createdAt: new Date().toISOString(),
       user: {
-        username: user.username,
+        username: user!.username,
       },
       ...(currentGroup ? { groupId: currentGroup.id } : { videoId }),
     };
@@ -377,29 +355,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     setGroupNameInput('');
   };
 
-  const joinGroup = () => {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-      toast({
-        title: "Error",
-        description: "Not connected to server",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const joinGroupData = {
-      type: 'join_group',
-      inviteCode,
-      videoId, // Include videoId when joining
-    };
-
-    console.log('Sending join group request:', joinGroupData);
-    socketRef.current.send(JSON.stringify(joinGroupData));
-    setInviteCode('');
-  };
-
   const leaveGroup = () => {
     setCurrentGroup(null);
+    // Update URL to remove group ID
+    setLocation(`/video/${videoId}`);
   };
 
   // Auto-scroll when messages change
@@ -408,7 +367,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   }, [messages.length, groupMessages.length]);
 
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-  const [isJoinGroupOpen, setIsJoinGroupOpen] = useState(false);
 
   useEffect(() => {
     if (currentGroup && user) {
@@ -486,18 +444,18 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
             )}
           </div>
           <div className="flex items-center gap-2">
-            {currentGroup?.inviteCode && currentGroup.videoId && currentGroup.videoId === videoId && (
-              <ShareButton
-                url={generateInviteLink(currentGroup.inviteCode)}
-                title={`Join my discussion group: ${currentGroup.name}`}
-                text={`Join our discussion group for "${videoData?.title}". Click the link to join!`}
-                className="gap-2"
-              />
-            )}
             {currentGroup && (
-              <Button variant="outline" size="sm" onClick={leaveGroup}>
-                Leave Group
-              </Button>
+              <>
+                <ShareButton
+                  url={generateShareUrl()}
+                  title={`Join our discussion: ${currentGroup.name}`}
+                  text={`Join our discussion group for "${videoData?.title}". Click the link to join!`}
+                  className="gap-2"
+                />
+                <Button variant="outline" size="sm" onClick={leaveGroup}>
+                  Leave Group
+                </Button>
+              </>
             )}
           </div>
         </CardTitle>
@@ -525,7 +483,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                   <DialogHeader>
                     <DialogTitle>Create Discussion Group</DialogTitle>
                     <DialogDescription>
-                      Create a private group to discuss this video with friends. You'll get a shareable link after creating the group.
+                      Create a group to discuss this video with friends. You'll get a shareable link after creating the group.
                     </DialogDescription>
                   </DialogHeader>
                   <Input
@@ -535,58 +493,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                     className="mb-2"
                   />
                   <DialogFooter>
-                    <Button
-                      onClick={() => {
-                        const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
-                        const createGroupData = {
-                          type: 'create_group',
-                          name: groupName,
-                          videoId,
-                          description: `Discussion group for ${videoData?.title}`,
-                        };
-
-                        if (socketRef.current?.readyState === WebSocket.OPEN) {
-                          console.log('Sending create group request:', createGroupData);
-                          socketRef.current.send(JSON.stringify(createGroupData));
-                          setGroupNameInput('');
-                        } else {
-                          toast({
-                            title: "Error",
-                            description: "Not connected to server",
-                            variant: "destructive",
-                          });
-                        }
-                      }}
-                      disabled={!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN}
-                    >
+                    <Button onClick={createGroup} disabled={!wsState.connected}>
                       Create Group
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              <Dialog open={isJoinGroupOpen} onOpenChange={setIsJoinGroupOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <UserPlus className="h-4 w-4 mr-2" />
-                    Join Group
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Join Discussion Group</DialogTitle>
-                    <DialogDescription>
-                      Enter an invite code to join an existing group.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <Input
-                    value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value)}
-                    placeholder="Invite code..."
-                  />
-                  <DialogFooter>
-                    <Button onClick={joinGroup} disabled={!inviteCode.trim()}>
-                      Join Group
                     </Button>
                   </DialogFooter>
                 </DialogContent>

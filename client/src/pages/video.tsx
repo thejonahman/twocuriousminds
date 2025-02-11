@@ -17,7 +17,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 
 export default function Video() {
-  // Extract both video id and group id from params
   const { id, groupId } = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -57,7 +56,11 @@ export default function Video() {
   };
 
   const handleShare = async (type: string) => {
-    const shareUrl = window.location.href;
+    // Always include the groupId in the share URL if we're in a group discussion
+    const baseUrl = window.location.origin;
+    const shareUrl = groupId 
+      ? `${baseUrl}/video/${id}/group/${groupId}`
+      : window.location.href;
 
     switch (type) {
       case 'copy':
@@ -78,10 +81,10 @@ export default function Video() {
         }
         break;
       case 'email':
-        window.location.href = `mailto:?subject=Check out this video&body=I thought you might like this video: ${shareUrl}`;
+        window.location.href = `mailto:?subject=Check out this video discussion&body=I thought you might like this video discussion: ${shareUrl}`;
         break;
       case 'twitter':
-        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this video: ${video?.title}`)}`);
+        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this video discussion: ${video?.title}`)}`);
         break;
       case 'linkedin':
         window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`);
@@ -148,7 +151,7 @@ export default function Video() {
             <VideoPlayer video={video} />
             <div className="mt-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">{video.title}</h1>
+                <h1 className="text-2xl font-bold">{video?.title}</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="icon" className="ml-2">
@@ -183,15 +186,15 @@ export default function Video() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <p className="text-muted-foreground">{video.description}</p>
+              <p className="text-muted-foreground">{video?.description}</p>
             </div>
           </div>
 
-          <DelphiBubble videoId={video.id} />
+          <DelphiBubble videoId={video?.id} />
 
           <div className="rounded-xl border bg-card shadow-sm">
             <DiscussionGroup 
-              videoId={video.id} 
+              videoId={video?.id} 
               initialGroupId={groupId ? parseInt(groupId) : undefined}
             />
           </div>
@@ -199,9 +202,9 @@ export default function Video() {
 
         <div className="lg:sticky lg:top-4 space-y-4">
           <RecommendationSidebar
-            currentVideoId={video.id}
-            categoryId={video.categoryId}
-            subcategoryId={video.subcategoryId}
+            currentVideoId={video?.id}
+            categoryId={video?.categoryId}
+            subcategoryId={video?.subcategoryId}
           />
         </div>
       </div>
