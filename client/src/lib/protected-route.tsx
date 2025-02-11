@@ -27,8 +27,9 @@ export function ProtectedRoute({
 
   // Store the current URL before redirecting to auth
   if (!user) {
-    // Store the full URL including search params
-    sessionStorage.setItem('returnUrl', window.location.pathname + window.location.search);
+    // Store the full URL including search params and hash
+    const fullUrl = window.location.pathname + window.location.search + window.location.hash;
+    sessionStorage.setItem('returnUrl', fullUrl);
   }
 
   // Check for user authentication and admin status if required

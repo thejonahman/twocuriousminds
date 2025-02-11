@@ -56,12 +56,14 @@ export default function ProfileWizard() {
           title: "Preferences Already Set",
           description: "Your viewing preferences are already configured.",
         });
-        // Get the stored return URL, defaulting to home if none exists
+
+        // Get the stored return URL
         const returnUrl = sessionStorage.getItem('returnUrl');
         if (returnUrl) {
-          // Clear the return URL before navigating to prevent redirect loops
+          // Clear the return URL before navigating
           sessionStorage.removeItem('returnUrl');
-          navigate(returnUrl);
+          // Use window.location.href for external URLs or complex paths
+          window.location.href = returnUrl;
         } else {
           navigate('/');
         }
@@ -83,12 +85,17 @@ export default function ProfileWizard() {
         title: "Preferences saved",
         description: "Your profile has been set up successfully!",
       });
-      // Get the stored return URL, defaulting to home if none exists
+
+      // Get the stored return URL
       const returnUrl = sessionStorage.getItem('returnUrl');
-      // Clear the return URL before navigating to prevent redirect loops
-      sessionStorage.removeItem('returnUrl');
-      // Navigate to the return URL or home
-      navigate(returnUrl || '/');
+      if (returnUrl) {
+        // Clear the return URL before navigating
+        sessionStorage.removeItem('returnUrl');
+        // Use window.location.href for external URLs or complex paths
+        window.location.href = returnUrl;
+      } else {
+        navigate('/');
+      }
     },
     onError: (error: Error) => {
       toast({
