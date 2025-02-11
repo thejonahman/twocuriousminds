@@ -326,7 +326,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       : ['/api/messages', videoId];
 
     queryClient.setQueryData<Message[]>(queryKey, (old = []) => {
-      return [...old, optimisticMessage].sort((a, b) => 
+      return [...old, optimisticMessage].sort((a, b) =>
         new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
     });
@@ -339,6 +339,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
   const createGroup = () => {
     if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      console.log('WebSocket not connected, cannot create group');
       toast({
         title: "Error",
         description: "Not connected to server",
@@ -355,9 +356,18 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       description: `Discussion group for ${videoData?.title ?? 'video'}`,
     };
 
-    console.log('Sending create group request:', createGroupData);
-    socketRef.current.send(JSON.stringify(createGroupData));
-    setGroupNameInput('');
+    console.log('Attempting to create group with data:', createGroupData);
+    try {
+      socketRef.current.send(JSON.stringify(createGroupData));
+      setGroupNameInput('');
+    } catch (error) {
+      console.error('Error sending group creation message:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create group. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const leaveGroup = () => {
@@ -470,17 +480,22 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
                       Create a group to discuss this video with friends. You'll get a shareable link after creating the group.
                     </DialogDescription>
                   </DialogHeader>
-                  <Input
-                    value={groupNameInput}
-                    onChange={(e) => setGroupNameInput(e.target.value)}
-                    placeholder={videoData?.title || "Group name..."}
-                    className="mb-2"
-                  />
-                  <DialogFooter>
-                    <Button onClick={createGroup} disabled={!wsState.connected}>
-                      Create Group
-                    </Button>
-                  </DialogFooter>
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    createGroup();
+                  }}>
+                    <Input
+                      value={groupNameInput}
+                      onChange={(e) => setGroupNameInput(e.target.value)}
+                      placeholder={videoData?.title || "Group name..."}
+                      className="mb-4"
+                    />
+                    <DialogFooter>
+                      <Button type="submit" disabled={!wsState.connected}>
+                        Create Group
+                      </Button>
+                    </DialogFooter>
+                  </form>
                 </DialogContent>
               </Dialog>
             </div>

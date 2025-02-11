@@ -104,7 +104,6 @@ export const groupMembers = pgTable("group_members", {
   notificationsEnabled: boolean("notifications_enabled").default(true),
   emailNotifications: boolean("email_notifications").default(true),
   lastReadAt: timestamp("last_read_at").defaultNow(),
-  lastNotificationSent: timestamp("last_notification_sent").defaultNow(),
   unreadCount: integer("unread_count").default(0),
   joinedAt: timestamp("joined_at").defaultNow(),
 }, (table) => ({
