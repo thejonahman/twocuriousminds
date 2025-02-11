@@ -34,14 +34,22 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Setup WebSocket server with improved error handling
+  // Setup WebSocket server with improved error handling and CORS support
   const wss = new WebSocketServer({ 
     server: httpServer,
     path: '/ws',
     verifyClient: (info, callback) => {
+      console.log('WebSocket connection attempt from:', info.origin);
+
       // Ignore vite-hmr websocket connections
       if (info.req.headers['sec-websocket-protocol'] === 'vite-hmr') {
         return callback(false);
+      }
+
+      // Allow requests from any origin in production
+      const origin = info.origin || info.req.headers.origin;
+      if (origin) {
+        console.log('WebSocket request origin:', origin);
       }
 
       const res: any = {
@@ -58,9 +66,13 @@ export function registerRoutes(app: Express): Server {
             return callback(false, 401, 'Session error');
           }
 
-          const isAuthenticated = info.req.session?.passport?.user != null;
+          // Get session and check authentication
+          const session = (info.req as any).session;
+          console.log('Session data:', session);
+
+          const isAuthenticated = session?.passport?.user != null;
           if (isAuthenticated) {
-            console.log('WebSocket auth successful for user:', info.req.session?.passport?.user);
+            console.log('WebSocket auth successful for user:', session.passport.user);
             callback(true);
           } else {
             console.log('WebSocket auth failed: No user in session');
@@ -72,6 +84,11 @@ export function registerRoutes(app: Express): Server {
         callback(false, 500, 'Internal server error');
       }
     }
+  });
+
+  // Add error handler for the WebSocket server
+  wss.on('error', (error) => {
+    console.error('WebSocket server error:', error);
   });
 
   // Handle WebSocket connections

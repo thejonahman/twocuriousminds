@@ -188,12 +188,30 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      const ws = new WebSocket(`${protocol}//${host}/ws`);
-      console.log('Attempting to connect to WebSocket:', `${protocol}//${host}/ws`);
+      const wsUrl = `${protocol}//${host}/ws`;
+      console.log('Attempting to connect to WebSocket:', wsUrl);
+
+      const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
+      let connectionTimeout = setTimeout(() => {
+        console.error('WebSocket connection timeout');
+        ws.close();
+        setWsState(prev => ({
+          ...prev,
+          connected: false,
+          connecting: false,
+        }));
+        toast({
+          title: "Connection Error",
+          description: "Connection timed out. Please check your internet connection and try again.",
+          variant: "destructive",
+        });
+      }, 10000); // 10 second timeout
+
       ws.onopen = () => {
-        console.log('WebSocket connected');
+        clearTimeout(connectionTimeout);
+        console.log('WebSocket connected successfully');
         setWsState({
           connected: true,
           connecting: false,
@@ -275,6 +293,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       };
 
       ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
         console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
         setWsState(prev => ({
           ...prev,
@@ -305,6 +324,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       };
 
       ws.onerror = (error) => {
+        clearTimeout(connectionTimeout);
         console.error('WebSocket error:', error);
         toast({
           title: "Connection Error",
@@ -531,6 +551,16 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     );
   }
 
+  const ConnectionStatus = ({ wsState }: { wsState: WebSocketState }) => (
+    <div className="flex items-center gap-2">
+      <div className={`w-2 h-2 rounded-full ${wsState.connected ? 'bg-green-500' : wsState.connecting ? 'bg-yellow-500' : 'bg-red-500'}`} />
+      <span className="text-sm text-muted-foreground">
+        {wsState.connected ? 'Connected' : wsState.connecting ? 'Connecting...' : 'Disconnected'}
+        {!wsState.connected && wsState.retryCount > 0 && ` (Attempt ${wsState.retryCount}/${MAX_RETRIES})`}
+      </span>
+    </div>
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -573,13 +603,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
 
       <CardContent>
         <div className="flex items-center justify-between gap-2 mb-4">
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${wsState.connected ? 'bg-green-500' : wsState.connecting ? 'bg-yellow-500' : 'bg-red-500'}`} />
-            <span className="text-sm text-muted-foreground">
-              {wsState.connected ? 'Connected' : wsState.connecting ? 'Connecting...' : 'Disconnected'}
-              {!wsState.connected && wsState.retryCount > 0 && ` (Attempt ${wsState.retryCount}/${MAX_RETRIES})`}
-            </span>
-          </div>
+          <ConnectionStatus wsState={wsState} />
           {!currentGroup && (
             <div className="flex items-center gap-2">
               <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
