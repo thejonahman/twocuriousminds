@@ -63,6 +63,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   });
   const reconnectTimeoutRef = useRef<number>();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   // Query for group if initialGroupId is provided
   const { data: group, isLoading: isLoadingGroup } = useQuery<Group>({
@@ -71,7 +72,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     select: (data) => validateApiResponse(groupSchema, data),
   });
 
-  // Add query for user's last active group in this video
+  // Add query for user's last active group in this video with proper type validation
   const { data: lastActiveGroup } = useQuery<Group>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId, // Only run if no initialGroupId provided
@@ -100,7 +101,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
 
-
   // Query for video messages
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
     queryKey: ['/api/messages', videoId],
@@ -111,18 +111,23 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   // Update group messages query with better error handling
   const { data: groupMessages = [], isLoading: isLoadingGroupMessages } = useQuery<Message[]>({
     queryKey: ['/api/group-messages', currentGroup?.id],
-    enabled: !!user && !!currentGroup?.id && wsState.connected,
+    enabled: !!user && !!currentGroup?.id,
     select: (data) => validateApiResponse(z.array(messageSchema), data),
     initialData: currentGroup?.messages || [],
   });
 
-
-  // Add video data query
+  // Add video data query with proper type validation
   const { data: videoData } = useQuery({
     queryKey: [`/api/videos/${videoId}`],
     enabled: !!videoId,
+    select: (data) => {
+      if (!data) return null;
+      return {
+        title: data.title || '',
+        description: data.description || '',
+      };
+    },
   });
-
 
   const generateShareUrl = () => {
     const baseUrl = window.location.origin;
@@ -408,8 +413,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     scrollToBottom();
   }, [sortedMessages.length, scrollToBottom]);
 
-
-  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   useEffect(() => {
     if (currentGroup && user) {

@@ -58,7 +58,8 @@ export default function Video() {
     enabled: !!id && !groupId, // Only run if no groupId provided
     select: (data) => {
       try {
-        return lastActiveGroupSchema.parse(data);
+        // Only attempt to parse if we have data
+        return data ? lastActiveGroupSchema.parse(data) : null;
       } catch (error) {
         console.error('Invalid last active group data:', error);
         return null;
