@@ -71,13 +71,19 @@ export default function Video() {
   // If there's a last active group and no current groupId, check persistence
   useEffect(() => {
     if (lastActiveGroup?.id && !groupId) {
-      // Check if user explicitly left this group
+      // Check if user explicitly left this group recently
       const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
+      const lastLeftTime = sessionStorage.getItem('lastLeftTime');
+
       if (lastLeftGroup === lastActiveGroup.id.toString()) {
-        return; // Don't rejoin if user explicitly left
+        const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
+        const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
+        if (timeSinceLeft < REJOIN_TIMEOUT) {
+          return; // Don't rejoin if recently left
+        }
       }
 
-      // Check if this group is stored as active
+      // Check if this group is stored as active in localStorage
       const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
       if (storedGroupId === lastActiveGroup.id.toString()) {
         console.log('Reconnecting to stored group:', lastActiveGroup.id);
@@ -86,14 +92,24 @@ export default function Video() {
     }
   }, [lastActiveGroup, id, groupId, setLocation]);
 
-  // Remove localStorage check since it's handled in the above effect
+  // Check localStorage for persistent group membership
   useEffect(() => {
     if (!groupId && !lastActiveGroup) {
-      const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
       const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
+      const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
+      const lastLeftTime = sessionStorage.getItem('lastLeftTime');
 
-      if (storedGroupId && storedGroupId !== lastLeftGroup) {
-        console.log('Found stored group ID:', storedGroupId);
+      if (storedGroupId && (!lastLeftGroup || lastLeftGroup !== storedGroupId)) {
+        // Only rejoin if we haven't explicitly left or the leave timeout has expired
+        if (lastLeftGroup === storedGroupId) {
+          const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
+          const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
+          if (timeSinceLeft < REJOIN_TIMEOUT) {
+            return;
+          }
+        }
+
+        console.log('Reconnecting to stored group:', storedGroupId);
         setLocation(`/video/${id}/group/${storedGroupId}`);
       }
     }

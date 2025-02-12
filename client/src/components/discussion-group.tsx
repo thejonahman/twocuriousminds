@@ -90,24 +90,27 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     if (group && !currentGroup) {
       setCurrentGroup(group);
       setLocation(`/video/${videoId}/group/${group.id}`);
-      // Store the active group ID in localStorage
+      // Store the active group ID in localStorage for persistence
       localStorage.setItem(`activeGroup-${videoId}`, group.id.toString());
     }
   }, [group, currentGroup, videoId, setLocation]);
 
   useEffect(() => {
     if (lastActiveGroup && !currentGroup && !initialGroupId) {
-      // Only set current group if we haven't explicitly left it
+      // Only check sessionStorage for recent "leave" actions
       const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
       const lastLeftTime = sessionStorage.getItem('lastLeftTime');
-      const REJOIN_TIMEOUT = 24 * 60 * 60 * 1000; // Extend to 24 hours to effectively disable auto-rejoin
 
-      // Don't auto-join if we recently left
+      // If we recently left this group, don't auto-join
       if (lastLeftGroup === lastActiveGroup.id.toString()) {
-        return;
+        const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
+        const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
+        if (timeSinceLeft < REJOIN_TIMEOUT) {
+          return;
+        }
       }
 
-      // Check if this group is stored in localStorage
+      // Check if this group is stored in localStorage for persistence
       const storedGroupId = localStorage.getItem(`activeGroup-${videoId}`);
       if (storedGroupId === lastActiveGroup.id.toString()) {
         setCurrentGroup(lastActiveGroup);
@@ -227,7 +230,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       sessionStorage.setItem('lastLeftGroup', currentGroup.id.toString());
       sessionStorage.setItem('lastLeftTime', Date.now().toString());
 
-      // Remove from localStorage to prevent auto-rejoin
+      // Only remove from localStorage if explicitly leaving
       localStorage.removeItem(`activeGroup-${videoId}`);
 
       // Clear the current group
