@@ -111,6 +111,14 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       updatedAt: new Date()
     }).returning();
 
+    // Update the group's updatedAt timestamp
+    await db
+      .update(discussionGroups)
+      .set({ 
+        updatedAt: new Date()
+      })
+      .where(eq(discussionGroups.id, parsedGroupId));
+
     // Get full message details with user info
     const messageWithUser = await db.query.groupMessages.findFirst({
       where: eq(groupMessages.id, message.id),

@@ -198,18 +198,28 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     try {
       const response = await fetch(`/api/groups/${currentGroup.id}/leave`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
 
       if (!response.ok) {
         throw new Error('Failed to leave group');
       }
 
+      // Clear the current group
       setCurrentGroup(null);
+
+      // Reset the location without the group ID
       setLocation(`/video/${videoId}`);
 
-      // Invalidate the last active group query to refresh the state
+      // Invalidate both queries to ensure fresh data
       queryClient.invalidateQueries({
         queryKey: [`/api/videos/${videoId}/last-active-group`]
+      });
+
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup.id}`]
       });
 
       toast({
@@ -217,6 +227,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: "Successfully left the group",
       });
     } catch (error) {
+      console.error('Error leaving group:', error);
       toast({
         title: "Error",
         description: "Failed to leave group",
