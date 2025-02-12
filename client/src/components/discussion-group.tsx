@@ -88,6 +88,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   // Effects
   useEffect(() => {
     if (group && !currentGroup) {
+      console.log('Setting current group from prop:', group.id);
       setCurrentGroup(group);
       setLocation(`/video/${videoId}/group/${group.id}`);
       // Store the active group ID in localStorage for persistence
@@ -106,15 +107,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
         const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
         if (timeSinceLeft < REJOIN_TIMEOUT) {
+          console.log('Skipping rejoin due to recent leave:', lastLeftGroup);
           return;
         }
       }
 
       // Check if this group is stored in localStorage for persistence
       const storedGroupId = localStorage.getItem(`activeGroup-${videoId}`);
-      if (storedGroupId === lastActiveGroup.id.toString()) {
+      console.log('Checking stored group:', storedGroupId, 'vs lastActive:', lastActiveGroup.id);
+
+      // Always set localStorage and join if there's no stored group or it matches
+      if (!storedGroupId || storedGroupId === lastActiveGroup.id.toString()) {
+        console.log('Setting current group from lastActive:', lastActiveGroup.id);
         setCurrentGroup(lastActiveGroup);
         setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+        localStorage.setItem(`activeGroup-${videoId}`, lastActiveGroup.id.toString());
       }
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
@@ -195,14 +202,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       }
 
       const newGroup = await response.json();
+      console.log('Created new group:', newGroup.id);
+
+      // Set localStorage immediately after group creation
+      localStorage.setItem(`activeGroup-${videoId}`, newGroup.id.toString());
+
       setCurrentGroup(newGroup);
       setIsCreateGroupOpen(false);
       setLocation(`/video/${videoId}/group/${newGroup.id}`);
+
       toast({
         title: "Success",
         description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
       });
     } catch (error) {
+      console.error('Error creating group:', error);
       toast({
         title: "Error",
         description: "Failed to create group",
