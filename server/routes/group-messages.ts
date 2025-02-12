@@ -3,10 +3,12 @@ import { db } from "@db";
 import { groupMessages, users, groupMembers, discussionGroups } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
 import { Router } from "express";
+import { AuthenticatedRequest } from "../routes";
 
 const router = Router();
 
-router.get("/api/groups/:groupId/messages", async (req, res) => {
+// Get messages for a group
+router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, res) => {
   try {
     const { groupId } = req.params;
     const parsedGroupId = parseInt(groupId);
@@ -36,11 +38,11 @@ router.get("/api/groups/:groupId/messages", async (req, res) => {
           columns: {
             id: true,
             username: true,
-            email: true,
           }
         }
       },
-      orderBy: desc(groupMessages.createdAt),
+      orderBy: [desc(groupMessages.createdAt)],
+      limit: 100
     });
 
     // Update last read timestamp for the current user
@@ -57,14 +59,15 @@ router.get("/api/groups/:groupId/messages", async (req, res) => {
         ));
     }
 
-    res.json(messages);
+    res.json(messages.reverse());
   } catch (error) {
     console.error('Error in group messages:', error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.post("/api/groups/:groupId/messages", async (req, res) => {
+// Post a new message to a group
+router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, res) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -132,79 +135,6 @@ router.post("/api/groups/:groupId/messages", async (req, res) => {
     console.error('Error posting group message:', error);
     res.status(500).json({ error: "Internal server error" });
   }
-});
-
-router.post("/api/groups/:groupId/mark-read", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  try {
-    const { groupId } = req.params;
-    const parsedGroupId = parseInt(groupId);
-
-    if (isNaN(parsedGroupId)) {
-      return res.status(400).json({ error: "Invalid group ID" });
-    }
-
-    await db
-      .update(groupMembers)
-      .set({ 
-        lastReadAt: new Date(),
-        unreadCount: 0
-      })
-      .where(and(
-        eq(groupMembers.groupId, parsedGroupId),
-        eq(groupMembers.userId, req.user.id)
-      ));
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error marking messages as read:', error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// New endpoint to get user's last active group in a video
-router.get("/api/videos/:videoId/last-active-group", async (req, res) => {
-  if (!req.user) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-
-  const { videoId } = req.params;
-
-  // Find the user's most recently active group for this video
-  const lastActiveGroup = await db.query.discussionGroups.findFirst({
-    where: and(
-      eq(discussionGroups.videoId, parseInt(videoId)),
-      sql`exists (
-        select 1 from groupMembers 
-        where groupMembers.groupId = discussionGroups.id 
-        and groupMembers.userId = ${req.user.id}
-      )`
-    ),
-    with: {
-      messages: {
-        orderBy: desc(groupMessages.createdAt),
-        limit: 50,
-        with: {
-          user: {
-            columns: {
-              id: true,
-              username: true,
-            }
-          }
-        }
-      }
-    },
-    orderBy: desc(discussionGroups.updatedAt),
-  });
-
-  if (!lastActiveGroup) {
-    return res.status(404).json({ error: "No active group found" });
-  }
-
-  res.json(lastActiveGroup);
 });
 
 export default router;

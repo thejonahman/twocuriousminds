@@ -7,6 +7,14 @@ import { setupAuth, requireAuth } from "./auth";
 import {Request, Response} from 'express';
 import groupMessagesRouter from './routes/group-messages';
 
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    id: number;
+    username: string;
+    email: string;
+  };
+}
+
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
 
@@ -129,7 +137,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Add REST endpoint for group invites
-  app.get("/api/groups/invite/:code", requireAuth, async (req, res) => {
+  app.get("/api/groups/invite/:code", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const inviteCode = req.params.code;
       console.log('Fetching group for invite code:', inviteCode);
@@ -187,7 +195,7 @@ export function registerRoutes(app: Express): Server {
   // Protected endpoints - require authentication
 
   // Update the group creation endpoint
-  app.post("/api/groups", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/groups", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { name, videoId } = req.body;
       const userId = req.user?.id;
@@ -260,7 +268,7 @@ export function registerRoutes(app: Express): Server {
 
 
   // Add direct group access endpoint
-  app.get("/api/groups/:groupId", requireAuth, async (req, res) => {
+  app.get("/api/groups/:groupId", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const groupId = parseInt(req.params.groupId);
       if (isNaN(groupId)) {
@@ -326,7 +334,7 @@ export function registerRoutes(app: Express): Server {
 
 
   // Preferences endpoints
-  app.get("/api/preferences", requireAuth, async (req: any, res: any) => {
+  app.get("/api/preferences", requireAuth, async (req: AuthenticatedRequest, res: any) => {
     try {
       const preferences = await db.query.userPreferences.findFirst({
         where: sql`${userPreferences.userId} = ${req.user!.id}`
@@ -348,7 +356,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/preferences", requireAuth, async (req: any, res: any) => {
+  app.post("/api/preferences", requireAuth, async (req: AuthenticatedRequest, res: any) => {
     try {
       const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
 
@@ -389,7 +397,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get unread count for a group
-  app.get("/api/groups/:groupId/unread-count", requireAuth, async (req, res) => {
+  app.get("/api/groups/:groupId/unread-count", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const groupId = parseInt(req.params.groupId);
       if (isNaN(groupId)) {
@@ -431,7 +439,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Mark messages as read
-  app.post("/api/groups/:groupId/mark-read", requireAuth, async (req, res) => {
+  app.post("/api/groups/:groupId/mark-read", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const groupId = parseInt(req.params.groupId);
       if (isNaN(groupId)) {
