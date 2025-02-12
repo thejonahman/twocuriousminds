@@ -95,8 +95,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
   useEffect(() => {
     if (lastActiveGroup && !currentGroup && !initialGroupId) {
-      setCurrentGroup(lastActiveGroup);
-      setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+      // Only set current group if we haven't explicitly left it
+      const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
+      if (lastLeftGroup !== lastActiveGroup.id.toString()) {
+        setCurrentGroup(lastActiveGroup);
+        setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+      }
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
 
@@ -207,6 +211,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error('Failed to leave group');
       }
 
+      // Store the group ID we're leaving to prevent auto-rejoin
+      sessionStorage.setItem('lastLeftGroup', currentGroup.id.toString());
+
       // Clear the current group
       setCurrentGroup(null);
 
@@ -218,16 +225,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         queryKey: [`/api/videos/${videoId}/last-active-group`]
       });
 
-      queryClient.invalidateQueries({
-        queryKey: [`/api/groups/${currentGroup.id}`]
-      });
-
       // Clear messages query
       queryClient.invalidateQueries({
         queryKey: [`/api/groups/${currentGroup.id}/messages`]
       });
 
-      // Remove from cache
+      // Remove from cache completely
       queryClient.removeQueries({
         queryKey: [`/api/groups/${currentGroup.id}`]
       });
