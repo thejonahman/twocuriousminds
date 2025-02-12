@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -20,7 +20,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Send, MessageSquare, Plus, UserPlus, Users } from "lucide-react";
+import { Send, MessageSquare, Plus, Users } from "lucide-react";
 import { type Message, type Group, type WSMessage, validateApiResponse, messageSchema, groupSchema, wsMessageSchema } from "@/lib/api-types";
 import { z } from "zod";
 import { useLocation } from "wouter";
@@ -43,6 +43,12 @@ interface WebSocketState {
 interface DiscussionGroupProps {
   videoId: number;
   initialGroupId?: number;
+}
+
+// Define a type for video data
+interface VideoData {
+  title: string;
+  description: string;
 }
 
 export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProps) {
@@ -101,27 +107,18 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
 
-  // Persist current group ID to localStorage when it changes
-  useEffect(() => {
-    if (currentGroup) {
-      localStorage.setItem(`lastGroupId-${videoId}`, currentGroup.id.toString());
-    }
-  }, [currentGroup, videoId]);
-
-  // Try to restore group from localStorage on mount if no initialGroupId or lastActiveGroup
-  useEffect(() => {
-    if (!initialGroupId && !lastActiveGroup && !currentGroup) {
-      const storedGroupId = localStorage.getItem(`lastGroupId-${videoId}`);
-      if (storedGroupId) {
-        const groupId = parseInt(storedGroupId);
-        console.log('Restoring group from localStorage:', groupId);
-        queryClient.prefetchQuery({
-          queryKey: [`/api/groups/${groupId}`],
-        });
-        setLocation(`/video/${videoId}/group/${groupId}`);
-      }
-    }
-  }, [initialGroupId, lastActiveGroup, currentGroup, videoId, queryClient, setLocation]);
+  // Query for video data with proper type validation
+  const { data: videoData } = useQuery<VideoData>({
+    queryKey: [`/api/videos/${videoId}`],
+    enabled: !!videoId,
+    select: (data) => {
+      if (!data || typeof data !== 'object') return null;
+      return {
+        title: typeof data.title === 'string' ? data.title : '',
+        description: typeof data.description === 'string' ? data.description : '',
+      };
+    },
+  });
 
   // Query for video messages
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
@@ -136,19 +133,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     enabled: !!user && !!currentGroup?.id,
     select: (data) => validateApiResponse(z.array(messageSchema), data),
     initialData: currentGroup?.messages || [],
-  });
-
-  // Add video data query with proper type validation
-  const { data: videoData } = useQuery({
-    queryKey: [`/api/videos/${videoId}`],
-    enabled: !!videoId,
-    select: (data) => {
-      if (!data) return null;
-      return {
-        title: data.title || '',
-        description: data.description || '',
-      };
-    },
   });
 
   const generateShareUrl = () => {
@@ -182,37 +166,17 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       return;
     }
 
-    if (socketRef.current) {
-      console.log('Closing existing WebSocket connection');
-      socketRef.current.close();
-    }
-
     setWsState(prev => ({ ...prev, connecting: true }));
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${wsHost}/ws`;
       console.log('Attempting to connect to WebSocket:', wsUrl);
+
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
-      const connectionTimeout = setTimeout(() => {
-        console.error('WebSocket connection timeout');
-        ws.close();
-        setWsState(prev => ({
-          ...prev,
-          connected: false,
-          connecting: false,
-        }));
-        toast({
-          title: "Connection Error",
-          description: "Connection timed out. Please check your internet connection and try again.",
-          variant: "destructive",
-        });
-      }, 10000); // 10 second timeout
-
       ws.onopen = () => {
-        clearTimeout(connectionTimeout);
         console.log('WebSocket connected successfully');
         setWsState({
           connected: true,
@@ -295,7 +259,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       };
 
       ws.onclose = (event) => {
-        clearTimeout(connectionTimeout);
         console.log('WebSocket disconnected, code:', event.code, 'reason:', event.reason);
         setWsState(prev => ({
           ...prev,
@@ -326,7 +289,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       };
 
       ws.onerror = (error) => {
-        clearTimeout(connectionTimeout);
         console.error('WebSocket error:', error);
         toast({
           title: "Connection Error",
@@ -347,7 +309,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
         variant: "destructive",
       });
     }
-  }, [user, toast, wsState.retryCount, wsState.retryDelay, wsHost]);
+  }, [user, toast, wsState.retryCount, wsState.retryDelay, wsHost, currentGroup, videoId, queryClient, setLocation]);
 
   useEffect(() => {
     if (!user) return;
@@ -421,7 +383,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
       type: 'create_group',
       name: groupName,
       videoId,
-      description: `Discussion group for ${videoData?.title}`,
+      description: `Discussion group for ${videoData?.title || 'video'}`,
     };
 
     console.log('Sending create group request:', createGroupData);
@@ -462,7 +424,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
   useEffect(() => {
     scrollToBottom();
   }, [sortedMessages.length, scrollToBottom]);
-
 
   useEffect(() => {
     if (currentGroup && user) {
@@ -532,7 +493,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: DiscussionGroupProp
     );
   }
 
-  const displayMessages = currentGroup ? groupMessages : messages;
   const isLoading = isLoadingGroup || isLoadingMessages || isLoadingGroupMessages || !wsState.connected;
 
   if (isLoading) {
