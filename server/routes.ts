@@ -136,6 +136,53 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add this new endpoint near the other video-related endpoints
+  app.get("/api/videos/:videoId/last-active-group", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const videoId = parseInt(req.params.videoId);
+
+      if (isNaN(videoId)) {
+        return res.status(400).json({ message: "Invalid video ID" });
+      }
+
+      // Find the most recently active group for this video where the user is a member
+      const lastActiveGroup = await db.query.discussionGroups.findFirst({
+        where: and(
+          eq(discussionGroups.videoId, videoId),
+          sql`exists (
+            select 1 from ${groupMembers} 
+            where ${groupMembers.groupId} = ${discussionGroups.id} 
+            and ${groupMembers.userId} = ${req.user!.id}
+          )`
+        ),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: [desc(discussionGroups.updatedAt)]
+      });
+
+      if (!lastActiveGroup) {
+        return res.json(null);
+      }
+
+      res.json(lastActiveGroup);
+    } catch (error) {
+      console.error('Error fetching last active group:', error);
+      res.status(500).json({
+        message: "Error fetching last active group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   // Add REST endpoint for group invites
   app.get("/api/groups/invite/:code", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
