@@ -80,10 +80,14 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       return res.status(400).json({ error: "Invalid group ID" });
     }
 
-    const result = insertGroupMessageSchema.safeParse(req.body);
+    const result = insertGroupMessageSchema.safeParse({
+      content: req.body.content,
+      groupId: parsedGroupId,
+      userId: req.user.id
+    });
 
     if (!result.success) {
-      return res.status(400).json({ error: result.error });
+      return res.status(400).json({ error: result.error.format() });
     }
 
     // Verify user is member of group
@@ -103,6 +107,8 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       groupId: parsedGroupId,
       userId: req.user.id,
       content: result.data.content,
+      createdAt: new Date(),
+      updatedAt: new Date()
     }).returning();
 
     // Get full message details with user info
