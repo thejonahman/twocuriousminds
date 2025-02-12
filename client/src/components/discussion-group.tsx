@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useWebSocket } from "@/hooks/use-websocket";
+import { usePolling } from "@/hooks/use-polling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ShareButton } from "@/components/ui/share-button";
@@ -30,7 +30,6 @@ import {
   validateApiResponse,
   messageSchema,
   groupSchema,
-  wsMessageSchema,
 } from "@/lib/api-types";
 import { z } from "zod";
 
@@ -59,8 +58,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // WebSocket connection
-  const { state: wsState, sendMessage: wsSendMessage, addMessageHandler } = useWebSocket();
+  // Polling setup
+  const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
 
   // Queries
   const { data: group } = useQuery<Group>({
@@ -101,85 +100,69 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
 
-  // WebSocket message handler
+  // Message handler
   useEffect(() => {
     if (!user) return;
 
-    const handleMessage = (data: any) => {
-      try {
-        const message = validateApiResponse(wsMessageSchema, data);
+    const handleNewMessages = (newMessages: Message[]) => {
+      queryClient.invalidateQueries({ 
+        queryKey: [currentGroup ? '/api/group-messages' : '/api/messages', currentGroup?.id || videoId] 
+      });
 
-        switch (message.type) {
-          case 'new_message':
-          case 'new_group_message':
-            queryClient.invalidateQueries({ 
-              queryKey: [currentGroup ? '/api/group-messages' : '/api/messages', currentGroup?.id || videoId] 
-            });
-            if (document.hidden) {
-              setUnreadCount(prev => prev + 1);
-            }
-            break;
-
-          case 'group_created':
-            const newGroup = validateApiResponse(groupSchema, message.data);
-            setCurrentGroup(newGroup);
-            setIsCreateGroupOpen(false);
-            setLocation(`/video/${videoId}/group/${newGroup.id}`);
-            toast({
-              title: "Success",
-              description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
-            });
-            break;
-
-          case 'error':
-            toast({
-              title: "Error",
-              description: message.message,
-              variant: "destructive",
-            });
-            break;
-        }
-      } catch (error) {
-        console.error('Message handling error:', error);
+      if (document.hidden) {
+        setUnreadCount(prev => prev + newMessages.length);
       }
     };
 
-    const cleanup = addMessageHandler(handleMessage);
+    const cleanup = addMessageHandler(handleNewMessages);
     return cleanup;
-  }, [user, currentGroup, videoId, queryClient, setLocation, toast, addMessageHandler]);
+  }, [user, currentGroup, videoId, queryClient, addMessageHandler]);
 
   // Event handlers
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim()) return;
 
-    const messageData = currentGroup
-      ? {
-          type: 'group_message',
-          groupId: currentGroup.id,
-          content: messageInput.trim(),
-        }
-      : {
-          type: 'message',
-          videoId,
-          content: messageInput.trim(),
-        };
-
-    if (wsSendMessage(messageData)) {
+    if (await sendMessage(messageInput.trim())) {
       setMessageInput('');
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   };
 
-  const handleCreateGroup = () => {
+  const handleCreateGroup = async () => {
     const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
-    wsSendMessage({
-      type: 'create_group',
-      name: groupName,
-      videoId,
-      description: `Discussion group for ${videoData?.title || 'video'}`,
-    });
-    setGroupNameInput('');
+    try {
+      const response = await fetch('/api/groups', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: groupName,
+          videoId,
+          description: `Discussion group for ${videoData?.title || 'video'}`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create group');
+      }
+
+      const newGroup = await response.json();
+      setCurrentGroup(newGroup);
+      setIsCreateGroupOpen(false);
+      setLocation(`/video/${videoId}/group/${newGroup.id}`);
+      toast({
+        title: "Success",
+        description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create group",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleLeaveGroup = () => {
@@ -203,7 +186,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     );
   }
 
-  if (!wsState.connected || wsState.connecting) {
+  if (pollingState.error) {
     return (
       <Card>
         <CardHeader>
@@ -211,9 +194,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center justify-center gap-4 p-8">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
             <p className="text-sm text-muted-foreground">
-              Connecting to chat...
+              Connection error. Retrying...
             </p>
           </div>
         </CardContent>

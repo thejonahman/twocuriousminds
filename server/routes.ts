@@ -4,7 +4,7 @@ import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
-import { setupWebSocketServer } from "./websocket";
+import { setupPolling } from "./polling";
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
@@ -12,8 +12,8 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Setup WebSocket server
-  setupWebSocketServer(httpServer, sessionMiddleware);
+  // Setup polling instead of WebSocket
+  setupPolling(app);
 
   // Public endpoints - no auth required
   app.get("/api/categories", async (req, res) => {
