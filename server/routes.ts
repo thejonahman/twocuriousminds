@@ -259,7 +259,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Consolidated message handling endpoint
-  app.post("/api/messages", requireAuth, async (req, res) => {
+  app.post("/api/messages", requireAuth, async (req: Request, res: Response) => {
     try {
       const { groupId, content } = req.body;
       const userId = req.user?.id;
@@ -301,7 +301,7 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Get messages endpoint
-  app.get("/api/messages", requireAuth, async (req, res) => {
+  app.get("/api/messages", requireAuth, async (req: Request, res: Response) => {
     try {
       const groupId = parseInt(req.query.groupId as string);
 
@@ -309,28 +309,28 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Invalid group ID" });
       }
 
-      const messages = await db.query.groupMessages.findMany({
-        where: eq(groupMessages.groupId, groupId),
-        orderBy: [desc(groupMessages.createdAt)],
-        with: {
-          user: {
-            columns: {
-              username: true
-            }
+    const messages = await db.query.groupMessages.findMany({
+      where: eq(groupMessages.groupId, groupId),
+      orderBy: [desc(groupMessages.createdAt)],
+      with: {
+        user: {
+          columns: {
+            username: true
           }
         }
-      });
+      }
+    });
 
-      // Return messages in chronological order (oldest first)
-      res.json(messages.reverse());
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      res.status(500).json({
-        message: "Error fetching messages",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
+    // Return messages in chronological order
+    res.json(messages.reverse());
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({
+      message: "Error fetching messages",
+      error: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+});
 
 
   // Add direct group access endpoint
