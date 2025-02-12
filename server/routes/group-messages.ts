@@ -102,7 +102,20 @@ router.post("/api/groups/:groupId/messages", async (req, res) => {
       content: result.data.content,
     }).returning();
 
-    // Update unread count for other group members who haven't read in last hour
+    // Get full message details with user info
+    const messageWithUser = await db.query.groupMessages.findFirst({
+      where: eq(groupMessages.id, message.id),
+      with: {
+        user: {
+          columns: {
+            id: true,
+            username: true,
+          }
+        }
+      }
+    });
+
+    // Update unread count for other group members
     await db
       .update(groupMembers)
       .set({ 
@@ -114,7 +127,7 @@ router.post("/api/groups/:groupId/messages", async (req, res) => {
         sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`
       ));
 
-    res.json(message);
+    res.json(messageWithUser);
   } catch (error) {
     console.error('Error posting group message:', error);
     res.status(500).json({ error: "Internal server error" });

@@ -80,8 +80,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   });
 
   const { data: messages = [] } = useQuery<Message[]>({
-    queryKey: [currentGroup ? '/api/group-messages' : '/api/messages', currentGroup?.id || videoId],
-    enabled: !!user && (!!videoId || !!currentGroup?.id),
+    queryKey: [`/api/groups/${currentGroup?.id}/messages`],
+    enabled: !!currentGroup?.id && !!user,
     select: (data) => validateApiResponse(z.array(messageSchema), data),
   });
 
@@ -105,8 +105,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     if (!user) return;
 
     const handleNewMessages = (newMessages: Message[]) => {
-      queryClient.invalidateQueries({ 
-        queryKey: [currentGroup ? '/api/group-messages' : '/api/messages', currentGroup?.id || videoId] 
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup?.id}/messages`]
       });
 
       if (document.hidden) {
@@ -121,11 +121,38 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   // Event handlers
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim()) return;
+    if (!messageInput.trim() || !currentGroup) return;
 
-    if (await sendMessage(messageInput.trim())) {
+    try {
+      const response = await fetch(`/api/groups/${currentGroup.id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          content: messageInput.trim()
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+
+      const newMessage = await response.json();
+
+      // Invalidate the messages query to trigger a refresh
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup.id}/messages`]
+      });
+
       setMessageInput('');
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send message",
+        variant: "destructive",
+      });
     }
   };
 
