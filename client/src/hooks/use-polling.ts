@@ -42,7 +42,7 @@ export function usePolling(groupId?: number) {
           messageHandlers.current.forEach(handler => handler(messages));
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       if (error.name !== 'AbortError') {
         console.error('Polling error:', error);
         setState(prev => ({ ...prev, error: error.message }));
@@ -109,7 +109,11 @@ export function usePolling(groupId?: number) {
 
     return () => {
       if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+        try {
+          abortControllerRef.current.abort();
+        } catch (error) {
+          console.error('Error aborting polling:', error);
+        }
         abortControllerRef.current = null;
       }
       setState({ polling: false, error: null });
