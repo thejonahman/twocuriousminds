@@ -8,43 +8,27 @@ interface PollingState {
   error: string | null;
 }
 
+const POLLING_INTERVAL = 3000; // Poll every 3 seconds
+
 export function usePolling(groupId?: number) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const abortControllerRef = useRef<AbortController | null>(null);
   const messageHandlers = useRef<Set<(messages: Message[]) => void>>(new Set());
   const [state, setState] = useState<PollingState>({
     polling: false,
     error: null
   });
 
-  const startPolling = useCallback(async () => {
-    if (!user || !groupId || state.polling) return;
+  // Simple interval-based polling
+  useEffect(() => {
+    if (!user || !groupId) return;
 
     setState({ polling: true, error: null });
+    let intervalId: NodeJS.Timeout;
 
-    // Create a new abort controller
-    if (abortControllerRef.current) {
+    const pollMessages = async () => {
       try {
-        abortControllerRef.current.abort();
-      } catch (error) {
-        console.error('Error aborting previous polling:', error);
-      }
-    }
-    abortControllerRef.current = new AbortController();
-
-    try {
-      while (true) {
-        if (!abortControllerRef.current || abortControllerRef.current.signal.aborted) {
-          break;
-        }
-
-        const response = await fetch(
-          `/api/poll/messages?groupId=${groupId}&timeout=30000`,
-          {
-            signal: abortControllerRef.current.signal
-          }
-        );
+        const response = await fetch(`/api/messages?groupId=${groupId}`);
 
         if (!response.ok) {
           throw new Error('Failed to fetch messages');
@@ -54,9 +38,7 @@ export function usePolling(groupId?: number) {
         if (messages.length > 0) {
           messageHandlers.current.forEach(handler => handler(messages));
         }
-      }
-    } catch (error: any) {
-      if (error.name !== 'AbortError') {
+      } catch (error: any) {
         console.error('Polling error:', error);
         setState(prev => ({ ...prev, error: error.message }));
         toast({
@@ -64,11 +46,20 @@ export function usePolling(groupId?: number) {
           description: 'Failed to receive messages. Retrying...',
           variant: 'destructive'
         });
-        // Retry after a short delay
-        setTimeout(startPolling, 5000);
       }
-    }
-  }, [user, groupId, state.polling, toast]);
+    };
+
+    // Start polling
+    intervalId = setInterval(pollMessages, POLLING_INTERVAL);
+
+    // Initial poll
+    pollMessages();
+
+    return () => {
+      clearInterval(intervalId);
+      setState({ polling: false, error: null });
+    };
+  }, [user, groupId, toast]);
 
   const sendMessage = useCallback(async (content: string): Promise<boolean> => {
     if (!user || !groupId) {
@@ -114,24 +105,6 @@ export function usePolling(groupId?: number) {
       messageHandlers.current.delete(handler);
     };
   }, []);
-
-  useEffect(() => {
-    if (user && groupId) {
-      startPolling();
-    }
-
-    return () => {
-      if (abortControllerRef.current) {
-        try {
-          abortControllerRef.current.abort();
-          abortControllerRef.current = null;
-        } catch (error) {
-          console.error('Error during cleanup:', error);
-        }
-      }
-      setState({ polling: false, error: null });
-    };
-  }, [user, groupId, startPolling]);
 
   return {
     state,
