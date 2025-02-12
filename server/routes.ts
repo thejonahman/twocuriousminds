@@ -259,13 +259,16 @@ export function registerRoutes(app: Express): Server {
       // Generate a random invite code
       const inviteCode = Math.random().toString(36).substring(2, 15);
 
-      // Create the group
+      // Create the group with all required fields
       const [group] = await db.insert(discussionGroups)
         .values({
           name,
           videoId: video.id,
+          creatorId: userId,
           createdAt: new Date(),
-          inviteCode
+          inviteCode,
+          isPrivate: false,
+          isDeleted: false
         })
         .returning();
 
@@ -277,7 +280,11 @@ export function registerRoutes(app: Express): Server {
           userId,
           groupId: group.id,
           role: 'admin',
-          joinedAt: new Date()
+          joinedAt: new Date(),
+          notificationsEnabled: true,
+          emailNotifications: false,
+          unreadCount: 0,
+          lastReadAt: new Date()
         });
 
       // Return the created group with member details
