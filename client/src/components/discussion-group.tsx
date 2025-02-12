@@ -97,10 +97,20 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     if (lastActiveGroup && !currentGroup && !initialGroupId) {
       // Only set current group if we haven't explicitly left it
       const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
-      if (lastLeftGroup !== lastActiveGroup.id.toString()) {
-        setCurrentGroup(lastActiveGroup);
-        setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+      const lastLeftTime = sessionStorage.getItem('lastLeftTime');
+      const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+
+      // Check if we recently left this group
+      if (lastLeftGroup === lastActiveGroup.id.toString()) {
+        const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
+        if (timeSinceLeft < REJOIN_TIMEOUT) {
+          // Don't auto-join if we recently left
+          return;
+        }
       }
+
+      setCurrentGroup(lastActiveGroup);
+      setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
 
@@ -211,8 +221,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error('Failed to leave group');
       }
 
-      // Store the group ID we're leaving to prevent auto-rejoin
+      // Store both the group ID and timestamp when leaving
       sessionStorage.setItem('lastLeftGroup', currentGroup.id.toString());
+      sessionStorage.setItem('lastLeftTime', Date.now().toString());
 
       // Clear the current group
       setCurrentGroup(null);
