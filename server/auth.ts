@@ -5,19 +5,13 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
-import { users, insertUserSchema, type SelectUser } from "@db/schema";
+import { users, insertUserSchema } from "@db/schema";
 import { db, pool } from "@db";
 import { eq } from "drizzle-orm";
 import { fromZodError } from "zod-validation-error";
 
 const scryptAsync = promisify(scrypt);
 const PostgresSessionStore = connectPg(session);
-
-declare global {
-  namespace Express {
-    interface User extends SelectUser {}
-  }
-}
 
 // Create requireAuth middleware
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
@@ -52,7 +46,7 @@ async function getUserByUsername(username: string) {
 }
 
 export function setupAuth(app: Express) {
-  // Create session store without automatic table creation
+  // Create session store
   const store = new PostgresSessionStore({
     pool,
     createTableIfMissing: false,
@@ -65,22 +59,20 @@ export function setupAuth(app: Express) {
     secret: process.env.REPL_ID || 'fallback-secret-key',
     resave: false,
     saveUninitialized: false,
+    name: 'sessionId',
     cookie: {
       secure: process.env.NODE_ENV === "production",
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      path: '/' // Ensure cookie is sent for all paths including WebSocket
+      path: '/',
     },
-    name: 'session', // Explicit session cookie name
   });
 
-  // Set up session handling
   app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 
-  // Configure local strategy for username/password auth
   passport.use(new LocalStrategy(async (username, password, done) => {
     try {
       console.log(`Attempting login for user: ${username}`);
@@ -92,39 +84,29 @@ export function setupAuth(app: Express) {
       }
 
       const isValid = await comparePasswords(password, user.password);
-      console.log(`Password validation result: ${isValid}`);
-
       if (!isValid) {
         return done(null, false);
       }
 
-      // Convert user.id to string to match Express.User interface
-      const userWithStringId = {
-        ...user,
-        id: user.id.toString()
-      };
-
-      return done(null, userWithStringId);
+      return done(null, user);
     } catch (error) {
       console.error("Login error:", error);
       return done(error);
     }
   }));
 
-  // Serialize user into the session - use string ID
-  passport.serializeUser((user, done) => {
+  passport.serializeUser((user: any, done) => {
     console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
-  // Deserialize user from the session - parse string ID back to number
-  passport.deserializeUser(async (id: string, done) => {
+  passport.deserializeUser(async (id: number, done) => {
     try {
       console.log('Deserializing user:', id);
       const [user] = await db
         .select()
         .from(users)
-        .where(eq(users.id, parseInt(id)))
+        .where(eq(users.id, id))
         .limit(1);
 
       if (!user) {
@@ -132,13 +114,7 @@ export function setupAuth(app: Express) {
         return done(null, false);
       }
 
-      // Convert user.id to string to match Express.User interface
-      const userWithStringId = {
-        ...user,
-        id: user.id.toString()
-      };
-
-      done(null, userWithStringId);
+      done(null, user);
     } catch (error) {
       console.error('Deserialization error:', error);
       done(error);
@@ -170,15 +146,9 @@ export function setupAuth(app: Express) {
         })
         .returning();
 
-      // Convert user.id to string before login
-      const userWithStringId = {
-        ...user,
-        id: user.id.toString()
-      };
-
-      req.login(userWithStringId, (err) => {
+      req.login(user, (err) => {
         if (err) return next(err);
-        res.status(201).json(userWithStringId);
+        res.status(201).json(user);
       });
     } catch (error) {
       next(error);

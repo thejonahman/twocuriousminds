@@ -23,15 +23,12 @@ interface RequestWithSession extends Request {
 export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any) {
   const wss = new WebSocketServer({ 
     noServer: true,
-    clientTracking: true,
-    perMessageDeflate: false
+    path: '/ws'
   });
 
   // Handle upgrade requests
-  httpServer.on('upgrade', async (request: RequestWithSession, socket: any, head: Buffer) => {
-    console.log('[WebSocket] Upgrade request received:', request.url);
-    console.log('[WebSocket] Request headers:', request.headers);
-    console.log('[WebSocket] Cookie header:', request.headers.cookie);
+  httpServer.on('upgrade', async (request: RequestWithSession, socket, head) => {
+    console.log('[WebSocket] Upgrade request received');
 
     // Ignore vite-hmr websocket connections
     if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
@@ -41,40 +38,34 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
     }
 
     try {
-      // Apply session middleware with Promise wrapper
-      await new Promise((resolve, reject) => {
-        sessionMiddleware(request, {} as any, (err?: any) => {
+      // Apply session middleware
+      await new Promise<void>((resolve, reject) => {
+        sessionMiddleware(request, {}, (err?: any) => {
           if (err) {
             console.error('[WebSocket] Session middleware error:', err);
             reject(err);
           } else {
-            console.log('[WebSocket] Session middleware success. Session:', request.session);
-            resolve(true);
+            resolve();
           }
         });
       });
 
-      // Get user ID from session after middleware processes request
+      // Check authentication
       const userId = request.session?.passport?.user;
-      console.log('[WebSocket] Session user ID:', userId);
-      console.log('[WebSocket] Full session data:', request.session);
-
       if (!userId) {
-        console.log('[WebSocket] No authenticated user found in session');
+        console.log('[WebSocket] No authenticated user found');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      // Handle the upgrade
+      // Complete upgrade
       wss.handleUpgrade(request, socket, head, (ws) => {
-        console.log('[WebSocket] Upgrade successful, establishing connection for user:', userId);
         wss.emit('connection', ws, request, userId);
       });
 
     } catch (error) {
       console.error('[WebSocket] Upgrade error:', error);
-      console.error('[WebSocket] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
       socket.destroy();
     }
@@ -83,30 +74,82 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
   // Handle connections
   wss.on('connection', (ws: WebSocket, request: Request, userId: number) => {
     console.log('[WebSocket] New connection established for user:', userId);
-    console.log('[WebSocket] Connected clients before add:', connectedClients.size);
 
-    // Store the connection
     connectedClients.set(userId, ws);
-    console.log('[WebSocket] Connected clients after add:', connectedClients.size);
 
-    // Handle messages
-    ws.on('message', async (rawData: Buffer) => {
+    // Send initial success message
+    ws.send(JSON.stringify({
+      type: 'connected',
+      message: 'Connected to chat server'
+    }));
+
+    // Handle incoming messages
+    ws.on('message', async (data: Buffer) => {
       try {
-        const messageStr = rawData.toString();
-        console.log('[WebSocket] Raw message received:', messageStr);
-
-        const message = validateApiResponse(wsMessageSchema, JSON.parse(messageStr));
-        console.log('[WebSocket] Validated message:', message);
+        const message = validateApiResponse(wsMessageSchema, JSON.parse(data.toString()));
 
         switch (message.type) {
-          case 'group_message':
-            await handleGroupMessage(userId, message);
+          case 'group_message': {
+            const { groupId, content } = message;
+
+            // Save message to database
+            const [savedMessage] = await db.insert(groupMessages)
+              .values({
+                groupId,
+                userId,
+                content
+              })
+              .returning();
+
+            // Get user info for the message
+            const members = await db.query.groupMembers.findMany({
+              where: eq(groupMembers.groupId, groupId),
+              with: {
+                user: {
+                  columns: {
+                    username: true
+                  }
+                }
+              }
+            });
+
+            // Update unread counts
+            await Promise.all(
+              members
+                .filter(member => member.userId !== userId)
+                .map(member =>
+                  db.update(groupMembers)
+                    .set({
+                      unreadCount: sql`${groupMembers.unreadCount} + 1`
+                    })
+                    .where(
+                      and(
+                        eq(groupMembers.groupId, groupId),
+                        eq(groupMembers.userId, member.userId)
+                      )
+                    )
+                )
+            );
+
+            // Broadcast to all group members
+            const messageToSend = {
+              type: 'new_group_message',
+              data: {
+                ...savedMessage,
+                user: members.find(m => m.userId === userId)?.user
+              }
+            };
+
+            members.forEach(member => {
+              const client = connectedClients.get(member.userId);
+              if (client?.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify(messageToSend));
+              }
+            });
             break;
-          case 'create_group':
-            await handleCreateGroup(userId, message);
-            break;
+          }
+
           default:
-            console.warn('[WebSocket] Unknown message type:', message.type);
             ws.send(JSON.stringify({
               type: 'error',
               message: 'Unknown message type'
@@ -114,7 +157,6 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
         }
       } catch (error) {
         console.error('[WebSocket] Message handling error:', error);
-        console.error('[WebSocket] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         ws.send(JSON.stringify({
           type: 'error',
           message: error instanceof Error ? error.message : 'Internal server error'
@@ -122,33 +164,16 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
       }
     });
 
-    // Handle connection close
-    ws.on('close', (code: number, reason: Buffer) => {
+    // Handle disconnection
+    ws.on('close', () => {
       console.log('[WebSocket] Connection closed for user:', userId);
-      console.log('[WebSocket] Close code:', code);
-      console.log('[WebSocket] Close reason:', reason.toString());
       connectedClients.delete(userId);
-      console.log('[WebSocket] Connected clients after remove:', connectedClients.size);
     });
 
-    // Handle errors
     ws.on('error', (error) => {
       console.error('[WebSocket] Connection error for user:', userId, error);
-      console.error('[WebSocket] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       connectedClients.delete(userId);
     });
-
-    // Send initial connection success message
-    ws.send(JSON.stringify({
-      type: 'connected',
-      message: 'Successfully connected to WebSocket server'
-    }));
-  });
-
-  // Handle server errors
-  wss.on('error', (error) => {
-    console.error('[WebSocket] Server error:', error);
-    console.error('[WebSocket] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
   });
 
   return wss;
