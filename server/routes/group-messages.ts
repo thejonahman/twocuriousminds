@@ -7,36 +7,61 @@ import { Router } from "express";
 const router = Router();
 
 router.get("/api/groups/:groupId/messages", async (req, res) => {
-  const { groupId } = req.params;
-  const messages = await db.query.groupMessages.findMany({
-    where: eq(groupMessages.groupId, parseInt(groupId)),
-    with: {
-      user: {
-        columns: {
-          id: true,
-          username: true,
-          email: true,
-        }
+  try {
+    const { groupId } = req.params;
+    const parsedGroupId = parseInt(groupId);
+
+    if (isNaN(parsedGroupId)) {
+      return res.status(400).json({ error: "Invalid group ID" });
+    }
+
+    // Check if user is member of group
+    if (req.user) {
+      const memberCheck = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, parsedGroupId),
+          eq(groupMembers.userId, req.user.id)
+        )
+      });
+
+      if (!memberCheck) {
+        return res.status(403).json({ error: "Not a member of this group" });
       }
-    },
-    orderBy: desc(groupMessages.createdAt),
-  });
+    }
 
-  // Update last read timestamp for the current user
-  if (req.user) {
-    await db
-      .update(groupMembers)
-      .set({ 
-        lastReadAt: new Date(),
-        unreadCount: 0
-      })
-      .where(and(
-        eq(groupMembers.groupId, parseInt(groupId)),
-        eq(groupMembers.userId, req.user.id)
-      ));
+    const messages = await db.query.groupMessages.findMany({
+      where: eq(groupMessages.groupId, parsedGroupId),
+      with: {
+        user: {
+          columns: {
+            id: true,
+            username: true,
+            email: true,
+          }
+        }
+      },
+      orderBy: desc(groupMessages.createdAt),
+    });
+
+    // Update last read timestamp for the current user
+    if (req.user) {
+      await db
+        .update(groupMembers)
+        .set({ 
+          lastReadAt: new Date(),
+          unreadCount: 0
+        })
+        .where(and(
+          eq(groupMembers.groupId, parsedGroupId),
+          eq(groupMembers.userId, req.user.id)
+        ));
+    }
+
+    res.json(messages);
+  } catch (error) {
+    console.error('Error in group messages:', error);
+    res.status(500).json({ error: "Internal server error" });
   }
-
-  res.json(messages);
 });
 
 router.post("/api/groups/:groupId/messages", async (req, res) => {
@@ -44,57 +69,87 @@ router.post("/api/groups/:groupId/messages", async (req, res) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { groupId } = req.params;
-  const result = insertGroupMessageSchema.safeParse(req.body);
+  try {
+    const { groupId } = req.params;
+    const parsedGroupId = parseInt(groupId);
 
-  if (!result.success) {
-    return res.status(400).json({ error: result.error });
-  }
+    if (isNaN(parsedGroupId)) {
+      return res.status(400).json({ error: "Invalid group ID" });
+    }
 
-  // Create the message
-  const [message] = await db.insert(groupMessages)
-    .values({
-      groupId: parseInt(groupId),
+    const result = insertGroupMessageSchema.safeParse(req.body);
+
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+
+    // Verify user is member of group
+    const memberCheck = await db.query.groupMembers.findFirst({
+      where: and(
+        eq(groupMembers.groupId, parsedGroupId),
+        eq(groupMembers.userId, req.user.id)
+      )
+    });
+
+    if (!memberCheck) {
+      return res.status(403).json({ error: "Not a member of this group" });
+    }
+
+    // Create the message
+    const [message] = await db.insert(groupMessages).values({
+      groupId: parsedGroupId,
       userId: req.user.id,
       content: result.data.content,
-    })
-    .returning();
+    }).returning();
 
-  // Update unread count for other group members who haven't read in last hour
-  await db
-    .update(groupMembers)
-    .set({ 
-      unreadCount: sql`${groupMembers.unreadCount} + 1`
-    })
-    .where(and(
-      eq(groupMembers.groupId, parseInt(groupId)),
-      sql`${groupMembers.userId} != ${req.user.id}`,
-      sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`
-    ));
+    // Update unread count for other group members who haven't read in last hour
+    await db
+      .update(groupMembers)
+      .set({ 
+        unreadCount: sql`${groupMembers.unreadCount} + 1`
+      })
+      .where(and(
+        eq(groupMembers.groupId, parsedGroupId),
+        sql`${groupMembers.userId} != ${req.user.id}`,
+        sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`
+      ));
 
-  res.json(message);
+    res.json(message);
+  } catch (error) {
+    console.error('Error posting group message:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-// New endpoint to mark messages as read
 router.post("/api/groups/:groupId/mark-read", async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { groupId } = req.params;
+  try {
+    const { groupId } = req.params;
+    const parsedGroupId = parseInt(groupId);
 
-  await db
-    .update(groupMembers)
-    .set({ 
-      lastReadAt: new Date(),
-      unreadCount: 0
-    })
-    .where(and(
-      eq(groupMembers.groupId, parseInt(groupId)),
-      eq(groupMembers.userId, req.user.id)
-    ));
+    if (isNaN(parsedGroupId)) {
+      return res.status(400).json({ error: "Invalid group ID" });
+    }
 
-  res.json({ success: true });
+    await db
+      .update(groupMembers)
+      .set({ 
+        lastReadAt: new Date(),
+        unreadCount: 0
+      })
+      .where(and(
+        eq(groupMembers.groupId, parsedGroupId),
+        eq(groupMembers.userId, req.user.id)
+      ));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error marking messages as read:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // New endpoint to get user's last active group in a video

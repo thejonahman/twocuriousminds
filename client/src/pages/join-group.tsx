@@ -4,62 +4,69 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
+import { useLocation } from "wouter";
 
 export default function JoinGroup() {
   const { toast } = useToast();
   const { user, isLoading: authLoading } = useAuth();
+  const [, setLocation] = useLocation();
 
   // Extract invite code and videoId from URL
   const inviteCode = window.location.pathname.split('/join-group/')[1];
   const videoId = new URLSearchParams(window.location.search).get('videoId');
 
   useEffect(() => {
-    if (authLoading) return;
-
-    if (!user) {
-      // Store current URL for post-auth redirect
-      const currentUrl = window.location.href;
-      console.log('Storing redirect URL:', currentUrl);
-      sessionStorage.setItem('redirectUrl', currentUrl);
-      window.location.replace('/auth');
-      return;
-    }
-
-    if (!inviteCode || !videoId) {
-      toast({
-        title: "Invalid Link",
-        description: "The invite link is invalid or incomplete.",
-        variant: "destructive",
-      });
-      window.location.replace(videoId ? `/video/${videoId}` : '/');
-      return;
-    }
-
-    // Join group via REST API
     const joinGroup = async () => {
+      if (authLoading) return;
+
+      if (!user) {
+        // Store current URL for post-auth redirect
+        const currentUrl = window.location.href;
+        console.log('Storing redirect URL:', currentUrl);
+        sessionStorage.setItem('redirectUrl', currentUrl);
+        setLocation('/auth');
+        return;
+      }
+
+      if (!inviteCode || !videoId) {
+        toast({
+          title: "Invalid Link",
+          description: "The invite link is invalid or incomplete.",
+          variant: "destructive",
+        });
+        setLocation(videoId ? `/video/${videoId}` : '/');
+        return;
+      }
+
       try {
         console.log('Attempting to join group with invite code:', inviteCode);
         const response = await apiRequest('GET', `/api/groups/invite/${inviteCode}`);
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || 'Failed to join group');
+        }
+
         const group = await response.json();
         console.log('Successfully joined group:', group);
 
         // Navigate to video page with group ID
         const destination = `/video/${videoId}/group/${group.id}`;
         console.log('Redirecting to:', destination);
-        window.location.replace(destination);
+        setLocation(destination);
       } catch (error) {
         console.error('Error joining group:', error);
         toast({
           title: "Error",
-          description: "Failed to join the group discussion",
+          description: error instanceof Error ? error.message : "Failed to join the group discussion",
           variant: "destructive",
         });
-        window.location.replace(`/video/${videoId}`);
+        setLocation(`/video/${videoId}`);
       }
     };
 
     joinGroup();
-  }, [user, authLoading, inviteCode, videoId, toast]);
+  }, [user, authLoading, inviteCode, videoId, toast, setLocation]);
 
   return (
     <Card className="max-w-md mx-auto mt-8">

@@ -50,56 +50,58 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  wss.handleUpgrade = (info, socket, head, callback) => {
-      console.log('WebSocket connection attempt');
-      console.log('Headers:', info.headers);
-      console.log('URL:', info.url);
-      console.log('Environment:', process.env.NODE_ENV);
+  wss.handleUpgrade = (info: any, socket: any, head: any, callback: (arg0: boolean, arg1?: number, arg2?: string) => void) => {
+    console.log('WebSocket connection attempt');
+    console.log('Headers:', info.headers);
+    console.log('URL:', info.url);
+    console.log('Environment:', process.env.NODE_ENV);
 
-      // Ignore vite-hmr websocket connections
-      if (info.headers['sec-websocket-protocol'] === 'vite-hmr') {
-        console.log('Ignoring vite-hmr connection');
-        return callback(false);
-      }
+    // Ignore vite-hmr websocket connections
+    if (info.headers['sec-websocket-protocol'] === 'vite-hmr') {
+      console.log('Ignoring vite-hmr connection');
+      socket.destroy();
+      return;
+    }
 
-      // Allow requests from any origin in production
-      const origin = info.headers.origin;
-      if (origin) {
-        console.log('WebSocket request origin:', origin);
-      }
+    // Allow requests from any origin in production
+    const origin = info.headers.origin;
+    if (origin) {
+      console.log('WebSocket request origin:', origin);
+    }
 
-      const res: any = {
-        writeHead: () => {},
-        setHeader: () => {},
-        end: () => {}
-      };
-
-      // Apply session middleware with proper error handling
-      try {
-        sessionMiddleware(info.req as Request, res as Response, (err?: any) => {
-          if (err) {
-            console.error('Session middleware error:', err);
-            return callback(false, 401, 'Session error');
-          }
-
-          // Get session and check authentication
-          const session = (info.req as any).session;
-          console.log('Session data:', session);
-
-          const isAuthenticated = session?.passport?.user != null;
-          if (isAuthenticated) {
-            console.log('WebSocket auth successful for user:', session.passport.user);
-            callback(true);
-          } else {
-            console.log('WebSocket auth failed: No user in session');
-            callback(false, 401, 'Unauthorized');
-          }
-        });
-      } catch (error) {
-        console.error('WebSocket verifyClient error:', error);
-        callback(false, 500, 'Internal server error');
-      }
+    const res: any = {
+      writeHead: () => {},
+      setHeader: () => {},
+      end: () => {}
     };
+
+    // Apply session middleware with proper error handling
+    try {
+      sessionMiddleware(info as Request, res as Response, (err?: any) => {
+        if (err) {
+          console.error('Session middleware error:', err);
+          callback(false);
+          return;
+        }
+
+        // Get session and check authentication
+        const session = (info as any).session;
+        console.log('Session data:', session);
+
+        const isAuthenticated = session?.passport?.user != null;
+        if (isAuthenticated) {
+          console.log('WebSocket auth successful for user:', session.passport.user);
+          callback(true);
+        } else {
+          console.log('WebSocket auth failed: No user in session');
+          callback(false);
+        }
+      });
+    } catch (error) {
+      console.error('WebSocket verifyClient error:', error);
+      callback(false);
+    }
+  };
 
   // Add error handler for the WebSocket server
   wss.on('error', (error) => {
