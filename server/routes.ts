@@ -1,32 +1,10 @@
 import { createServer, type Server } from "http";
-import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import { WebSocketServer, WebSocket } from 'ws';
+import express, { type Express } from 'express';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
-import { setupAuth } from "./auth";
-import { nanoid } from 'nanoid';
-import type { Session } from 'express-session';
-
-// Fix type declaration for session in request
-declare module 'express-session' {
-  interface SessionData {
-    passport?: {
-      user?: number;
-    };
-  }
-}
-
-// Store active WebSocket connections
-const connectedClients = new Map<number, WebSocket>();
-
-// Define requireAuth middleware first
-const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  if (req.session?.passport?.user) {
-    return next();
-  }
-  res.status(401).json({ message: "Not authenticated" });
-};
+import { setupAuth, requireAuth } from "./auth";
+import { setupWebSocketServer } from "./websocket";
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
@@ -34,344 +12,16 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Setup WebSocket server with simplified configuration
-  const wss = new WebSocketServer({ 
-    noServer: true,
-    clientTracking: true,
-    perMessageDeflate: false,
-  });
-
-  // Handle upgrade requests manually
-  httpServer.on('upgrade', (request, socket, head) => {
-    if (request.url === '/ws') {
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request);
-      });
-    }
-  });
-
-  wss.handleUpgrade = (info: any, socket: any, head: any, callback: (arg0: boolean, arg1?: number, arg2?: string) => void) => {
-    console.log('WebSocket connection attempt');
-    console.log('Headers:', info.headers);
-    console.log('URL:', info.url);
-    console.log('Environment:', process.env.NODE_ENV);
-
-    // Ignore vite-hmr websocket connections
-    if (info.headers['sec-websocket-protocol'] === 'vite-hmr') {
-      console.log('Ignoring vite-hmr connection');
-      socket.destroy();
-      return;
-    }
-
-    // Allow requests from any origin in production
-    const origin = info.headers.origin;
-    if (origin) {
-      console.log('WebSocket request origin:', origin);
-    }
-
-    const res: any = {
-      writeHead: () => {},
-      setHeader: () => {},
-      end: () => {}
-    };
-
-    // Apply session middleware with proper error handling
-    try {
-      sessionMiddleware(info as Request, res as Response, (err?: any) => {
-        if (err) {
-          console.error('Session middleware error:', err);
-          callback(false);
-          return;
-        }
-
-        // Get session and check authentication
-        const session = (info as any).session;
-        console.log('Session data:', session);
-
-        const isAuthenticated = session?.passport?.user != null;
-        if (isAuthenticated) {
-          console.log('WebSocket auth successful for user:', session.passport.user);
-          callback(true);
-        } else {
-          console.log('WebSocket auth failed: No user in session');
-          callback(false);
-        }
-      });
-    } catch (error) {
-      console.error('WebSocket verifyClient error:', error);
-      callback(false);
-    }
-  };
-
-  // Add error handler for the WebSocket server
-  wss.on('error', (error) => {
-    console.error('WebSocket server error:', error);
-  });
-
-  // Handle WebSocket connections
-  wss.on('connection', (ws, req: any) => {
-    console.log('WebSocket connection attempt');
-
-    // Get user ID from session
-    const userId = req.session?.passport?.user;
-    if (!userId) {
-      console.log('WebSocket - No authenticated user');
-      ws.close(1008, 'Unauthorized');
-      return;
-    }
-
-    console.log('WebSocket connected for user:', userId);
-    connectedClients.set(userId, ws);
-
-    ws.onmessage = async (event) => {
-      try {
-        const rawData = event.data.toString();
-        console.log('Raw WebSocket data received:', rawData);
-        const message = JSON.parse(rawData);
-        console.log('Received message:', message);
-
-        switch (message.type) {
-          case 'message':
-            const { videoId, content } = message;
-            console.log('Processing video message:', { videoId, content });
-
-            // Save message with optimized query
-            const [savedMessage] = await db.insert(messages)
-              .values({
-                videoId,
-                userId,
-                content
-              })
-              .returning();
-
-            // Get username efficiently
-            const user = await db.query.users.findFirst({
-              where: eq(users.id, userId),
-              columns: {
-                username: true
-              }
-            });
-
-            // Broadcast
-            const broadcastMessage = {
-              type: 'new_message',
-              data: {
-                ...savedMessage,
-                user: { username: user?.username }
-              }
-            };
-
-            console.log('Broadcasting message:', broadcastMessage);
-
-            // Efficient broadcasting using Array
-            const activeClients = [...connectedClients.values()]
-              .filter(client => client.readyState === WebSocket.OPEN);
-
-            activeClients.forEach(client => {
-              client.send(JSON.stringify(broadcastMessage));
-            });
-            break;
-
-          case 'create_group':
-            const { name, description = '', videoId: groupVideoId } = message;
-            const inviteCode = nanoid(10);
-            console.log('Creating group:', { name, description, groupVideoId });
-
-            // Create group with optimized query
-            const [group] = await db.insert(discussionGroups)
-              .values({
-                name,
-                description,
-                videoId: groupVideoId,
-                creatorId: userId,
-                isPrivate: true,
-                inviteCode
-              })
-              .returning();
-
-            // Add creator as member
-            await db.insert(groupMembers)
-              .values({
-                groupId: group.id,
-                userId,
-                role: 'admin'
-              });
-
-            const groupResponse = {
-              ...group,
-              inviteCode
-            };
-
-            ws.send(JSON.stringify({
-              type: 'group_created',
-              data: groupResponse
-            }));
-            break;
-
-          case 'group_message':
-            const { groupId, content: groupContent } = message;
-            console.log('Processing group message:', { groupId, content: groupContent });
-
-            // Save group message with optimized query
-            const [savedGroupMessage] = await db.insert(groupMessages)
-              .values({
-                groupId,
-                userId,
-                content: groupContent
-              })
-              .returning();
-
-            console.log('Saved group message:', savedGroupMessage);
-
-            // Get sender info efficiently
-            const sender = await db.query.users.findFirst({
-              where: eq(users.id, userId),
-              columns: {
-                username: true
-              }
-            });
-
-            // Get group members efficiently and update unread counts
-            const members = await db.query.groupMembers.findMany({
-              where: eq(groupMembers.groupId, groupId)
-            });
-
-            // Update unread count for other members
-            await Promise.all(
-              members
-                .filter(member => member.userId !== userId)
-                .map(member =>
-                  db
-                    .update(groupMembers)
-                    .set({
-                      unreadCount: sql`${groupMembers.unreadCount} + 1`
-                    })
-                    .where(
-                      and(
-                        eq(groupMembers.groupId, groupId),
-                        eq(groupMembers.userId, member.userId)
-                      )
-                    )
-                )
-            );
-
-            const groupBroadcastMessage = {
-              type: 'new_group_message',
-              data: {
-                ...savedGroupMessage,
-                user: {
-                  username: sender?.username
-                }
-              }
-            };
-
-            // Efficient broadcasting to group members using Set and Array methods
-            const memberIds = new Set(members.map(m => m.userId));
-            Array.from(connectedClients.entries())
-              .filter(([clientId]) => memberIds.has(clientId))
-              .forEach(([_, client]) => {
-                if (client.readyState === WebSocket.OPEN) {
-                  client.send(JSON.stringify(groupBroadcastMessage));
-                }
-              });
-            break;
-
-          case 'join_group':
-            const { inviteCode: joinCode, videoId: joinVideoId } = message;
-            console.log('Join group request received:', { joinCode, joinVideoId });
-
-            // Find group
-            const groupToJoin = await db.query.discussionGroups.findFirst({
-              where: eq(discussionGroups.inviteCode, joinCode)
-            });
-
-            if (!groupToJoin) {
-              console.log('Group not found for invite code:', joinCode);
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Invalid invite code'
-              }));
-              return;
-            }
-
-            // Verify videoId matches if provided
-            if (joinVideoId && groupToJoin.videoId !== joinVideoId) {
-              console.log('Video ID mismatch:', { expected: groupToJoin.videoId, received: joinVideoId });
-              ws.send(JSON.stringify({
-                type: 'error',
-                message: 'Invalid video for this group'
-              }));
-              return;
-            }
-
-            // Check if already a member
-            const existingMember = await db.query.groupMembers.findFirst({
-              where: and(
-                eq(groupMembers.groupId, groupToJoin.id),
-                eq(groupMembers.userId, userId)
-              )
-            });
-
-            if (!existingMember) {
-              // Add as member
-              await db.insert(groupMembers)
-                .values({
-                  groupId: groupToJoin.id,
-                  userId,
-                  role: 'member'
-                });
-            }
-
-            // Get full group details to send back
-            const fullGroupDetails = {
-              ...groupToJoin,
-              members: await db.query.groupMembers.findMany({
-                where: eq(groupMembers.groupId, groupToJoin.id),
-                with: {
-                  user: {
-                    columns: {
-                      username: true
-                    }
-                  }
-                }
-              })
-            };
-
-            console.log('User joined group successfully:', groupToJoin.id);
-            ws.send(JSON.stringify({
-              type: 'group_joined',
-              data: fullGroupDetails
-            }));
-            break;
-        }
-      } catch (error) {
-        console.error('Message handling error:', error);
-        if (error instanceof Error) {
-          console.error('Error details:', error.message);
-        }
-      }
-    };
-
-    ws.on('close', () => {
-      console.log('WebSocket disconnected for user:', userId);
-      connectedClients.delete(userId);
-    });
-
-    ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
-      connectedClients.delete(userId);
-    });
-  });
+  // Setup WebSocket server
+  setupWebSocketServer(httpServer, sessionMiddleware);
 
   // Public endpoints - no auth required
   app.get("/api/categories", async (req, res) => {
     try {
-      console.log("Fetching categories from database...");
       const allCategories = await db.query.categories.findMany({
         where: eq(categories.isDeleted, false),
         orderBy: [desc(categories.displayOrder)]
       });
-      console.log("Retrieved categories:", allCategories);
       res.json(allCategories);
     } catch (error) {
       console.error('Error fetching categories:', error);
@@ -558,7 +208,7 @@ export function registerRoutes(app: Express): Server {
       res.json(messagesList.reverse());
     } catch (error) {
       console.error('Error fetching messages:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Database error occurred",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -606,7 +256,7 @@ export function registerRoutes(app: Express): Server {
       res.json(messagesList.reverse());
     } catch (error) {
       console.error('Error fetching group messages:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Database error occurred",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -695,7 +345,7 @@ export function registerRoutes(app: Express): Server {
 
 
   // Preferences endpoints
-  app.get("/api/preferences", requireAuth, async (req: Request, res: Response) => {
+  app.get("/api/preferences", requireAuth, async (req: any, res: any) => {
     try {
       const preferences = await db.query.userPreferences.findFirst({
         where: sql`${userPreferences.userId} = ${req.user!.id}`
@@ -717,7 +367,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  app.post("/api/preferences", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/preferences", requireAuth, async (req: any, res: any) => {
     try {
       const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
 
