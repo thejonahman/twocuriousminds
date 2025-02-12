@@ -186,25 +186,44 @@ export function registerRoutes(app: Express): Server {
 
   // Protected endpoints - require authentication
 
-  // Messages endpoint
+  // Update the messages endpoint to handle both video and group messages
   app.get("/api/messages", requireAuth, async (req, res) => {
     try {
       const videoId = parseInt(req.query.videoId as string);
-      if (isNaN(videoId)) {
-        return res.status(400).json({ message: "Video ID is required" });
+      const groupId = parseInt(req.query.groupId as string);
+
+      if (isNaN(videoId) && isNaN(groupId)) {
+        return res.status(400).json({ message: "Either videoId or groupId is required" });
       }
 
-      const messagesList = await db.query.messages.findMany({
-        where: eq(messages.videoId, videoId),
-        orderBy: [desc(messages.createdAt)],
-        with: {
-          user: {
-            columns: {
-              username: true
+      let messagesList;
+      if (!isNaN(groupId)) {
+        // Fetch group messages
+        messagesList = await db.query.groupMessages.findMany({
+          where: eq(groupMessages.groupId, groupId),
+          orderBy: [desc(groupMessages.createdAt)],
+          with: {
+            user: {
+              columns: {
+                username: true
+              }
             }
           }
-        }
-      });
+        });
+      } else {
+        // Fetch video messages
+        messagesList = await db.query.messages.findMany({
+          where: eq(messages.videoId, videoId),
+          orderBy: [desc(messages.createdAt)],
+          with: {
+            user: {
+              columns: {
+                username: true
+              }
+            }
+          }
+        });
+      }
 
       res.json(messagesList.reverse());
     } catch (error) {
@@ -216,14 +235,25 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Add this endpoint after the existing messages endpoint
+  // Update the group creation endpoint
   app.post("/api/groups", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { name, videoId, description } = req.body;
+      const { name, videoId } = req.body;
       const userId = req.user?.id;
+
+      console.log('Creating group with:', { name, videoId, userId });
 
       if (!userId || !videoId || !name) {
         return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // First check if video exists
+      const video = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId)
+      });
+
+      if (!video) {
+        return res.status(404).json({ message: "Video not found" });
       }
 
       // Generate a random invite code
@@ -233,12 +263,13 @@ export function registerRoutes(app: Express): Server {
       const [group] = await db.insert(discussionGroups)
         .values({
           name,
-          videoId,
-          description,
+          videoId: video.id,
           createdAt: new Date(),
           inviteCode
         })
         .returning();
+
+      console.log('Created group:', group);
 
       // Add the creator as a member and admin
       await db.insert(groupMembers)

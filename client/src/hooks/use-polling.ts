@@ -62,10 +62,19 @@ export function usePolling(groupId?: number) {
   }, [user, groupId, toast]);
 
   const sendMessage = useCallback(async (content: string): Promise<boolean> => {
-    if (!user || !groupId) {
+    if (!user) {
       toast({
         title: 'Error',
-        description: 'Cannot send message - not connected',
+        description: 'You must be logged in to send messages',
+        variant: 'destructive'
+      });
+      return false;
+    }
+
+    if (!groupId) {
+      toast({
+        title: 'Error',
+        description: 'Cannot send message - not connected to a group',
         variant: 'destructive'
       });
       return false;
@@ -84,7 +93,8 @@ export function usePolling(groupId?: number) {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send message');
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to send message');
       }
 
       return true;
@@ -92,7 +102,7 @@ export function usePolling(groupId?: number) {
       console.error('Send message error:', error);
       toast({
         title: 'Error',
-        description: 'Failed to send message',
+        description: error instanceof Error ? error.message : 'Failed to send message',
         variant: 'destructive'
       });
       return false;
