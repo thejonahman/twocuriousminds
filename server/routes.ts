@@ -4,7 +4,7 @@ import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
-import { setupPolling } from "./polling";
+//import { setupPolling } from "./polling"; // Removed - polling functionality is now in routes.ts
 import {Request, Response} from 'express';
 
 export function registerRoutes(app: Express): Server {
@@ -14,7 +14,7 @@ export function registerRoutes(app: Express): Server {
   const sessionMiddleware = setupAuth(app);
 
   // Setup polling instead of WebSocket
-  setupPolling(app);
+  //setupPolling(app); // Removed
 
   // Public endpoints - no auth required
   app.get("/api/categories", async (req, res) => {
@@ -309,29 +309,29 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "Invalid group ID" });
       }
 
-    const messages = await db.query.groupMessages.findMany({
-      where: eq(groupMessages.groupId, groupId),
-      orderBy: [desc(groupMessages.createdAt)],
-      with: {
-        user: {
-          columns: {
-            username: true
+      const messages = await db.query.groupMessages.findMany({
+        where: eq(groupMessages.groupId, groupId),
+        orderBy: [desc(groupMessages.createdAt)],
+        with: {
+          user: {
+            columns: {
+              username: true
+            }
           }
-        }
-      }
-    });
+        },
+        limit: 100 // Limit to latest 100 messages for performance
+      });
 
-    // Return messages in chronological order
-    res.json(messages.reverse());
-  } catch (error) {
-    console.error('Error fetching messages:', error);
-    res.status(500).json({
-      message: "Error fetching messages",
-      error: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-});
-
+      // Return messages in chronological order
+      res.json(messages.reverse());
+    } catch (error) {
+      console.error('Error fetching messages:', error);
+      res.status(500).json({
+        message: "Error fetching messages",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
 
   // Add direct group access endpoint
   app.get("/api/groups/:groupId", requireAuth, async (req, res) => {

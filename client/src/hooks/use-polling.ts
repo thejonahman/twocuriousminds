@@ -14,7 +14,6 @@ export function usePolling(groupId?: number) {
   const { user } = useAuth();
   const { toast } = useToast();
   const messageHandlers = useRef<Set<(messages: Message[]) => void>>(new Set());
-  const lastMessageId = useRef<number | null>(null);
   const [state, setState] = useState<PollingState>({
     polling: false,
     error: null
@@ -35,12 +34,7 @@ export function usePolling(groupId?: number) {
         }
 
         const messages = await response.json();
-
-        // Only update if we have new messages
-        if (messages.length > 0 && (!lastMessageId.current || messages[messages.length - 1].id !== lastMessageId.current)) {
-          lastMessageId.current = messages[messages.length - 1].id;
-          messageHandlers.current.forEach(handler => handler(messages));
-        }
+        messageHandlers.current.forEach(handler => handler(messages));
       } catch (error: any) {
         console.error('Polling error:', error);
         setState(prev => ({ ...prev, error: error.message }));
@@ -86,9 +80,10 @@ export function usePolling(groupId?: number) {
         throw new Error(error.message || 'Failed to send message');
       }
 
-      // Get the newly created message and update immediately
+      // Update handlers immediately with the new message
       const newMessage = await response.json();
-      messageHandlers.current.forEach(handler => handler([newMessage]));
+      const currentMessages = await fetch(`/api/messages?groupId=${groupId}`).then(r => r.json());
+      messageHandlers.current.forEach(handler => handler(currentMessages));
 
       return true;
     } catch (error) {
