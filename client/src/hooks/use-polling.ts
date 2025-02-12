@@ -8,7 +8,7 @@ interface PollingState {
   error: string | null;
 }
 
-const POLLING_INTERVAL = 2000; // Poll every 2 seconds
+const POLLING_INTERVAL = 1000; // Poll every second for more responsive updates
 
 export function usePolling(groupId?: number) {
   const { user } = useAuth();
@@ -35,17 +35,10 @@ export function usePolling(groupId?: number) {
         }
 
         const messages = await response.json();
-
-        // Always update handlers with messages to ensure UI is in sync
         messageHandlers.current.forEach(handler => handler(messages));
       } catch (error: any) {
         console.error('Polling error:', error);
         setState(prev => ({ ...prev, error: error.message }));
-        toast({
-          title: 'Error',
-          description: 'Failed to receive messages. Retrying...',
-          variant: 'destructive'
-        });
       }
     };
 
@@ -59,22 +52,13 @@ export function usePolling(groupId?: number) {
       clearInterval(intervalId);
       setState({ polling: false, error: null });
     };
-  }, [user, groupId, toast]);
+  }, [user, groupId]);
 
   const sendMessage = useCallback(async (content: string): Promise<boolean> => {
-    if (!user) {
+    if (!user || !groupId) {
       toast({
         title: 'Error',
-        description: 'You must be logged in to send messages',
-        variant: 'destructive'
-      });
-      return false;
-    }
-
-    if (!groupId) {
-      toast({
-        title: 'Error',
-        description: 'Cannot send message - not connected to a group',
+        description: !user ? 'You must be logged in to send messages' : 'No group selected',
         variant: 'destructive'
       });
       return false;
@@ -97,7 +81,6 @@ export function usePolling(groupId?: number) {
         throw new Error(error.message || 'Failed to send message');
       }
 
-      // No need to manually update handlers here since polling will pick up the new message
       return true;
     } catch (error) {
       console.error('Send message error:', error);

@@ -186,55 +186,6 @@ export function registerRoutes(app: Express): Server {
 
   // Protected endpoints - require authentication
 
-  // Update the messages endpoint to handle both video and group messages
-  app.get("/api/messages", requireAuth, async (req, res) => {
-    try {
-      const videoId = parseInt(req.query.videoId as string);
-      const groupId = parseInt(req.query.groupId as string);
-
-      if (isNaN(videoId) && isNaN(groupId)) {
-        return res.status(400).json({ message: "Either videoId or groupId is required" });
-      }
-
-      let messagesList;
-      if (!isNaN(groupId)) {
-        // Fetch group messages
-        messagesList = await db.query.groupMessages.findMany({
-          where: eq(groupMessages.groupId, groupId),
-          orderBy: [desc(groupMessages.createdAt)],
-          with: {
-            user: {
-              columns: {
-                username: true
-              }
-            }
-          }
-        });
-      } else {
-        // Fetch video messages
-        messagesList = await db.query.messages.findMany({
-          where: eq(messages.videoId, videoId),
-          orderBy: [desc(messages.createdAt)],
-          with: {
-            user: {
-              columns: {
-                username: true
-              }
-            }
-          }
-        });
-      }
-
-      res.json(messagesList.reverse());
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      res.status(500).json({
-        message: "Database error occurred",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
-
   // Update the group creation endpoint
   app.post("/api/groups", requireAuth, async (req: Request, res: Response) => {
     try {
@@ -307,30 +258,58 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Update group messages endpoint to include more details
-  app.get("/api/group-messages", requireAuth, async (req, res) => {
+  // Consolidated message handling endpoint
+  app.post("/api/messages", requireAuth, async (req, res) => {
     try {
-      const groupId = parseInt(req.query.groupId as string);
-      if (isNaN(groupId)) {
-        return res.status(400).json({ message: "Group ID is required" });
+      const { groupId, content } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId || !groupId || !content) {
+        return res.status(400).json({ message: "Missing required fields" });
       }
 
-      console.log('Fetching messages for group:', groupId);
+      // Add message to database
+      const [message] = await db.insert(groupMessages)
+        .values({
+          groupId,
+          userId,
+          content,
+          createdAt: new Date()
+        })
+        .returning();
 
-      // Check if user is a member of the group
-      const member = await db.query.groupMembers.findFirst({
-        where: and(
-          eq(groupMembers.groupId, groupId),
-          eq(groupMembers.userId, req.user!.id)
-        )
+      // Get complete message with user details
+      const messageWithDetails = await db.query.groupMessages.findFirst({
+        where: eq(groupMessages.id, message.id),
+        with: {
+          user: {
+            columns: {
+              username: true
+            }
+          }
+        }
       });
 
-      if (!member) {
-        return res.status(403).json({ message: "Not a member of this group" });
+      res.status(201).json(messageWithDetails);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      res.status(500).json({
+        message: "Failed to send message",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Get messages endpoint
+  app.get("/api/messages", requireAuth, async (req, res) => {
+    try {
+      const groupId = parseInt(req.query.groupId as string);
+
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
       }
 
-      // Fetch messages with user details, ordered by creation time
-      const messagesList = await db.query.groupMessages.findMany({
+      const messages = await db.query.groupMessages.findMany({
         where: eq(groupMessages.groupId, groupId),
         orderBy: [desc(groupMessages.createdAt)],
         with: {
@@ -342,18 +321,17 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      console.log('Retrieved', messagesList.length, 'messages for group:', groupId);
-
       // Return messages in chronological order (oldest first)
-      res.json(messagesList.reverse());
+      res.json(messages.reverse());
     } catch (error) {
-      console.error('Error fetching group messages:', error);
+      console.error('Error fetching messages:', error);
       res.status(500).json({
-        message: "Database error occurred",
+        message: "Error fetching messages",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
   });
+
 
   // Add direct group access endpoint
   app.get("/api/groups/:groupId", requireAuth, async (req, res) => {
