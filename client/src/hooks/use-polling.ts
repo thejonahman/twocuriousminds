@@ -27,7 +27,7 @@ export function usePolling(groupId?: number) {
 
     const pollMessages = async () => {
       try {
-        const response = await fetch(`/api/messages?groupId=${groupId}`);
+        const response = await fetch(`/api/groups/${groupId}/messages`);
 
         if (!response.ok) {
           throw new Error('Failed to fetch messages');
@@ -64,13 +64,12 @@ export function usePolling(groupId?: number) {
     }
 
     try {
-      const response = await fetch('/api/messages', {
+      const response = await fetch(`/api/groups/${groupId}/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          groupId,
           content
         })
       });
@@ -82,7 +81,7 @@ export function usePolling(groupId?: number) {
 
       // Update handlers immediately with the new message
       const newMessage = await response.json();
-      const currentMessages = await fetch(`/api/messages?groupId=${groupId}`).then(r => r.json());
+      const currentMessages = await fetch(`/api/groups/${groupId}/messages`).then(r => r.json());
       messageHandlers.current.forEach(handler => handler(currentMessages));
 
       return true;

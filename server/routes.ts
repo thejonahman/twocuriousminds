@@ -4,8 +4,8 @@ import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
-//import { setupPolling } from "./polling"; // Removed - polling functionality is now in routes.ts
 import {Request, Response} from 'express';
+import groupMessagesRouter from './routes/group-messages';
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
@@ -13,8 +13,8 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Setup polling instead of WebSocket
-  //setupPolling(app); // Removed
+  // Register the group messages router
+  app.use(groupMessagesRouter);
 
   // Public endpoints - no auth required
   app.get("/api/categories", async (req, res) => {
@@ -258,80 +258,6 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Consolidated message handling endpoint
-  app.post("/api/messages", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const { groupId, content } = req.body;
-      const userId = req.user?.id;
-
-      if (!userId || !groupId || !content) {
-        return res.status(400).json({ message: "Missing required fields" });
-      }
-
-      // Add message to database
-      const [message] = await db.insert(groupMessages)
-        .values({
-          groupId,
-          userId,
-          content,
-          createdAt: new Date()
-        })
-        .returning();
-
-      // Get complete message with user details
-      const messageWithDetails = await db.query.groupMessages.findFirst({
-        where: eq(groupMessages.id, message.id),
-        with: {
-          user: {
-            columns: {
-              username: true
-            }
-          }
-        }
-      });
-
-      res.status(201).json(messageWithDetails);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      res.status(500).json({
-        message: "Failed to send message",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
-
-  // Get messages endpoint
-  app.get("/api/messages", requireAuth, async (req: Request, res: Response) => {
-    try {
-      const groupId = parseInt(req.query.groupId as string);
-
-      if (isNaN(groupId)) {
-        return res.status(400).json({ message: "Invalid group ID" });
-      }
-
-      const messages = await db.query.groupMessages.findMany({
-        where: eq(groupMessages.groupId, groupId),
-        orderBy: [desc(groupMessages.createdAt)],
-        with: {
-          user: {
-            columns: {
-              username: true
-            }
-          }
-        },
-        limit: 100 // Limit to latest 100 messages for performance
-      });
-
-      // Return messages in chronological order
-      res.json(messages.reverse());
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-      res.status(500).json({
-        message: "Error fetching messages",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
 
   // Add direct group access endpoint
   app.get("/api/groups/:groupId", requireAuth, async (req, res) => {
@@ -355,16 +281,6 @@ export function registerRoutes(app: Express): Server {
                 }
               }
             }
-          },
-          messages: {
-            with: {
-              user: {
-                columns: {
-                  username: true
-                }
-              }
-            },
-            orderBy: [desc(groupMessages.createdAt)]
           }
         }
       });
@@ -396,11 +312,6 @@ export function registerRoutes(app: Express): Server {
             username: req.user!.username
           }
         });
-      }
-
-      // Sort messages in chronological order
-      if (group.messages) {
-        group.messages = group.messages.reverse();
       }
 
       res.json(group);
