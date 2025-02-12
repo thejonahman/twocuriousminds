@@ -241,51 +241,45 @@ export function registerRoutes(app: Express): Server {
       const { name, videoId } = req.body;
       const userId = req.user?.id;
 
-      console.log('Creating group with:', { name, videoId, userId });
-
       if (!userId || !videoId || !name) {
         return res.status(400).json({ message: "Missing required fields" });
-      }
-
-      // First check if video exists
-      const video = await db.query.videos.findFirst({
-        where: eq(videos.id, videoId)
-      });
-
-      if (!video) {
-        return res.status(404).json({ message: "Video not found" });
       }
 
       // Generate a random invite code
       const inviteCode = Math.random().toString(36).substring(2, 15);
 
-      // Create the group with all required fields
-      const [group] = await db.insert(discussionGroups)
-        .values({
-          name,
-          videoId: video.id,
-          creatorId: userId,
-          createdAt: new Date(),
-          inviteCode,
-          isPrivate: false,
-          isDeleted: false
-        })
-        .returning();
+      // Create the group and add creator as member in a single transaction
+      const [group] = await db.transaction(async (tx) => {
+        // Create the group with all required fields
+        const [newGroup] = await tx
+          .insert(discussionGroups)
+          .values({
+            name,
+            videoId,
+            creatorId: userId,
+            createdAt: new Date(),
+            inviteCode,
+            isPrivate: false,
+            isDeleted: false
+          })
+          .returning();
 
-      console.log('Created group:', group);
+        // Add the creator as a member and admin
+        await tx
+          .insert(groupMembers)
+          .values({
+            userId,
+            groupId: newGroup.id,
+            role: 'admin',
+            joinedAt: new Date(),
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0,
+            lastReadAt: new Date()
+          });
 
-      // Add the creator as a member and admin
-      await db.insert(groupMembers)
-        .values({
-          userId,
-          groupId: group.id,
-          role: 'admin',
-          joinedAt: new Date(),
-          notificationsEnabled: true,
-          emailNotifications: false,
-          unreadCount: 0,
-          lastReadAt: new Date()
-        });
+        return [newGroup];
+      });
 
       // Return the created group with member details
       const groupWithDetails = await db.query.discussionGroups.findFirst({
