@@ -1,17 +1,17 @@
 import { Request, Response } from 'express';
 import { db } from "@db";
-import { eq } from "drizzle-orm";
-import { groupMessages, messages } from "@db/schema";
+import { eq, desc } from "drizzle-orm";
+import { groupMessages } from "@db/schema";
 
 export function setupPolling(app: any) {
   // Endpoint to send new messages
   app.post('/api/messages', async (req: Request, res: Response) => {
     try {
-      const userId = req.user?.id;
       const { groupId, content } = req.body;
+      const userId = req.user?.id;
 
-      if (!userId) {
-        return res.status(401).json({ error: 'Unauthorized' });
+      if (!userId || !groupId || !content) {
+        return res.status(400).json({ error: 'Missing required fields' });
       }
 
       // Save message to database
@@ -24,13 +24,17 @@ export function setupPolling(app: any) {
         })
         .returning();
 
-      // Get user details for the response
-      const messageWithUser = {
-        ...savedMessage,
-        user: {
-          username: req.user?.username
+      // Fetch the complete message with user details for the response
+      const messageWithUser = await db.query.groupMessages.findFirst({
+        where: eq(groupMessages.id, savedMessage.id),
+        with: {
+          user: {
+            columns: {
+              username: true
+            }
+          }
         }
-      };
+      });
 
       res.status(201).json(messageWithUser);
     } catch (error) {
@@ -53,7 +57,7 @@ export function setupPolling(app: any) {
 
       const messages = await db.query.groupMessages.findMany({
         where: eq(groupMessages.groupId, groupId),
-        orderBy: (messages, { desc }) => [desc(messages.createdAt)],
+        orderBy: [desc(groupMessages.createdAt)],
         with: {
           user: {
             columns: {
