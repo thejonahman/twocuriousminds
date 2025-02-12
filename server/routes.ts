@@ -379,6 +379,33 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add this new endpoint after the other group-related endpoints
+  app.post("/api/groups/:groupId/leave", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      // Delete the group membership
+      await db
+        .delete(groupMembers)
+        .where(
+          and(
+            eq(groupMembers.groupId, groupId),
+            eq(groupMembers.userId, req.user!.id)
+          )
+        );
+
+      res.json({ message: "Successfully left the group" });
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      res.status(500).json({
+        message: "Error leaving group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
 
   // Preferences endpoints
   app.get("/api/preferences", requireAuth, async (req: AuthenticatedRequest, res: any) => {

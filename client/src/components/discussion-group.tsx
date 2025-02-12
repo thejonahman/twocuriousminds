@@ -192,9 +192,37 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
-  const handleLeaveGroup = () => {
-    setCurrentGroup(null);
-    setLocation(`/video/${videoId}`);
+  const handleLeaveGroup = async () => {
+    if (!currentGroup) return;
+
+    try {
+      const response = await fetch(`/api/groups/${currentGroup.id}/leave`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to leave group');
+      }
+
+      setCurrentGroup(null);
+      setLocation(`/video/${videoId}`);
+
+      // Invalidate the last active group query to refresh the state
+      queryClient.invalidateQueries({
+        queryKey: [`/api/videos/${videoId}/last-active-group`]
+      });
+
+      toast({
+        title: "Success",
+        description: "Successfully left the group",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to leave group",
+        variant: "destructive",
+      });
+    }
   };
 
   // Render loading states
