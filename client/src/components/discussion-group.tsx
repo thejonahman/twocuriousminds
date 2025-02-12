@@ -213,12 +213,22 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       // Reset the location without the group ID
       setLocation(`/video/${videoId}`);
 
-      // Invalidate both queries to ensure fresh data
+      // Invalidate all related queries
       queryClient.invalidateQueries({
         queryKey: [`/api/videos/${videoId}/last-active-group`]
       });
 
       queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup.id}`]
+      });
+
+      // Clear messages query
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup.id}/messages`]
+      });
+
+      // Remove from cache
+      queryClient.removeQueries({
         queryKey: [`/api/groups/${currentGroup.id}`]
       });
 
