@@ -17,7 +17,6 @@ export function useWebSocket() {
   const { toast } = useToast();
   const ws = useRef<WebSocket | null>(null);
   const messageHandlers = useRef<Set<(data: any) => void>>(new Set());
-  const reconnectAttempts = useRef(0);
   const [state, setState] = useState<WebSocketState>({
     connected: false,
     connecting: false
@@ -46,37 +45,25 @@ export function useWebSocket() {
 
       socket.onopen = () => {
         console.log('[WebSocket] Connected successfully');
-        reconnectAttempts.current = 0;
         setState({
           connected: true,
           connecting: false
         });
       };
 
-      socket.onclose = (event) => {
-        console.log('[WebSocket] Connection closed:', event.code, event.reason);
+      socket.onclose = () => {
+        console.log('[WebSocket] Connection closed');
         setState({
           connected: false,
           connecting: false
         });
 
-        // Implement exponential backoff for reconnection
-        if (event.code !== 1000 && event.code !== 1001) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
-          reconnectAttempts.current++;
-          setTimeout(connect, delay);
-        }
+        // Simple reconnection after 5 seconds
+        setTimeout(connect, 5000);
       };
 
       socket.onerror = (error) => {
         console.error('[WebSocket] Connection error:', error);
-        if (reconnectAttempts.current === 0) {
-          toast({
-            title: "Connection Error",
-            description: "Failed to connect to chat server. Retrying...",
-            variant: "destructive",
-          });
-        }
         setState(prev => ({ ...prev, connected: false }));
       };
 
@@ -96,7 +83,7 @@ export function useWebSocket() {
         connecting: false
       });
     }
-  }, [user, state.connecting, toast]);
+  }, [user, state.connecting]);
 
   const sendMessage = useCallback((message: WebSocketMessage): boolean => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
