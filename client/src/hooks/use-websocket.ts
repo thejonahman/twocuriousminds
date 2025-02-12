@@ -17,6 +17,7 @@ export function useWebSocket() {
   const { toast } = useToast();
   const ws = useRef<WebSocket | null>(null);
   const messageHandlers = useRef<Set<(data: any) => void>>(new Set());
+  const reconnectAttempts = useRef(0);
   const [state, setState] = useState<WebSocketState>({
     connected: false,
     connecting: false
@@ -27,34 +28,55 @@ export function useWebSocket() {
       return;
     }
 
+    // Close existing connection if any
+    if (ws.current) {
+      ws.current.close();
+      ws.current = null;
+    }
+
     setState(prev => ({ ...prev, connecting: true }));
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws`;
-
       console.log('[WebSocket] Connecting to:', wsUrl);
+
       const socket = new WebSocket(wsUrl);
       ws.current = socket;
 
       socket.onopen = () => {
-        console.log('[WebSocket] Connected');
+        console.log('[WebSocket] Connected successfully');
+        reconnectAttempts.current = 0;
         setState({
           connected: true,
           connecting: false
         });
       };
 
-      socket.onclose = () => {
-        console.log('[WebSocket] Connection closed');
+      socket.onclose = (event) => {
+        console.log('[WebSocket] Connection closed:', event.code, event.reason);
         setState({
           connected: false,
           connecting: false
         });
+
+        // Implement exponential backoff for reconnection
+        if (event.code !== 1000 && event.code !== 1001) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+          reconnectAttempts.current++;
+          setTimeout(connect, delay);
+        }
       };
 
       socket.onerror = (error) => {
-        console.error('[WebSocket] Error:', error);
+        console.error('[WebSocket] Connection error:', error);
+        if (reconnectAttempts.current === 0) {
+          toast({
+            title: "Connection Error",
+            description: "Failed to connect to chat server. Retrying...",
+            variant: "destructive",
+          });
+        }
         setState(prev => ({ ...prev, connected: false }));
       };
 
@@ -74,7 +96,7 @@ export function useWebSocket() {
         connecting: false
       });
     }
-  }, [user, state.connecting]);
+  }, [user, state.connecting, toast]);
 
   const sendMessage = useCallback((message: WebSocketMessage): boolean => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -113,7 +135,7 @@ export function useWebSocket() {
     }
     return () => {
       if (ws.current) {
-        ws.current.close();
+        ws.current.close(1000, "Component unmounted");
         ws.current = null;
       }
     };

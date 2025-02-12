@@ -34,8 +34,32 @@ export const groupSchema = baseEntitySchema.extend({
   messages: z.array(groupMessageSchema).optional(),
 });
 
-// WebSocket message schemas
+// Input message schemas (for sending to WebSocket)
+export const wsInputMessageSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("message"),
+    videoId: z.number(),
+    content: z.string(),
+  }),
+  z.object({
+    type: z.literal("group_message"),
+    groupId: z.number(),
+    content: z.string(),
+  }),
+  z.object({
+    type: z.literal("create_group"),
+    name: z.string(),
+    videoId: z.number(),
+    description: z.string().optional(),
+  }),
+]);
+
+// WebSocket response message schemas
 export const wsMessageSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("connected"),
+    message: z.string(),
+  }),
   z.object({
     type: z.literal("new_message"),
     data: videoMessageSchema,
@@ -64,6 +88,7 @@ export type VideoMessage = z.infer<typeof videoMessageSchema>;
 export type GroupMessage = z.infer<typeof groupMessageSchema>;
 export type Group = z.infer<typeof groupSchema>;
 export type WSMessage = z.infer<typeof wsMessageSchema>;
+export type WSInputMessage = z.infer<typeof wsInputMessageSchema>;
 
 // Utility function to validate API responses
 export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
@@ -72,5 +97,15 @@ export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
   } catch (error) {
     console.error('API Response validation error:', error);
     throw new Error('Invalid API response format');
+  }
+}
+
+// Utility function to validate WebSocket input messages
+export function validateWSInput(data: unknown): WSInputMessage {
+  try {
+    return wsInputMessageSchema.parse(data);
+  } catch (error) {
+    console.error('WebSocket input validation error:', error);
+    throw new Error('Invalid WebSocket message format');
   }
 }

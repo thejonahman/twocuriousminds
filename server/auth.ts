@@ -16,7 +16,6 @@ const PostgresSessionStore = connectPg(session);
 // Create requireAuth middleware
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   console.log('Auth check - isAuthenticated:', req.isAuthenticated());
-  console.log('Auth check - session:', req.session);
   if (!req.isAuthenticated()) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -49,19 +48,21 @@ export function setupAuth(app: Express) {
   // Create session store
   const store = new PostgresSessionStore({
     pool,
-    createTableIfMissing: false,
-    tableName: 'session'
+    createTableIfMissing: true,
+    tableName: 'session',
+    pruneSessionInterval: 60
   });
 
-  // Configure session middleware with updated settings for WebSocket support
+  // Configure session middleware
   const sessionMiddleware = session({
     store,
     secret: process.env.REPL_ID || 'fallback-secret-key',
+    name: 'connect.sid', // Use default Express session cookie name
     resave: false,
     saveUninitialized: false,
-    name: 'sessionId',
+    rolling: true,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: false, // Set to true in production with HTTPS
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
@@ -75,11 +76,9 @@ export function setupAuth(app: Express) {
 
   passport.use(new LocalStrategy(async (username, password, done) => {
     try {
-      console.log(`Attempting login for user: ${username}`);
       const [user] = await getUserByUsername(username);
 
       if (!user) {
-        console.log(`User not found: ${username}`);
         return done(null, false);
       }
 
@@ -96,13 +95,11 @@ export function setupAuth(app: Express) {
   }));
 
   passport.serializeUser((user: any, done) => {
-    console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
-      console.log('Deserializing user:', id);
       const [user] = await db
         .select()
         .from(users)
@@ -110,7 +107,6 @@ export function setupAuth(app: Express) {
         .limit(1);
 
       if (!user) {
-        console.log('User not found during deserialization:', id);
         return done(null, false);
       }
 
@@ -156,7 +152,6 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", passport.authenticate("local"), (req, res) => {
-    console.log('Login successful. User:', req.user);
     res.status(200).json(req.user);
   });
 
@@ -168,9 +163,6 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", requireAuth, (req, res) => {
-    console.log('GET /api/user - isAuthenticated:', req.isAuthenticated());
-    console.log('Session:', req.session);
-    console.log('User:', req.user);
     res.json(req.user);
   });
 
