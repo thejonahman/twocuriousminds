@@ -68,19 +68,31 @@ export default function Video() {
     }
   });
 
-  // If there's a last active group and no current groupId, redirect
+  // If there's a last active group and no current groupId, check persistence
   useEffect(() => {
     if (lastActiveGroup?.id && !groupId) {
-      console.log('Redirecting to last active group:', lastActiveGroup.id);
-      setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
+      // Check if user explicitly left this group
+      const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
+      if (lastLeftGroup === lastActiveGroup.id.toString()) {
+        return; // Don't rejoin if user explicitly left
+      }
+
+      // Check if this group is stored as active
+      const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
+      if (storedGroupId === lastActiveGroup.id.toString()) {
+        console.log('Reconnecting to stored group:', lastActiveGroup.id);
+        setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
+      }
     }
   }, [lastActiveGroup, id, groupId, setLocation]);
 
-  // Load stored group from localStorage if no groupId or lastActiveGroup
+  // Remove localStorage check since it's handled in the above effect
   useEffect(() => {
     if (!groupId && !lastActiveGroup) {
-      const storedGroupId = localStorage.getItem(`lastGroupId-${id}`);
-      if (storedGroupId) {
+      const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
+      const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
+
+      if (storedGroupId && storedGroupId !== lastLeftGroup) {
         console.log('Found stored group ID:', storedGroupId);
         setLocation(`/video/${id}/group/${storedGroupId}`);
       }

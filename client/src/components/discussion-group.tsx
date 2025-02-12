@@ -90,6 +90,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     if (group && !currentGroup) {
       setCurrentGroup(group);
       setLocation(`/video/${videoId}/group/${group.id}`);
+      // Store the active group ID in localStorage
+      localStorage.setItem(`activeGroup-${videoId}`, group.id.toString());
     }
   }, [group, currentGroup, videoId, setLocation]);
 
@@ -98,19 +100,19 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       // Only set current group if we haven't explicitly left it
       const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
       const lastLeftTime = sessionStorage.getItem('lastLeftTime');
-      const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes
+      const REJOIN_TIMEOUT = 24 * 60 * 60 * 1000; // Extend to 24 hours to effectively disable auto-rejoin
 
-      // Check if we recently left this group
+      // Don't auto-join if we recently left
       if (lastLeftGroup === lastActiveGroup.id.toString()) {
-        const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
-        if (timeSinceLeft < REJOIN_TIMEOUT) {
-          // Don't auto-join if we recently left
-          return;
-        }
+        return;
       }
 
-      setCurrentGroup(lastActiveGroup);
-      setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+      // Check if this group is stored in localStorage
+      const storedGroupId = localStorage.getItem(`activeGroup-${videoId}`);
+      if (storedGroupId === lastActiveGroup.id.toString()) {
+        setCurrentGroup(lastActiveGroup);
+        setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+      }
     }
   }, [lastActiveGroup, currentGroup, initialGroupId, videoId, setLocation]);
 
@@ -225,6 +227,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       sessionStorage.setItem('lastLeftGroup', currentGroup.id.toString());
       sessionStorage.setItem('lastLeftTime', Date.now().toString());
 
+      // Remove from localStorage to prevent auto-rejoin
+      localStorage.removeItem(`activeGroup-${videoId}`);
+
       // Clear the current group
       setCurrentGroup(null);
 
@@ -254,7 +259,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       console.error('Error leaving group:', error);
       toast({
         title: "Error",
-        description: "Failed to leave group",
+        description: error instanceof Error ? error.message : "Failed to leave group",
         variant: "destructive",
       });
     }
