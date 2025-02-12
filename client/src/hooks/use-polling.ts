@@ -22,14 +22,27 @@ export function usePolling(groupId?: number) {
     if (!user || !groupId || state.polling) return;
 
     setState({ polling: true, error: null });
+
+    // Create a new abort controller
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (error) {
+        console.error('Error aborting previous polling:', error);
+      }
+    }
     abortControllerRef.current = new AbortController();
 
     try {
-      while (!abortControllerRef.current?.signal.aborted) {
+      while (true) {
+        if (!abortControllerRef.current || abortControllerRef.current.signal.aborted) {
+          break;
+        }
+
         const response = await fetch(
           `/api/poll/messages?groupId=${groupId}&timeout=30000`,
           {
-            signal: abortControllerRef.current?.signal
+            signal: abortControllerRef.current.signal
           }
         );
 
@@ -111,10 +124,10 @@ export function usePolling(groupId?: number) {
       if (abortControllerRef.current) {
         try {
           abortControllerRef.current.abort();
+          abortControllerRef.current = null;
         } catch (error) {
-          console.error('Error aborting polling:', error);
+          console.error('Error during cleanup:', error);
         }
-        abortControllerRef.current = null;
       }
       setState({ polling: false, error: null });
     };

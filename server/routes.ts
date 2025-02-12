@@ -5,6 +5,7 @@ import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
 import { setupPolling } from "./polling";
+import {Request, Response} from 'express';
 
 export function registerRoutes(app: Express): Server {
   const httpServer = createServer(app);
@@ -210,6 +211,65 @@ export function registerRoutes(app: Express): Server {
       console.error('Error fetching messages:', error);
       res.status(500).json({
         message: "Database error occurred",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Add this endpoint after the existing messages endpoint
+  app.post("/api/groups", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { name, videoId, description } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId || !videoId || !name) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Generate a random invite code
+      const inviteCode = Math.random().toString(36).substring(2, 15);
+
+      // Create the group
+      const [group] = await db.insert(discussionGroups)
+        .values({
+          name,
+          videoId,
+          description,
+          createdAt: new Date(),
+          inviteCode
+        })
+        .returning();
+
+      // Add the creator as a member and admin
+      await db.insert(groupMembers)
+        .values({
+          userId,
+          groupId: group.id,
+          role: 'admin',
+          joinedAt: new Date()
+        });
+
+      // Return the created group with member details
+      const groupWithDetails = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, group.id),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      res.status(201).json(groupWithDetails);
+    } catch (error) {
+      console.error('Error creating group:', error);
+      res.status(500).json({ 
+        message: "Failed to create group",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
