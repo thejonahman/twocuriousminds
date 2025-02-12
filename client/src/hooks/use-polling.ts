@@ -8,12 +8,13 @@ interface PollingState {
   error: string | null;
 }
 
-const POLLING_INTERVAL = 3000; // Poll every 3 seconds
+const POLLING_INTERVAL = 2000; // Poll every 2 seconds
 
 export function usePolling(groupId?: number) {
   const { user } = useAuth();
   const { toast } = useToast();
   const messageHandlers = useRef<Set<(messages: Message[]) => void>>(new Set());
+  const lastMessageTimestamp = useRef<Date | null>(null);
   const [state, setState] = useState<PollingState>({
     polling: false,
     error: null
@@ -35,8 +36,11 @@ export function usePolling(groupId?: number) {
         }
 
         const messages = await response.json();
+
+        // Update handlers with new messages
         if (messages.length > 0) {
           messageHandlers.current.forEach(handler => handler(messages));
+          lastMessageTimestamp.current = new Date(messages[messages.length - 1].createdAt);
         }
       } catch (error: any) {
         console.error('Polling error:', error);
@@ -96,6 +100,10 @@ export function usePolling(groupId?: number) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to send message');
       }
+
+      // Get the newly created message and update handlers immediately
+      const newMessage = await response.json();
+      messageHandlers.current.forEach(handler => handler([newMessage]));
 
       return true;
     } catch (error) {

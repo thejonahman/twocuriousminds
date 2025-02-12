@@ -42,7 +42,7 @@ export function setupPolling(app: any) {
     }
   });
 
-  // Get messages endpoint
+  // Get messages endpoint with proper sorting
   app.get('/api/messages', async (req: Request, res: Response) => {
     try {
       const groupId = parseInt(req.query.groupId as string);
