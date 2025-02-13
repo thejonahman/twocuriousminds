@@ -3,7 +3,10 @@ import { Resend } from 'resend';
 let resend: Resend | null = null;
 
 if (process.env.RESEND_API_KEY) {
+  console.log('Initializing Resend with API key');
   resend = new Resend(process.env.RESEND_API_KEY);
+} else {
+  console.warn('RESEND_API_KEY not found in environment variables');
 }
 
 interface SendEmailParams {
@@ -20,15 +23,27 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   }
 
   try {
-    await resend.emails.send({
+    console.log(`Attempting to send email to ${to}`);
+    console.log('Email subject:', subject);
+
+    const result = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
       to,
       subject,
       text,
       html: html || text,
     });
+
+    console.log('Email sent successfully:', result);
+    return result;
   } catch (error) {
     console.error('Error sending email:', error);
+    // Log more details about the error
+    if (error instanceof Error) {
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
+    }
     throw error;
   }
 }

@@ -544,5 +544,65 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add this test endpoint near the end of registerRoutes function, before the return statement
+  if (process.env.NODE_ENV !== 'production') {
+    app.post("/api/test/email-notification", requireAuth, async (req: AuthenticatedRequest, res) => {
+      try {
+        if (!req.user?.email) {
+          return res.status(400).json({ message: "No email address available for testing" });
+        }
+
+        const testGroup = await db.query.discussionGroups.findFirst({
+          where: sql`true`,
+          with: {
+            messages: {
+              limit: 5,
+              orderBy: [desc(groupMessages.createdAt)],
+              with: {
+                user: {
+                  columns: {
+                    username: true
+                  }
+                }
+              }
+            }
+          }
+        });
+
+        if (!testGroup) {
+          return res.status(404).json({ message: "No discussion group found for testing" });
+        }
+
+        console.log('Sending test email notification to:', req.user.email);
+
+        await sendUnreadMessagesNotification({
+          userEmail: req.user.email,
+          userName: req.user.username,
+          groupName: testGroup.name,
+          videoTitle: "Test Video",
+          unreadCount: testGroup.messages.length,
+          unreadMessages: testGroup.messages,
+          recentMessages: testGroup.messages,
+          groupUrl: `${process.env.APP_URL || 'http://localhost:3000'}/video/1/group/${testGroup.id}`
+        });
+
+        res.json({ message: "Test email notification sent. Check console for logs." });
+      } catch (error) {
+        console.error('Error sending test email:', error);
+        res.status(500).json({
+          message: "Error sending test email",
+          error: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    });
+  }
+
   return httpServer;
+}
+
+
+// Placeholder implementation - Replace with your actual email sending logic
+async function sendUnreadMessagesNotification(options: any): Promise<void> {
+  console.log("Sending email notification:", options);
+  // Add your email sending logic here.  This is a placeholder.  You'll likely use a library like Nodemailer.
 }
