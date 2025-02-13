@@ -4,8 +4,22 @@ export let resend: Resend | null = null;
 
 console.log('Email module initialization starting...');
 console.log('Environment variables available:', Object.keys(process.env).join(', '));
-console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
-console.log('RESEND_FROM_EMAIL status:', process.env.RESEND_FROM_EMAIL ? 'Present' : 'Missing');
+console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? `Present (length: ${process.env.RESEND_API_KEY.length})` : 'Missing');
+console.log('RESEND_FROM_EMAIL status:', process.env.RESEND_FROM_EMAIL ? `Present (${process.env.RESEND_FROM_EMAIL})` : 'Missing');
+
+// Validate environment variables
+if (!process.env.RESEND_API_KEY) {
+  console.error('RESEND_API_KEY is missing');
+} else if (!process.env.RESEND_FROM_EMAIL) {
+  console.error('RESEND_FROM_EMAIL is missing');
+} else {
+  try {
+    resend = new Resend(process.env.RESEND_API_KEY.trim());
+    console.log('Resend client initialized successfully');
+  } catch (error) {
+    console.error('Failed to initialize Resend client:', error);
+  }
+}
 
 if (process.env.RESEND_API_KEY) {
   try {
