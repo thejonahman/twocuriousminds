@@ -2,13 +2,27 @@ import { Resend } from 'resend';
 
 let resend: Resend | null = null;
 
-console.log('Checking for RESEND_API_KEY:', process.env.RESEND_API_KEY ? 'Found key' : 'No key found');
+console.log('Email module initialization starting...');
+console.log('Environment variables available:', Object.keys(process.env).join(', '));
+console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
+console.log('RESEND_FROM_EMAIL status:', process.env.RESEND_FROM_EMAIL ? 'Present' : 'Missing');
+
 if (process.env.RESEND_API_KEY) {
-  console.log('Initializing Resend with API key');
-  resend = new Resend(process.env.RESEND_API_KEY);
-  console.log('Resend client initialized');
+  try {
+    console.log('Initializing Resend with API key');
+    resend = new Resend(process.env.RESEND_API_KEY);
+    console.log('Resend client created successfully');
+    // Test if the client is properly initialized
+    if (resend && resend.emails) {
+      console.log('Resend client appears to be properly initialized');
+    } else {
+      console.error('Resend client created but emails property is missing');
+    }
+  } catch (error) {
+    console.error('Error initializing Resend client:', error);
+  }
 } else {
-  console.warn('RESEND_API_KEY not found in environment variables');
+  console.error('RESEND_API_KEY not found in environment variables - email sending will be disabled');
 }
 
 interface SendEmailParams {
