@@ -65,11 +65,15 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
 }
 
 interface Message {
+  id: number;
   content: string;
   user: {
     username: string;
   };
-  createdAt: Date;
+  createdAt: Date | null; // Updated to match DB schema
+  updatedAt: Date | null;
+  groupId: number;
+  userId: number;
 }
 
 export async function sendUnreadMessagesNotification({
@@ -104,13 +108,14 @@ export async function sendUnreadMessagesNotification({
       <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
         <strong style="color: #4b5563;">${message.user.username}</strong>
         <span style="color: #6b7280; font-size: 12px;">
-          ${new Date(message.createdAt).toLocaleTimeString()}
+          ${message.createdAt ? new Date(message.createdAt).toLocaleTimeString() : 'No timestamp'}
         </span>
       </div>
       <p style="color: #374151; margin: 0;">${message.content}</p>
     </div>
   `;
 
+  // Rest of the HTML template remains the same
   const html = `
     <!DOCTYPE html>
     <html>
@@ -155,12 +160,25 @@ export async function sendUnreadMessagesNotification({
     </html>
   `;
 
-  await sendEmail({
-    to: userEmail,
-    subject,
-    text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}"${videoTitle ? ` discussing "${videoTitle}"` : ''}. Here are some recent messages:\n\n${
-      unreadMessages.map(m => `${m.user.username}: ${m.content}`).join('\n')
-    }\n\nRespond to the discussion here: ${groupUrl}`,
-    html,
-  });
+  try {
+    const result = await sendEmail({
+      to: userEmail,
+      subject,
+      text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}"${videoTitle ? ` discussing "${videoTitle}"` : ''}. Here are some recent messages:\n\n${
+        unreadMessages.map(m => `${m.user.username}: ${m.content}`).join('\n')
+      }\n\nRespond to the discussion here: ${groupUrl}`,
+      html,
+    });
+
+    console.log('Email notification sent successfully:', {
+      to: userEmail,
+      messageCount: unreadMessages.length,
+      result
+    });
+
+    return result;
+  } catch (error) {
+    console.error('Failed to send email notification:', error);
+    throw error;
+  }
 }

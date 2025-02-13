@@ -120,14 +120,12 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       })
       .where(eq(discussionGroups.id, parsedGroupId));
 
-    // Get the video details for the notification
-    const video = await db.query.videos.findFirst({
-      where: eq(videos.id, result.data.videoId),
-    });
-
     // Get group details
     const group = await db.query.discussionGroups.findFirst({
       where: eq(discussionGroups.id, parsedGroupId),
+      with: {
+        video: true
+      }
     });
 
     // Get other group members who haven't read messages in the last hour
@@ -181,11 +179,10 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
             userEmail: member.user.email,
             userName: member.user.username,
             groupName: group?.name || 'Discussion Group',
-            videoTitle: video?.title || 'Video Discussion',
+            videoTitle: group?.video?.title || 'Video Discussion',
             unreadCount: (member.unreadCount || 0) + 1,
-            unreadMessages: unreadMessages,
-            recentMessages: recentMessages,
-            groupUrl: `${process.env.APP_URL}/video/${video?.id}/group/${parsedGroupId}`
+            unreadMessages,
+            groupUrl: `${process.env.APP_URL}/video/${group?.video?.id}/group/${parsedGroupId}`
           });
         } catch (error) {
           console.error('Failed to send notification email:', error);
