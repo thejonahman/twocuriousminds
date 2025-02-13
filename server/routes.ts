@@ -576,6 +576,9 @@ export function registerRoutes(app: Express): Server {
           return res.status(404).json({ message: "No discussion group found for testing" });
         }
 
+        console.log('Found test group:', testGroup);
+        console.log('Attempting to send test email to:', req.user.email);
+
         console.log('Sending test email notification to:', req.user.email);
 
         await sendUnreadMessagesNotification({
