@@ -53,7 +53,7 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   console.log('RESEND client properties:', resend ? Object.keys(resend) : 'No client');
   console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
   console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
-  
+
   if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
     console.error('Missing required environment variables');
     throw new Error('Email configuration missing');
@@ -98,16 +98,11 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
     }
 
     console.log('=== Attempting to Send Email ===');
-    console.log('Resend client state:', {
-      isInitialized: !!resend,
-      hasEmailsMethod: !!resend?.emails,
-      hasEmailsSendMethod: !!resend?.emails?.send
-    });
-    console.log('Email payload:', {
-      ...payload,
-      html: payload.html ? `${payload.html.substring(0, 100)}...` : null
-    });
-    
+    console.log('Resend API Key:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
+    console.log('From Email:', process.env.RESEND_FROM_EMAIL);
+    console.log('To Email:', payload.to);
+    console.log('Subject:', payload.subject);
+
     const result = await resend.emails.send(payload);
     console.log('=== Email Sent Successfully ===');
     console.log('Resend API response:', result);
@@ -120,10 +115,10 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       stack: error.stack,
       response: error.response?.data || error.response,
       code: error.code,
-      isAxiosError: error.isAxiosError,
-      config: error.config,
+      status: error.status,
       statusCode: error.statusCode,
-      data: error.data
+      validationErrors: error.validationErrors,
+      originalError: error.originalError
     });
     throw error;
   }
