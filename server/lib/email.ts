@@ -38,7 +38,7 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   console.log('Resend client status:', resend ? 'Initialized' : 'Not initialized');
   console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
   console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
-  
+
   if (!resend) {
     console.error('Resend API key not configured, skipping email send');
     return;
@@ -63,7 +63,7 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       hasEmailsProperty: !!(resend && resend.emails),
       apiKeyLength: process.env.RESEND_API_KEY?.length || 0
     });
-    
+
     const payload = {
       from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
       to,
