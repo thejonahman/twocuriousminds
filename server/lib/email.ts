@@ -19,6 +19,10 @@ interface SendEmailParams {
 }
 
 export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
+  console.log('Email function called with params:', { to, subject });
+  console.log('Resend client status:', resend ? 'Initialized' : 'Not initialized');
+  console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
+  
   if (!resend) {
     console.warn('Resend API key not configured, skipping email send');
     return;
