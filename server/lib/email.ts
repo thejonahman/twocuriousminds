@@ -75,6 +75,16 @@ interface Message {
   userId: number;
 }
 
+interface GroupEngagement {
+  totalMembers: number;
+  activeMembers: number;
+  recentMessages: number;
+  topContributors: Array<{
+    username: string;
+    messageCount: number;
+  }>;
+}
+
 export async function sendUnreadMessagesNotification({
   userEmail,
   userName,
@@ -82,7 +92,9 @@ export async function sendUnreadMessagesNotification({
   videoTitle,
   unreadCount,
   unreadMessages,
-  groupUrl
+  groupUrl,
+  groupEngagement,
+  reminderCount = 0
 }: {
   userEmail: string;
   userName: string;
@@ -91,7 +103,19 @@ export async function sendUnreadMessagesNotification({
   unreadCount: number;
   unreadMessages: Message[];
   groupUrl: string;
+  groupEngagement?: GroupEngagement;
+  reminderCount?: number;
 }) {
+  // Don't send more than 3 reminders
+  if (reminderCount >= 3) {
+    console.log('[Notification Service] Skipping notification - max reminders reached:', {
+      email: userEmail,
+      groupName,
+      reminderCount
+    });
+    return;
+  }
+
   console.log('[Notification Service] Preparing notification:', {
     to: userEmail,
     groupName,
@@ -103,7 +127,7 @@ export async function sendUnreadMessagesNotification({
     }))
   });
 
-  const subject = `💬 New messages in "${groupName}"`;
+  const subject = `💬 New activity in "${groupName}" discussion`;
 
   const formatMessage = (message: Message) => `
     <div style="background: #f3f4f6; border-radius: 6px; padding: 12px; margin: 8px 0;">
@@ -116,6 +140,22 @@ export async function sendUnreadMessagesNotification({
       <p style="color: #374151; margin: 0;">${message.content}</p>
     </div>
   `;
+
+  // Generate engagement section if data is available
+  const engagementSection = groupEngagement ? `
+    <div style="background: #f0f9ff; border-radius: 6px; padding: 15px; margin: 20px 0; border-left: 4px solid #0ea5e9;">
+      <h3 style="color: #0369a1; margin-top: 0; font-size: 16px;">Group Activity</h3>
+      <ul style="color: #334155; margin: 10px 0; padding-left: 20px;">
+        <li>${groupEngagement.activeMembers} out of ${groupEngagement.totalMembers} members active today</li>
+        <li>${groupEngagement.recentMessages} messages in the last 24 hours</li>
+        ${groupEngagement.topContributors.length > 0 ? `
+          <li>Top contributors: ${groupEngagement.topContributors
+            .map(c => `${c.username} (${c.messageCount} messages)`)
+            .join(', ')}</li>
+        ` : ''}
+      </ul>
+    </div>
+  ` : '';
 
   const html = `
     <!DOCTYPE html>
@@ -130,9 +170,11 @@ export async function sendUnreadMessagesNotification({
           <h2 style="color: #111827; margin-top: 0;">Hey ${userName}! 👋</h2>
 
           <p style="color: #374151; font-size: 16px; line-height: 1.5;">
-            The discussion is heating up! You have <strong>${unreadCount} new message${unreadCount === 1 ? '' : 's'}</strong> 
+            The discussion is active! You have <strong>${unreadCount} new message${unreadCount === 1 ? '' : 's'}</strong> 
             in <strong>${groupName}</strong>${videoTitle ? ` about <em>"${videoTitle}"</em>` : ''}.
           </p>
+
+          ${engagementSection}
 
           <div style="margin: 24px 0;">
             <h3 style="color: #1f2937; font-size: 16px; margin-bottom: 12px;">Recent messages you missed:</h3>
@@ -141,7 +183,9 @@ export async function sendUnreadMessagesNotification({
 
           <div style="background: #f8fafc; border-radius: 6px; padding: 15px; margin: 20px 0; border-left: 4px solid #2563eb;">
             <p style="color: #4b5563; margin: 0;">
-              Join the conversation and share your thoughts! The group is waiting to hear from you.
+              ${unreadMessages.some(m => m.content.includes('?')) 
+                ? "There are questions waiting for your input! Join the conversation and share your thoughts."
+                : "Join the conversation and share your perspective! The group is waiting to hear from you."}
             </p>
           </div>
 
@@ -149,7 +193,7 @@ export async function sendUnreadMessagesNotification({
              style="display: inline-block; background-color: #2563eb; color: white; 
                     padding: 12px 24px; text-decoration: none; border-radius: 6px;
                     font-weight: 500; margin: 20px 0;">
-            Respond to Messages
+            Respond to Discussion
           </a>
 
           <p style="color: #6b7280; font-size: 14px; margin-top: 30px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
@@ -165,9 +209,18 @@ export async function sendUnreadMessagesNotification({
     const result = await sendEmail({
       to: userEmail,
       subject,
-      text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}"${videoTitle ? ` discussing "${videoTitle}"` : ''}. Here are some recent messages:\n\n${
-        unreadMessages.map(m => `${m.user.username}: ${m.content}`).join('\n')
-      }\n\nRespond to the discussion here: ${groupUrl}`,
+      text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}"${videoTitle ? ` discussing "${videoTitle}"` : ''}.
+${groupEngagement ? `
+Group Activity:
+- ${groupEngagement.activeMembers}/${groupEngagement.totalMembers} members active today
+- ${groupEngagement.recentMessages} messages in the last 24 hours
+${groupEngagement.topContributors.length > 0 ? `- Top contributors: ${groupEngagement.topContributors.map(c => `${c.username} (${c.messageCount})`).join(', ')}` : ''}
+` : ''}
+
+Recent messages:
+${unreadMessages.map(m => `${m.user.username}: ${m.content}`).join('\n')}
+
+Respond to the discussion here: ${groupUrl}`,
       html,
     });
 

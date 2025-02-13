@@ -95,6 +95,7 @@ export const groupMembers = pgTable("group_members", {
   lastReadAt: timestamp("last_read_at").defaultNow(),
   unreadCount: integer("unread_count").default(0),
   joinedAt: timestamp("joined_at").defaultNow(),
+  reminderCount: integer("reminder_count").default(0),
 }, (table) => ({
   groupIdIdx: index("group_members_group_id_idx").on(table.groupId),
   userIdIdx: index("group_members_user_id_idx").on(table.userId)
