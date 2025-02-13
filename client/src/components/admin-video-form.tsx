@@ -14,7 +14,6 @@ import { apiRequest } from "@/lib/queryClient";
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 
-// Form validation schema remains the same
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -33,11 +32,6 @@ const videoSchema = z.object({
 });
 
 type VideoFormData = z.infer<typeof videoSchema>;
-
-interface NewTopicFormData {
-  name: string;
-  parentCategoryId?: string;
-}
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
@@ -69,7 +63,7 @@ export function AdminVideoForm() {
   const selectedCategoryId = form.watch("categoryId");
 
   const { data: subcategories, isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
+    queryKey: [`/api/subcategories/${selectedCategoryId}`],
     enabled: !!selectedCategoryId,
     staleTime: 30000,
   });
@@ -78,6 +72,8 @@ export function AdminVideoForm() {
     mutationFn: async (data: VideoFormData) => {
       const response = await apiRequest("POST", "/api/videos", {
         ...data,
+        categoryId: parseInt(data.categoryId),
+        subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : undefined,
         thumbnailUrl: thumbnailUrl
       });
 
@@ -141,7 +137,7 @@ export function AdminVideoForm() {
         body: JSON.stringify({ 
           title, 
           description,
-          videoId: currentVideoId, // Send the video ID if we have one
+          videoId: currentVideoId, 
           url: form.getValues("url"),
           platform: form.getValues("platform")
         }),
@@ -158,7 +154,6 @@ export function AdminVideoForm() {
       setThumbnailUrl(data.thumbnailUrl);
       setIsGeneratingThumbnail(false);
 
-      // If we have a current video ID, invalidate the videos query to refresh the data
       if (currentVideoId) {
         queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       }

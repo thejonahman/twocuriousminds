@@ -2,7 +2,7 @@ import { createServer, type Server } from "http";
 import express, { type Express } from 'express';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
-import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
+import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences, subcategories } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
 import { Request, Response } from 'express';
 import groupMessagesRouter from './routes/group-messages';
@@ -39,6 +39,33 @@ export function registerRoutes(app: Express): Server {
       console.error('Error fetching categories:', error);
       res.status(500).json({
         message: "Error fetching categories",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Add new endpoint for subcategories by category
+  app.get("/api/subcategories/:categoryId", async (req, res) => {
+    try {
+      const categoryId = parseInt(req.params.categoryId);
+
+      if (isNaN(categoryId)) {
+        return res.status(400).json({ message: "Invalid category ID" });
+      }
+
+      const subCategories = await db.query.subcategories.findMany({
+        where: and(
+          eq(subcategories.categoryId, categoryId),
+          eq(subcategories.isDeleted, false)
+        ),
+        orderBy: [desc(subcategories.displayOrder)]
+      });
+
+      res.json(subCategories);
+    } catch (error) {
+      console.error('Error fetching subcategories:', error);
+      res.status(500).json({
+        message: "Error fetching subcategories",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
@@ -181,6 +208,74 @@ export function registerRoutes(app: Express): Server {
       console.error('Error fetching last active group:', error);
       res.status(500).json({
         message: "Error fetching last active group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Add video submission endpoint
+  app.post("/api/videos", async (req, res) => {
+    try {
+      const { title, url, description, categoryId, subcategoryId, platform } = req.body;
+
+      if (!title || !url || !categoryId || !platform) {
+        return res.status(400).json({ 
+          message: "Missing required fields",
+          required: ["title", "url", "categoryId", "platform"]
+        });
+      }
+
+      // Validate category exists
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId)
+      });
+
+      if (!category) {
+        return res.status(400).json({ message: "Invalid category" });
+      }
+
+      // If subcategoryId provided, validate it exists and belongs to category
+      if (subcategoryId) {
+        const subcategory = await db.query.subcategories.findFirst({
+          where: and(
+            eq(subcategories.id, subcategoryId),
+            eq(subcategories.categoryId, categoryId)
+          )
+        });
+
+        if (!subcategory) {
+          return res.status(400).json({ message: "Invalid subcategory for the selected category" });
+        }
+      }
+
+      // Insert the video
+      const [newVideo] = await db.insert(videos)
+        .values({
+          title,
+          url,
+          description,
+          categoryId,
+          subcategoryId: subcategoryId || null,
+          platform,
+          createdAt: new Date(),
+          isDeleted: false
+        })
+        .returning();
+
+      // Return the created video with related data
+      const videoWithDetails = await db.query.videos.findFirst({
+        where: eq(videos.id, newVideo.id),
+        with: {
+          category: true,
+          subcategory: true
+        }
+      });
+
+      res.status(201).json(videoWithDetails);
+    } catch (error) {
+      console.error('Error creating video:', error);
+      res.status(500).json({
+        message: "Failed to create video",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
