@@ -359,7 +359,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                   size="sm"
                   onClick={async () => {
                     try {
-                      const response = await fetch('/api/test/email-notification', {
+                      const response = await fetch(`/api/test/email-notification?groupId=${props.groupId}`, {
                         method: 'POST',
                       });
 

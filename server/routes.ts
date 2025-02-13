@@ -554,8 +554,14 @@ export function registerRoutes(app: Express): Server {
           return res.status(400).json({ message: "No email address available for testing" });
         }
 
+        // Get the specific group
+        const groupId = parseInt(req.query.groupId as string);
+        if (!groupId) {
+          return res.status(400).json({ message: "Group ID is required" });
+        }
+
         const testGroup = await db.query.discussionGroups.findFirst({
-          where: sql`true`,
+          where: eq(discussionGroups.id, groupId),
           with: {
             messages: {
               limit: 5,
