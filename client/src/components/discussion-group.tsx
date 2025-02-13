@@ -353,13 +353,14 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                 memberCount={currentGroup.members?.length || 0}
                 messageCount={messages?.length || 0}
               />
-              {env.MODE === 'development' && (
-                <Button 
-                  variant="outline" 
+              {env.MODE === 'development' && currentGroup && (
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={async () => {
                     try {
-                      const response = await fetch(`/api/test/email-notification?groupId=${props.groupId}`, {
+                      console.log('Sending test email for group:', currentGroup.id);
+                      const response = await fetch(`/api/test/email-notification?groupId=${currentGroup.id}`, {
                         method: 'POST',
                       });
 
@@ -372,6 +373,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                         description: "Check your email inbox and the server console for details.",
                       });
                     } catch (error) {
+                      console.error('Error sending test email:', error);
                       toast({
                         title: "Error",
                         description: "Failed to send test email. Check server logs for details.",

@@ -2,8 +2,7 @@ import { Resend } from 'resend';
 
 export let resend: Resend | null = null;
 
-console.log('Email module initialization starting...');
-
+// Initialize Resend client
 if (!process.env.RESEND_API_KEY) {
   console.error('RESEND_API_KEY is missing');
 } else if (!process.env.RESEND_FROM_EMAIL) {
@@ -34,22 +33,17 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
 
   try {
     const payload = {
-      from: process.env.RESEND_FROM_EMAIL,
+      from: process.env.RESEND_FROM_EMAIL!,
       to,
       subject,
       text,
       html: html || text,
-      tags: [{ name: 'source', value: 'twocuriousminds' }]
     };
 
-    // Verify domain status before sending
-    const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
-    if (domain) {
-      const domainStatus = await resend.domains.get(domain);
-      if (!domainStatus.status || domainStatus.status !== 'verified') {
-        throw new Error('Domain not verified');
-      }
-    }
+    console.log('Sending email with payload:', {
+      ...payload,
+      text: payload.text.substring(0, 50) + '...' // Log truncated content for brevity
+    });
 
     const result = await resend.emails.send(payload);
     console.log('Email sent successfully:', result);
@@ -85,6 +79,14 @@ export async function sendUnreadMessagesNotification({
   unreadMessages: Message[];
   groupUrl: string;
 }) {
+  console.log('Sending unread messages notification to:', userEmail);
+  console.log('Notification details:', {
+    groupName,
+    videoTitle,
+    unreadCount,
+    messagesCount: unreadMessages.length
+  });
+
   const subject = `💬 New messages in "${groupName}"`;
 
   const formatMessage = (message: Message) => `
@@ -113,7 +115,7 @@ export async function sendUnreadMessagesNotification({
 
           <p style="color: #374151; font-size: 16px; line-height: 1.5;">
             The discussion is heating up! You have <strong>${unreadCount} new message${unreadCount === 1 ? '' : 's'}</strong> 
-            in <strong>${groupName}</strong> about <em>"${videoTitle}"</em>.
+            in <strong>${groupName}</strong>${videoTitle ? ` about <em>"${videoTitle}"</em>` : ''}.
           </p>
 
           <div style="margin: 24px 0;">
@@ -146,7 +148,7 @@ export async function sendUnreadMessagesNotification({
   await sendEmail({
     to: userEmail,
     subject,
-    text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}" discussing "${videoTitle}". Here are some recent messages:\n\n${
+    text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}"${videoTitle ? ` discussing "${videoTitle}"` : ''}. Here are some recent messages:\n\n${
       unreadMessages.map(m => `${m.user.username}: ${m.content}`).join('\n')
     }\n\nRespond to the discussion here: ${groupUrl}`,
     html,

@@ -4,22 +4,21 @@ import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
-import {Request, Response} from 'express';
+import { Request, Response } from 'express';
 import groupMessagesRouter from './routes/group-messages';
+import { sendUnreadMessagesNotification, resend } from './lib/email';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
     id: number;
     username: string;
     email: string;
+    is_admin?: boolean;
   };
 }
 
 export function registerRoutes(app: Express): Server {
-  const httpServer = createServer(app);
-
-  // Setup auth and get session middleware
-  const sessionMiddleware = setupAuth(app);
+  // The httpServer creation is moved after the test email endpoint registration
 
   // Register the group messages router
   app.use(groupMessagesRouter);
@@ -306,7 +305,7 @@ export function registerRoutes(app: Express): Server {
       res.status(201).json(groupWithDetails);
     } catch (error) {
       console.error('Error creating group:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to create group",
         error: error instanceof Error ? error.message : "Unknown error"
       });
@@ -544,8 +543,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Add this test endpoint near the end of registerRoutes function, before the return statement
-  // Domain verification endpoint
+  // Domain verification endpoint. Moved this before the httpServer creation.
   app.get("/api/verify-domain", requireAuth, async (req: AuthenticatedRequest, res) => {
     if (!req.user?.is_admin) {
       return res.status(403).json({ message: "Admin access required" });
@@ -577,24 +575,34 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Update the test email endpoint
   if (process.env.NODE_ENV !== 'production') {
     app.post("/api/test/email-notification", requireAuth, async (req: AuthenticatedRequest, res) => {
       console.log('Test email endpoint hit');
       if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+        console.error('Email configuration missing');
         return res.status(500).json({ message: "Email configuration missing" });
       }
+
+      if (!resend) {
+        console.error('Resend client not initialized');
+        return res.status(500).json({ message: "Email service not initialized" });
+      }
+
       try {
         if (!req.user?.email) {
-          console.log('Error: No email address available for testing'); // Added logging
+          console.log('Error: No email address available for testing');
           return res.status(400).json({ message: "No email address available for testing" });
         }
 
         // Get the specific group
         const groupId = parseInt(req.query.groupId as string);
         if (!groupId) {
+          console.error('Group ID is required');
           return res.status(400).json({ message: "Group ID is required" });
         }
 
+        console.log('Fetching test group with ID:', groupId);
         const testGroup = await db.query.discussionGroups.findFirst({
           where: eq(discussionGroups.id, groupId),
           with: {
@@ -613,20 +621,12 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!testGroup) {
-          console.log('Error: No discussion group found for testing'); // Added logging
+          console.log('Error: No discussion group found for testing');
           return res.status(404).json({ message: "No discussion group found for testing" });
         }
 
-        console.log('Found test group:', testGroup);
+        console.log('Found test group:', testGroup.name);
         console.log('Attempting to send test email to:', req.user.email);
-
-        console.log('Sending test email notification to:', req.user.email);
-
-        console.log('About to send notification with params:', {
-          email: req.user.email,
-          username: req.user.username,
-          groupName: testGroup.name
-        });
 
         try {
           await sendUnreadMessagesNotification({
@@ -634,18 +634,17 @@ export function registerRoutes(app: Express): Server {
             userName: req.user.username,
             groupName: testGroup.name,
             videoTitle: "Test Video",
-            unreadCount: testGroup.messages.length,
-            unreadMessages: testGroup.messages,
-            recentMessages: testGroup.messages,
-            groupUrl: `${process.env.APP_URL || 'https://twocuriousminds.com'}/video/1/group/${testGroup.id}`
+            unreadCount: testGroup.messages?.length || 0,
+            unreadMessages: testGroup.messages || [],
+            groupUrl: `${process.env.APP_URL || 'http://localhost:3000'}/video/1/group/${testGroup.id}`
           });
-          console.log('Notification sent successfully');
+          console.log('Test notification sent successfully');
         } catch (error) {
           console.error('Error in sendUnreadMessagesNotification:', error);
           throw error;
         }
 
-        res.json({ message: "Test email notification sent. Check console for logs." });
+        res.json({ message: "Test email notification sent. Check your inbox." });
       } catch (error) {
         console.error('Error sending test email:', error);
         res.status(500).json({
@@ -656,12 +655,10 @@ export function registerRoutes(app: Express): Server {
     });
   }
 
+  const httpServer = createServer(app);
+
+  // Setup auth and get session middleware
+  const sessionMiddleware = setupAuth(app);
+
   return httpServer;
-}
-
-
-// Placeholder implementation - Replace with your actual email sending logic
-async function sendUnreadMessagesNotification(options: any): Promise<void> {
-  console.log("Sending email notification:", options);
-  // Add your email sending logic here.  This is a placeholder.  You'll likely use a library like Nodemailer.
 }
