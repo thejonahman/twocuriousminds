@@ -71,15 +71,6 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       console.error('Caught error in Resend send:', error);
       throw error;
     });
-      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
-      to,
-      subject,
-      text,
-      html: html || text,
-    }).catch(error => {
-      console.error('Resend API error:', error);
-      throw error;
-    });
 
     console.log('=== Email Sent Successfully ===');
     console.log('Resend API response:', result);
