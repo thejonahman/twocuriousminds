@@ -76,18 +76,24 @@ export function AdminVideoForm() {
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("POST", "/api/videos", {
-        ...data,
-        thumbnailUrl: thumbnailUrl
-      });
+      try {
+        const response = await apiRequest("POST", "/api/videos", {
+          ...data,
+          thumbnailUrl: thumbnailUrl
+        });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to add video");
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to add video");
+        }
+
+        const videoData = await response.json();
+        setCurrentVideoId(videoData.id);
+        return videoData;
+      } catch (error) {
+        console.error('Video submission error:', error);
+        throw error;
       }
-
-      const videoData = await response.json();
-      setCurrentVideoId(videoData.id);
 
       if (thumbnailUrl) {
         try {

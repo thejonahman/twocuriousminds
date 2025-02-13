@@ -32,6 +32,12 @@ export function registerRoutes(app: Express): Server {
     try {
       const allCategories = await db.query.categories.findMany({
         where: eq(categories.isDeleted, false),
+        with: {
+          subcategories: {
+            where: eq(subcategories.isDeleted, false),
+            orderBy: [desc(subcategories.displayOrder)]
+          }
+        },
         orderBy: [desc(categories.displayOrder)]
       });
       res.json(allCategories);
@@ -39,6 +45,34 @@ export function registerRoutes(app: Express): Server {
       console.error('Error fetching categories:', error);
       res.status(500).json({
         message: "Error fetching categories",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  app.post("/api/videos", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { title, description, url, categoryId, subcategoryId, platform, thumbnailUrl } = req.body;
+      
+      const [video] = await db.insert(videos)
+        .values({
+          title,
+          description,
+          url,
+          categoryId: parseInt(categoryId),
+          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
+          platform,
+          thumbnailUrl,
+          createdAt: new Date(),
+          isDeleted: false
+        })
+        .returning();
+
+      res.status(201).json(video);
+    } catch (error) {
+      console.error('Error adding video:', error);
+      res.status(500).json({
+        message: "Error adding video",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
