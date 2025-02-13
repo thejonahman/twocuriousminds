@@ -2,9 +2,11 @@ import { Resend } from 'resend';
 
 let resend: Resend | null = null;
 
+console.log('Checking for RESEND_API_KEY:', process.env.RESEND_API_KEY ? 'Found key' : 'No key found');
 if (process.env.RESEND_API_KEY) {
   console.log('Initializing Resend with API key');
   resend = new Resend(process.env.RESEND_API_KEY);
+  console.log('Resend client initialized');
 } else {
   console.warn('RESEND_API_KEY not found in environment variables');
 }
