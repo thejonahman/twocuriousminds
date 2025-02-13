@@ -567,7 +567,10 @@ export function registerRoutes(app: Express): Server {
 
   if (process.env.NODE_ENV !== 'production') {
     app.post("/api/test/email-notification", requireAuth, async (req: AuthenticatedRequest, res) => {
-      console.log('Test email endpoint hit'); // Added logging
+      console.log('Test email endpoint hit');
+      if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+        return res.status(500).json({ message: "Email configuration missing" });
+      }
       try {
         if (!req.user?.email) {
           console.log('Error: No email address available for testing'); // Added logging

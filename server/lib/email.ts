@@ -1,6 +1,6 @@
 import { Resend } from 'resend';
 
-let resend: Resend | null = null;
+export const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 console.log('Email module initialization starting...');
 console.log('Environment variables available:', Object.keys(process.env).join(', '));
