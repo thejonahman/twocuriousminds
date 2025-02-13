@@ -33,26 +33,44 @@ interface SendEmailParams {
 }
 
 export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
+  console.log('=== Email Send Attempt Start ===');
   console.log('Email function called with params:', { to, subject });
   console.log('Resend client status:', resend ? 'Initialized' : 'Not initialized');
   console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
+  console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
   
   if (!resend) {
-    console.warn('Resend API key not configured, skipping email send');
+    console.error('Resend API key not configured, skipping email send');
     return;
   }
 
   try {
-    console.log(`Attempting to send email to ${to}`);
-    console.log('Email subject:', subject);
-    console.log('Using from address:', process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev');
+    console.log('=== Preparing Email ===');
+    console.log(`To: ${to}`);
+    console.log(`Subject: ${subject}`);
+    console.log('From:', process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev');
+    console.log('Text length:', text?.length);
+    console.log('HTML length:', html?.length);
 
     if (!resend.emails) {
       console.error('Resend client emails property is undefined');
       throw new Error('Invalid Resend client configuration');
     }
 
-    const result = await resend.emails.send({
+    console.log('=== Attempting Resend API Call ===');
+    const payload = {
+      from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
+      to,
+      subject,
+      text,
+      html: html || text,
+    };
+    console.log('Email payload:', payload);
+
+    const result = await resend.emails.send(payload).catch(error => {
+      console.error('Caught error in Resend send:', error);
+      throw error;
+    });
       from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
       to,
       subject,
@@ -63,16 +81,20 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       throw error;
     });
 
-    console.log('Email sent successfully:', result);
+    console.log('=== Email Sent Successfully ===');
+    console.log('Resend API response:', result);
     return result;
   } catch (error) {
+    console.error('=== Email Send Error ===');
     console.error('Error sending email:', error);
-    // Log more details about the error
     if (error instanceof Error) {
       console.error('Error name:', error.name);
       console.error('Error message:', error.message);
       console.error('Error stack:', error.stack);
+    } else {
+      console.error('Non-Error object thrown:', error);
     }
+    console.error('=== Email Send Attempt End (Error) ===');
     throw error;
   }
 }
