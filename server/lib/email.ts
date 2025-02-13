@@ -3,11 +3,7 @@ import { Resend } from 'resend';
 export let resend: Resend | null = null;
 
 console.log('Email module initialization starting...');
-console.log('Environment variables available:', Object.keys(process.env).join(', '));
-console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? `Present (length: ${process.env.RESEND_API_KEY.length})` : 'Missing');
-console.log('RESEND_FROM_EMAIL status:', process.env.RESEND_FROM_EMAIL ? `Present (${process.env.RESEND_FROM_EMAIL})` : 'Missing');
 
-// Validate environment variables
 if (!process.env.RESEND_API_KEY) {
   console.error('RESEND_API_KEY is missing');
 } else if (!process.env.RESEND_FROM_EMAIL) {
@@ -21,24 +17,6 @@ if (!process.env.RESEND_API_KEY) {
   }
 }
 
-if (process.env.RESEND_API_KEY) {
-  try {
-    console.log('Initializing Resend with API key');
-    resend = new Resend(process.env.RESEND_API_KEY);
-    console.log('Resend client created successfully');
-    // Test if the client is properly initialized
-    if (resend && resend.emails) {
-      console.log('Resend client appears to be properly initialized');
-    } else {
-      console.error('Resend client created but emails property is missing');
-    }
-  } catch (error) {
-    console.error('Error initializing Resend client:', error);
-  }
-} else {
-  console.error('RESEND_API_KEY not found in environment variables - email sending will be disabled');
-}
-
 interface SendEmailParams {
   to: string;
   subject: string;
@@ -49,76 +27,12 @@ interface SendEmailParams {
 export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   console.log('=== Email Send Attempt Start ===');
   console.log('Email function called with params:', { to, subject });
-  console.log('Resend client status:', resend ? 'Initialized' : 'Not initialized');
-  console.log('RESEND client properties:', resend ? Object.keys(resend) : 'No client');
-  console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? `Present (length: ${process.env.RESEND_API_KEY.length})` : 'Missing');
-  console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
-  console.log('Domain verification status: Verified according to Resend dashboard');
-
-  // Validate environment variables
-  if (!process.env.RESEND_API_KEY) {
-    const error = new Error('RESEND_API_KEY is missing');
-    console.error(error);
-    throw error;
-  }
-
-  if (!process.env.RESEND_FROM_EMAIL) {
-    const error = new Error('RESEND_FROM_EMAIL is missing');
-    console.error(error);
-    throw error;
-  }
 
   if (!resend) {
-    const error = new Error('Resend client not initialized');
-    console.error(error);
-    try {
-      resend = new Resend(process.env.RESEND_API_KEY.trim());
-      console.log('Attempted to reinitialize Resend client');
-    } catch (initError) {
-      console.error('Failed to reinitialize Resend client:', initError);
-      throw error;
-    }
-  }
-
-  if (!resend?.emails?.send) {
-    const error = new Error('Resend client is missing required methods');
-    console.error(error);
-    throw error;
+    throw new Error('Resend client not initialized');
   }
 
   try {
-    console.log('=== Preparing Email ===');
-    console.log(`To: ${to}`);
-    console.log(`Subject: ${subject}`);
-    console.log('From:', process.env.RESEND_FROM_EMAIL);
-    console.log('Text length:', text?.length);
-    console.log('HTML length:', html?.length);
-    console.log('Resend client state:', {
-      initialized: !!resend,
-      hasEmailsMethod: resend?.emails ? 'yes' : 'no',
-      apiKeyLength: process.env.RESEND_API_KEY?.length || 0
-    });
-
-    if (!to || !to.includes('@')) {
-      throw new Error('Invalid recipient email address');
-    }
-
-    if (!process.env.RESEND_FROM_EMAIL || !process.env.RESEND_FROM_EMAIL.includes('@')) {
-      throw new Error('Invalid sender email address');
-    }
-
-    const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
-    if (!domain) {
-      throw new Error('Invalid RESEND_FROM_EMAIL format');
-    }
-    
-    try {
-      const domainStatus = await resend.domains.get(domain);
-      console.log('Domain status check:', domainStatus);
-    } catch (domainError) {
-      console.error('Domain status check failed:', domainError);
-    }
-
     const payload = {
       from: process.env.RESEND_FROM_EMAIL,
       to,
@@ -127,46 +41,21 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       html: html || text,
       tags: [{ name: 'source', value: 'twocuriousminds' }]
     };
-    console.log('Email payload:', payload);
 
-    if (!resend?.emails?.send) {
-      throw new Error('Resend client is not properly initialized');
+    // Verify domain status before sending
+    const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
+    if (domain) {
+      const domainStatus = await resend.domains.get(domain);
+      if (!domainStatus.status || domainStatus.status !== 'verified') {
+        throw new Error('Domain not verified');
+      }
     }
 
-    console.log('=== Attempting to Send Email ===');
-    console.log('Resend API Key:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
-    console.log('From Email:', process.env.RESEND_FROM_EMAIL);
-    console.log('To Email:', payload.to);
-    console.log('Subject:', payload.subject);
-
-    console.log('Attempting to send email with payload:', {
-      ...payload,
-      text: payload.text.substring(0, 100) + '...',
-      html: payload.html?.substring(0, 100) + '...'
-    });
-    
     const result = await resend.emails.send(payload);
-    console.log('=== Email Sent Successfully ===');
-    console.log('Resend API response:', result);
+    console.log('Email sent successfully:', result);
     return result;
   } catch (error: any) {
-    console.error('=== Email Send Error ===');
-    console.error('Error details:', {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data || error.response,
-      code: error.code,
-      status: error.status,
-      statusCode: error.statusCode,
-      validationErrors: error.validationErrors,
-      originalError: error.originalError,
-      resendClientState: {
-        initialized: !!resend,
-        hasEmailsMethod: !!resend?.emails,
-        hasSendMethod: !!resend?.emails?.send
-      }
-    });
+    console.error('Failed to send email:', error);
     throw error;
   }
 }
