@@ -547,8 +547,10 @@ export function registerRoutes(app: Express): Server {
   // Add this test endpoint near the end of registerRoutes function, before the return statement
   if (process.env.NODE_ENV !== 'production') {
     app.post("/api/test/email-notification", requireAuth, async (req: AuthenticatedRequest, res) => {
+      console.log('Test email endpoint hit'); // Added logging
       try {
         if (!req.user?.email) {
+          console.log('Error: No email address available for testing'); // Added logging
           return res.status(400).json({ message: "No email address available for testing" });
         }
 
@@ -570,6 +572,7 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!testGroup) {
+          console.log('Error: No discussion group found for testing'); // Added logging
           return res.status(404).json({ message: "No discussion group found for testing" });
         }
 
