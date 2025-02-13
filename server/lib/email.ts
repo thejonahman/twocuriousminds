@@ -9,14 +9,14 @@ if (!process.env.RESEND_API_KEY) {
   console.error('RESEND_FROM_EMAIL is missing');
 } else {
   try {
-    console.log('Initializing Resend client with configuration:', {
+    console.log('[Email Service] Initializing with configuration:', {
       hasApiKey: !!process.env.RESEND_API_KEY,
       fromEmail: process.env.RESEND_FROM_EMAIL.trim(),
     });
     resend = new Resend(process.env.RESEND_API_KEY.trim());
-    console.log('Resend client initialized successfully');
+    console.log('[Email Service] Initialized successfully');
   } catch (error) {
-    console.error('Failed to initialize Resend client:', error);
+    console.error('[Email Service] Failed to initialize:', error);
   }
 }
 
@@ -28,11 +28,10 @@ interface SendEmailParams {
 }
 
 export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
-  console.log('=== Email Send Attempt Start ===');
-  console.log('Email function called with params:', { to, subject });
+  console.log('[Email Service] Sending email:', { to, subject });
 
   if (!resend) {
-    console.error('Resend client not initialized - missing configuration');
+    console.error('[Email Service] Not initialized - missing configuration');
     throw new Error('Email service not initialized');
   }
 
@@ -45,20 +44,20 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       html: html || text,
     };
 
-    console.log('Sending email with payload:', {
+    console.log('[Email Service] Sending with payload:', {
       ...payload,
-      text: payload.text.substring(0, 50) + '...' // Log truncated content for brevity
+      text: payload.text.substring(0, 100) + '...' // Log truncated content
     });
 
     const result = await resend.emails.send(payload);
-    console.log('Email sent successfully:', result);
+    console.log('[Email Service] Sent successfully:', result);
     return result;
   } catch (error: any) {
-    console.error('Failed to send email:', error);
-    console.error('Error details:', {
+    console.error('[Email Service] Send failed:', {
+      error,
       name: error.name,
       message: error.message,
-      stack: error.stack
+      details: error.response?.body || error.stack
     });
     throw error;
   }
@@ -70,7 +69,7 @@ interface Message {
   user: {
     username: string;
   };
-  createdAt: Date | null; // Updated to match DB schema
+  createdAt: Date | null;
   updatedAt: Date | null;
   groupId: number;
   userId: number;
@@ -93,12 +92,15 @@ export async function sendUnreadMessagesNotification({
   unreadMessages: Message[];
   groupUrl: string;
 }) {
-  console.log('Sending unread messages notification to:', userEmail);
-  console.log('Notification details:', {
+  console.log('[Notification Service] Preparing notification:', {
+    to: userEmail,
     groupName,
     videoTitle,
     unreadCount,
-    messagesCount: unreadMessages.length
+    messagesPreview: unreadMessages.map(m => ({
+      from: m.user.username,
+      preview: m.content.substring(0, 50)
+    }))
   });
 
   const subject = `💬 New messages in "${groupName}"`;
@@ -108,14 +110,13 @@ export async function sendUnreadMessagesNotification({
       <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
         <strong style="color: #4b5563;">${message.user.username}</strong>
         <span style="color: #6b7280; font-size: 12px;">
-          ${message.createdAt ? new Date(message.createdAt).toLocaleTimeString() : 'No timestamp'}
+          ${message.createdAt ? new Date(message.createdAt).toLocaleTimeString() : 'Just now'}
         </span>
       </div>
       <p style="color: #374151; margin: 0;">${message.content}</p>
     </div>
   `;
 
-  // Rest of the HTML template remains the same
   const html = `
     <!DOCTYPE html>
     <html>
@@ -170,7 +171,7 @@ export async function sendUnreadMessagesNotification({
       html,
     });
 
-    console.log('Email notification sent successfully:', {
+    console.log('[Notification Service] Sent successfully:', {
       to: userEmail,
       messageCount: unreadMessages.length,
       result
@@ -178,7 +179,7 @@ export async function sendUnreadMessagesNotification({
 
     return result;
   } catch (error) {
-    console.error('Failed to send email notification:', error);
+    console.error('[Notification Service] Failed to send:', error);
     throw error;
   }
 }

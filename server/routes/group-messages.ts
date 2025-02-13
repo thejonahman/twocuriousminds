@@ -91,18 +91,6 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       return res.status(400).json({ error: result.error.format() });
     }
 
-    // Verify user is member of group
-    const memberCheck = await db.query.groupMembers.findFirst({
-      where: and(
-        eq(groupMembers.groupId, parsedGroupId),
-        eq(groupMembers.userId, req.user.id)
-      )
-    });
-
-    if (!memberCheck) {
-      return res.status(403).json({ error: "Not a member of this group" });
-    }
-
     // Create the message
     const [message] = await db.insert(groupMessages).values({
       groupId: parsedGroupId,
@@ -112,15 +100,29 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       updatedAt: new Date()
     }).returning();
 
-    // Update the group's updatedAt timestamp
-    await db
-      .update(discussionGroups)
-      .set({ 
-        updatedAt: new Date()
-      })
-      .where(eq(discussionGroups.id, parsedGroupId));
+    // Update group's updatedAt and increment unread count for other members
+    await db.transaction(async (tx) => {
+      // Update group timestamp
+      await tx
+        .update(discussionGroups)
+        .set({ updatedAt: new Date() })
+        .where(eq(discussionGroups.id, parsedGroupId));
 
-    // Get group details
+      // Increment unread count for other members
+      await tx
+        .update(groupMembers)
+        .set({ 
+          unreadCount: sql`${groupMembers.unreadCount} + 1`
+        })
+        .where(
+          and(
+            eq(groupMembers.groupId, parsedGroupId),
+            sql`${groupMembers.userId} != ${req.user!.id}`
+          )
+        );
+    });
+
+    // Get group details with video information
     const group = await db.query.discussionGroups.findFirst({
       where: eq(discussionGroups.id, parsedGroupId),
       with: {
@@ -128,41 +130,55 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       }
     });
 
-    // Get other group members who haven't read messages in the last hour
+    if (!group) {
+      console.error('Group not found for notifications:', parsedGroupId);
+      return res.status(404).json({ error: "Group not found" });
+    }
+
+    console.log('[Email Notifications] Processing for group:', {
+      groupId: group.id,
+      groupName: group.name,
+      videoId: group.video?.id
+    });
+
+    // Get members who haven't read messages in the last hour and have email notifications enabled
     const inactiveMembers = await db.query.groupMembers.findMany({
       where: and(
         eq(groupMembers.groupId, parsedGroupId),
-        sql`${groupMembers.userId} != ${req.user.id}`,
-        sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`
+        sql`${groupMembers.userId} != ${req.user!.id}`,
+        sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`,
+        eq(groupMembers.emailNotifications, true)
       ),
       with: {
         user: true
       }
     });
 
-    // Get last 5 messages for context
-    const recentMessages = await db.query.groupMessages.findMany({
-      where: eq(groupMessages.groupId, parsedGroupId),
-      orderBy: [desc(groupMessages.createdAt)],
-      limit: 5,
-      with: {
-        user: {
-          columns: {
-            username: true
-          }
-        }
-      }
+    console.log('[Email Notifications] Found inactive members:', {
+      count: inactiveMembers.length,
+      members: inactiveMembers.map(m => ({ 
+        id: m.userId,
+        lastRead: m.lastReadAt,
+        unreadCount: m.unreadCount
+      }))
     });
 
     // Send email notifications to inactive members
     for (const member of inactiveMembers) {
-      if (member.emailNotifications && member.user.email) {
+      if (member.user.email) {
         try {
+          console.log('[Email Notifications] Processing for member:', {
+            userId: member.userId,
+            email: member.user.email,
+            lastRead: member.lastReadAt,
+            unreadCount: member.unreadCount
+          });
+
           // Get unread messages for this member
           const unreadMessages = await db.query.groupMessages.findMany({
             where: and(
               eq(groupMessages.groupId, parsedGroupId),
-              gt(groupMessages.createdAt, member.lastReadAt!)
+              gt(groupMessages.createdAt, member.lastReadAt || new Date(0))
             ),
             with: {
               user: {
@@ -175,22 +191,32 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
             limit: 5
           });
 
+          console.log('[Email Notifications] Found unread messages:', {
+            count: unreadMessages.length,
+            sampleMessage: unreadMessages[0]?.content.substring(0, 50)
+          });
+
           await sendUnreadMessagesNotification({
             userEmail: member.user.email,
             userName: member.user.username,
-            groupName: group?.name || 'Discussion Group',
-            videoTitle: group?.video?.title || 'Video Discussion',
-            unreadCount: (member.unreadCount || 0) + 1,
+            groupName: group.name,
+            videoTitle: group.video?.title || 'Video Discussion',
+            unreadCount: member.unreadCount || unreadMessages.length,
             unreadMessages,
-            groupUrl: `${process.env.APP_URL}/video/${group?.video?.id}/group/${parsedGroupId}`
+            groupUrl: `${process.env.APP_URL || 'http://localhost:5000'}/video/${group.video?.id}/group/${parsedGroupId}`
           });
+
+          console.log('[Email Notifications] Successfully sent to:', member.user.email);
         } catch (error) {
-          console.error('Failed to send notification email:', error);
+          console.error('[Email Notifications] Failed to send:', error, {
+            userId: member.userId,
+            email: member.user.email
+          });
         }
       }
     }
 
-    // Get full message details with user info
+    // Get full message details with user info for the response
     const messageWithUser = await db.query.groupMessages.findFirst({
       where: eq(groupMessages.id, message.id),
       with: {
@@ -205,7 +231,7 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
 
     res.json(messageWithUser);
   } catch (error) {
-    console.error('Error posting group message:', error);
+    console.error('[Group Messages] Error posting message:', error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
