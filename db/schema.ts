@@ -31,22 +31,13 @@ export const categories = pgTable("categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
+  parentId: integer("parent_id").references(() => categories.id),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   displayOrder: integer("display_order").default(0),
 }, (table) => ({
   nameIdx: index("category_name_idx").on(table.name),
+  parentIdIdx: index("category_parent_id_idx").on(table.parentId),
   displayOrderIdx: index("category_display_order_idx").on(table.displayOrder)
-}));
-
-export const subcategories = pgTable("subcategories", {
-  id: serial("id").primaryKey(),
-  name: text("name").notNull(),
-  categoryId: integer("category_id").notNull().references(() => categories.id),
-  displayOrder: integer("display_order").default(0),
-  isDeleted: boolean("is_deleted").default(false).notNull(),
-}, (table) => ({
-  categoryIdIdx: index("subcategory_category_id_idx").on(table.categoryId),
-  nameDisplayOrderIdx: index("subcategory_name_display_order_idx").on(table.name, table.displayOrder)
 }));
 
 export const videos = pgTable("videos", {
@@ -56,14 +47,12 @@ export const videos = pgTable("videos", {
   thumbnailUrl: text("thumbnail_url"),
   description: text("description"),
   categoryId: integer("category_id").notNull().references(() => categories.id),
-  subcategoryId: integer("subcategory_id").references(() => subcategories.id),
   platform: text("platform").notNull(),
   watched: boolean("watched").default(false),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   categoryIdIdx: index("video_category_id_idx").on(table.categoryId),
-  subcategoryIdIdx: index("video_subcategory_id_idx").on(table.subcategoryId),
   platformIdx: index("video_platform_idx").on(table.platform),
   createdAtIdx: index("video_created_at_idx").on(table.createdAt),
   titleIdx: index("video_title_idx").on(table.title)
@@ -178,23 +167,19 @@ export const videoRelations = relations(videos, ({ one }) => ({
     fields: [videos.categoryId],
     references: [categories.id],
   }),
-  subcategory: one(subcategories, {
-    fields: [videos.subcategoryId],
-    references: [subcategories.id],
-  }),
 }));
 
-export const categoryRelations = relations(categories, ({ many }) => ({
+export const categoryRelations = relations(categories, ({ many, one }) => ({
   videos: many(videos),
-  subcategories: many(subcategories),
-}));
-
-export const subcategoryRelations = relations(subcategories, ({ one, many }) => ({
-  category: one(categories, {
-    fields: [subcategories.categoryId],
+  parent: one(categories, {
+    fields: [categories.parentId],
     references: [categories.id],
   }),
-  videos: many(videos),
+  subcategories: many(categories, {
+    relationName: "parentToChild",
+    fields: [categories.id],
+    references: [categories.parentId],
+  })
 }));
 
 export const userPreferencesRelations = relations(userPreferences, ({ one }) => ({
