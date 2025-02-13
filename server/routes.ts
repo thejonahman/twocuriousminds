@@ -581,16 +581,28 @@ export function registerRoutes(app: Express): Server {
 
         console.log('Sending test email notification to:', req.user.email);
 
-        await sendUnreadMessagesNotification({
-          userEmail: req.user.email,
-          userName: req.user.username,
-          groupName: testGroup.name,
-          videoTitle: "Test Video",
-          unreadCount: testGroup.messages.length,
-          unreadMessages: testGroup.messages,
-          recentMessages: testGroup.messages,
-          groupUrl: `${process.env.APP_URL || 'http://localhost:3000'}/video/1/group/${testGroup.id}`
+        console.log('About to send notification with params:', {
+          email: req.user.email,
+          username: req.user.username,
+          groupName: testGroup.name
         });
+
+        try {
+          await sendUnreadMessagesNotification({
+            userEmail: req.user.email,
+            userName: req.user.username,
+            groupName: testGroup.name,
+            videoTitle: "Test Video",
+            unreadCount: testGroup.messages.length,
+            unreadMessages: testGroup.messages,
+            recentMessages: testGroup.messages,
+            groupUrl: `${process.env.APP_URL || 'http://localhost:3000'}/video/1/group/${testGroup.id}`
+          });
+          console.log('Notification sent successfully');
+        } catch (error) {
+          console.error('Error in sendUnreadMessagesNotification:', error);
+          throw error;
+        }
 
         res.json({ message: "Test email notification sent. Check console for logs." });
       } catch (error) {
