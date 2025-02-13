@@ -56,9 +56,22 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
     console.log('From:', process.env.RESEND_FROM_EMAIL);
     console.log('Text length:', text?.length);
     console.log('HTML length:', html?.length);
+    console.log('Resend client state:', {
+      initialized: !!resend,
+      hasEmailsMethod: resend?.emails ? 'yes' : 'no',
+      apiKeyLength: process.env.RESEND_API_KEY?.length || 0
+    });
+
+    if (!to || !to.includes('@')) {
+      throw new Error('Invalid recipient email address');
+    }
+
+    if (!process.env.RESEND_FROM_EMAIL || !process.env.RESEND_FROM_EMAIL.includes('@')) {
+      throw new Error('Invalid sender email address');
+    }
 
     const payload = {
-      from: process.env.RESEND_FROM_EMAIL!,
+      from: process.env.RESEND_FROM_EMAIL,
       to,
       subject,
       text,
@@ -66,13 +79,23 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
     };
     console.log('Email payload:', payload);
 
+    if (!resend?.emails?.send) {
+      throw new Error('Resend client is not properly initialized');
+    }
+
     const result = await resend.emails.send(payload);
     console.log('=== Email Sent Successfully ===');
     console.log('Resend API response:', result);
     return result;
-  } catch (error) {
+  } catch (error: any) {
     console.error('=== Email Send Error ===');
-    console.error('Error sending email:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data || error.response,
+      code: error.code
+    });
     throw error;
   }
 }
