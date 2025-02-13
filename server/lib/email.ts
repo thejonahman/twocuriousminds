@@ -97,6 +97,17 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       throw new Error('Resend client is not properly initialized');
     }
 
+    console.log('=== Attempting to Send Email ===');
+    console.log('Resend client state:', {
+      isInitialized: !!resend,
+      hasEmailsMethod: !!resend?.emails,
+      hasEmailsSendMethod: !!resend?.emails?.send
+    });
+    console.log('Email payload:', {
+      ...payload,
+      html: payload.html ? `${payload.html.substring(0, 100)}...` : null
+    });
+    
     const result = await resend.emails.send(payload);
     console.log('=== Email Sent Successfully ===');
     console.log('Resend API response:', result);
@@ -108,7 +119,11 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       message: error.message,
       stack: error.stack,
       response: error.response?.data || error.response,
-      code: error.code
+      code: error.code,
+      isAxiosError: error.isAxiosError,
+      config: error.config,
+      statusCode: error.statusCode,
+      data: error.data
     });
     throw error;
   }
