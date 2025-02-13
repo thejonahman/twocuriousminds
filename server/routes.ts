@@ -545,6 +545,26 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Add this test endpoint near the end of registerRoutes function, before the return statement
+  // Domain verification endpoint
+  app.get("/api/verify-domain", requireAuth, async (req: AuthenticatedRequest, res) => {
+    if (!req.user?.is_admin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    try {
+      const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
+      if (!domain) {
+        return res.status(400).json({ message: "No domain found in RESEND_FROM_EMAIL" });
+      }
+
+      const result = await resend.domains.verify(domain);
+      return res.json(result);
+    } catch (error) {
+      console.error('Domain verification error:', error);
+      return res.status(500).json({ message: "Error verifying domain", error });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     app.post("/api/test/email-notification", requireAuth, async (req: AuthenticatedRequest, res) => {
       console.log('Test email endpoint hit'); // Added logging
