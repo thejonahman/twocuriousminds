@@ -33,6 +33,11 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
+interface NewTopicFormData {
+  name: string;
+  parentCategoryId?: string;
+}
+
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
   const [newTopicDialogOpen, setNewTopicDialogOpen] = useState(false);
@@ -62,63 +67,73 @@ export function AdminVideoForm() {
 
   const selectedCategoryId = form.watch("categoryId");
 
-  const { data: subcategories, isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
-    queryKey: [`/api/subcategories/${selectedCategoryId}`],
+  const { data: subcategories, isLoading: isSubcategoriesLoading, error: subcategoriesError } = useQuery<Array<{ id: number; name: string }>>({
+    queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
     staleTime: 30000,
+    retry: 1,
+    onError: (error) => {
+      console.error('Error loading subcategories:', error);
+      console.error('Selected category ID when error occurred:', selectedCategoryId);
+      toast({
+        title: "Error",
+        description: "Failed to load subcategories. Please try again.",
+        variant: "destructive"
+      });
+    },
+    onSuccess: (data) => {
+      console.log('Loaded subcategories for category:', selectedCategoryId);
+      console.log('Subcategories data:', data);
+    }
   });
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("POST", "/api/videos", {
-        ...data,
-        categoryId: parseInt(data.categoryId),
-        subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : undefined,
-        thumbnailUrl: thumbnailUrl
-      });
+      try {
+        const payload = {
+          ...data,
+          categoryId: parseInt(data.categoryId),
+          subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
+          thumbnailUrl
+        };
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to add video");
-      }
+        console.log('Preparing video submission payload:', payload);
+        console.log('Selected category ID:', data.categoryId);
+        console.log('Selected subcategory ID:', data.subcategoryId);
 
-      const videoData = await response.json();
-      setCurrentVideoId(videoData.id);
+        const response = await apiRequest("POST", "/api/videos", payload);
 
-      if (thumbnailUrl) {
-        try {
-          const thumbnailResponse = await fetch(`/api/videos/${videoData.id}/thumbnail`, {
-            method: "POST",
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ thumbnailUrl }),
-            credentials: "include",
-          });
-
-          if (!thumbnailResponse.ok) {
-            console.error('Failed to upload thumbnail');
-            throw new Error('Failed to upload thumbnail');
-          }
-        } catch (error) {
-          console.error('Thumbnail upload error:', error);
-          throw error;
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Video submission failed:', errorData);
+          throw new Error(errorData.message || "Failed to add video");
         }
-      }
 
-      return videoData;
+        const videoData = await response.json();
+        console.log('Video submission successful:', videoData);
+        setCurrentVideoId(videoData.id);
+        return videoData;
+      } catch (error) {
+        console.error('Error during video submission:', error);
+        throw error;
+      }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      console.log('Video added successfully:', data);
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+
       form.reset();
       setThumbnailUrl(null);
       setCurrentVideoId(null);
+
       toast({
         title: "Success",
         description: "Video added successfully",
       });
     },
     onError: (error: Error) => {
+      console.error('Video submission error:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -498,13 +513,22 @@ export function AdminVideoForm() {
                     <FormLabel>Subtopic (Optional)</FormLabel>
                     <div className="flex gap-2">
                       <Select
-                        onValueChange={field.onChange}
+                        onValueChange={(value) => {
+                          console.log('Selected subcategory:', value);
+                          field.onChange(value);
+                        }}
                         value={field.value}
-                        disabled={!selectedCategoryId}
+                        disabled={!selectedCategoryId || isSubcategoriesLoading}
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder={selectedCategoryId ? "Select subtopic" : "Select a topic first"} />
+                            <SelectValue placeholder={
+                              isSubcategoriesLoading 
+                                ? "Loading..." 
+                                : selectedCategoryId 
+                                  ? "Select subtopic" 
+                                  : "Select a topic first"
+                            } />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
@@ -557,7 +581,7 @@ export function AdminVideoForm() {
                             type="button"
                             variant="outline"
                             size="icon"
-                            className="text-destructive hover:text-destructive/90"
+                            className="text-destructive hover:bg-destructive/90"
                             disabled={!field.value}
                             onClick={() => setSelectedSubtopicToDelete(field.value)}
                           >
@@ -583,6 +607,11 @@ export function AdminVideoForm() {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
+                    {subcategoriesError && (
+                      <p className="text-sm text-destructive">
+                        Failed to load subcategories
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
