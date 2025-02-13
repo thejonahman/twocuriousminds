@@ -23,6 +23,19 @@ export const groupMessageSchema = messageSchema.extend({
   groupId: z.number(),
 });
 
+// Group member schema
+export const groupMemberSchema = z.object({
+  id: z.number(),
+  userId: z.number(),
+  groupId: z.number(),
+  role: z.string(),
+  joinedAt: z.string().datetime(),
+  user: z.object({
+    id: z.number(),
+    username: z.string(),
+  }),
+});
+
 // Group schemas
 export const groupSchema = baseEntitySchema.extend({
   name: z.string(),
@@ -31,6 +44,7 @@ export const groupSchema = baseEntitySchema.extend({
   creatorId: z.number(),
   isPrivate: z.boolean(),
   inviteCode: z.string(),
+  members: z.array(groupMemberSchema).optional(),
   messages: z.array(groupMessageSchema).optional(),
 });
 

@@ -173,14 +173,17 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Add this new endpoint near the other video-related endpoints
+  // Add logging to the group-related endpoints
   app.get("/api/videos/:videoId/last-active-group", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const videoId = parseInt(req.params.videoId);
 
       if (isNaN(videoId)) {
+        console.error('Invalid video ID:', req.params.videoId);
         return res.status(400).json({ message: "Invalid video ID" });
       }
+
+      console.log('Fetching last active group for video:', videoId, 'user:', req.user?.id);
 
       // Find the most recently active group for this video where the user is a member
       const lastActiveGroup = await db.query.discussionGroups.findFirst({
@@ -197,6 +200,7 @@ export function registerRoutes(app: Express): Server {
             with: {
               user: {
                 columns: {
+                  id: true,
                   username: true
                 }
               }
@@ -206,7 +210,10 @@ export function registerRoutes(app: Express): Server {
         orderBy: [desc(discussionGroups.updatedAt)]
       });
 
+      console.log('Found last active group:', lastActiveGroup?.id);
+
       if (!lastActiveGroup) {
+        console.log('No active group found for video:', videoId);
         return res.json(null);
       }
 
@@ -284,7 +291,10 @@ export function registerRoutes(app: Express): Server {
       const { name, videoId, description } = req.body;
       const userId = req.user?.id;
 
+      console.log('Creating new group:', { name, videoId, userId });
+
       if (!userId || !videoId || !name) {
+        console.error('Missing required fields:', { userId, videoId, name });
         return res.status(400).json({ message: "Missing required fields" });
       }
 
@@ -293,6 +303,8 @@ export function registerRoutes(app: Express): Server {
 
       // Create the group and add creator as member in a single transaction
       const [group] = await db.transaction(async (tx) => {
+        console.log('Starting group creation transaction');
+
         // Create the group with all required fields
         const [newGroup] = await tx
           .insert(discussionGroups)
@@ -309,6 +321,8 @@ export function registerRoutes(app: Express): Server {
           })
           .returning();
 
+        console.log('Created group:', newGroup?.id);
+
         // Add the creator as a member and admin
         await tx
           .insert(groupMembers)
@@ -322,6 +336,8 @@ export function registerRoutes(app: Express): Server {
             emailNotifications: false,
             unreadCount: 0
           });
+
+        console.log('Added creator as admin member');
 
         return [newGroup];
       });
@@ -342,6 +358,7 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
+      console.log('Returning group with details:', groupWithDetails?.id);
       res.status(201).json(groupWithDetails);
     } catch (error) {
       console.error('Error creating group:', error);
