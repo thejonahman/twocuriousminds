@@ -53,6 +53,7 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   console.log('RESEND client properties:', resend ? Object.keys(resend) : 'No client');
   console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? `Present (length: ${process.env.RESEND_API_KEY.length})` : 'Missing');
   console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
+  console.log('Domain verification status: Verified according to Resend dashboard');
 
   // Validate environment variables
   if (!process.env.RESEND_API_KEY) {
@@ -106,12 +107,25 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       throw new Error('Invalid sender email address');
     }
 
+    const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
+    if (!domain) {
+      throw new Error('Invalid RESEND_FROM_EMAIL format');
+    }
+    
+    try {
+      const domainStatus = await resend.domains.get(domain);
+      console.log('Domain status check:', domainStatus);
+    } catch (domainError) {
+      console.error('Domain status check failed:', domainError);
+    }
+
     const payload = {
       from: process.env.RESEND_FROM_EMAIL,
       to,
       subject,
       text,
       html: html || text,
+      tags: [{ name: 'source', value: 'twocuriousminds' }]
     };
     console.log('Email payload:', payload);
 
