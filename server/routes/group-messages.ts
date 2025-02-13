@@ -1,9 +1,10 @@
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@db";
-import { groupMessages, users, groupMembers, discussionGroups } from "@db/schema";
+import { groupMessages, users, groupMembers, discussionGroups, videos } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
 import { Router } from "express";
 import { AuthenticatedRequest } from "../routes";
+import { sendUnreadMessagesNotification } from "../lib/email";
 
 const router = Router();
 
@@ -119,6 +120,46 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       })
       .where(eq(discussionGroups.id, parsedGroupId));
 
+    // Get the video details for the notification
+    const video = await db.query.videos.findFirst({
+      where: eq(videos.id, result.data.videoId),
+    });
+
+    // Get group details
+    const group = await db.query.discussionGroups.findFirst({
+      where: eq(discussionGroups.id, parsedGroupId),
+    });
+
+    // Get other group members who haven't read messages in the last hour
+    const inactiveMembers = await db.query.groupMembers.findMany({
+      where: and(
+        eq(groupMembers.groupId, parsedGroupId),
+        sql`${groupMembers.userId} != ${req.user.id}`,
+        sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`
+      ),
+      with: {
+        user: true
+      }
+    });
+
+    // Send email notifications to inactive members
+    for (const member of inactiveMembers) {
+      if (member.emailNotifications && member.user.email) {
+        try {
+          await sendUnreadMessagesNotification({
+            userEmail: member.user.email,
+            userName: member.user.username,
+            groupName: group?.name || 'Discussion Group',
+            videoTitle: video?.title || 'Video Discussion',
+            unreadCount: (member.unreadCount || 0) + 1,
+            groupUrl: `${process.env.APP_URL}/video/${video?.id}/group/${parsedGroupId}`
+          });
+        } catch (error) {
+          console.error('Failed to send notification email:', error);
+        }
+      }
+    }
+
     // Get full message details with user info
     const messageWithUser = await db.query.groupMessages.findFirst({
       where: eq(groupMessages.id, message.id),
@@ -131,18 +172,6 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
         }
       }
     });
-
-    // Update unread count for other group members
-    await db
-      .update(groupMembers)
-      .set({ 
-        unreadCount: sql`${groupMembers.unreadCount} + 1`
-      })
-      .where(and(
-        eq(groupMembers.groupId, parsedGroupId),
-        sql`${groupMembers.userId} != ${req.user.id}`,
-        sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`
-      ));
 
     res.json(messageWithUser);
   } catch (error) {

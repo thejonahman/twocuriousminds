@@ -32,6 +32,7 @@ import {
   groupSchema,
 } from "@/lib/api-types";
 import { z } from "zod";
+import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
 
 interface Props {
   videoId: number;
@@ -339,11 +340,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           </div>
           {currentGroup && (
             <div className="flex items-center gap-2">
-              <ShareButton
+              <ShareGroupDialog
                 url={`${window.location.origin}/video/${videoId}/group/${currentGroup.id}`}
-                title={`Join our discussion: ${currentGroup.name}`}
-                text={`Join our discussion group for "${videoData?.title}". Click the link to join!`}
-                className="gap-2"
+                groupName={currentGroup.name}
+                videoTitle={videoData?.title}
+                memberCount={currentGroup.members.length}
+                messageCount={messages.length}
               />
               <Button variant="outline" size="sm" onClick={handleLeaveGroup}>
                 Leave Group
