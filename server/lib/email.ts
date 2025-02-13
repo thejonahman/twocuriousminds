@@ -36,8 +36,14 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   console.log('=== Email Send Attempt Start ===');
   console.log('Email function called with params:', { to, subject });
   console.log('Resend client status:', resend ? 'Initialized' : 'Not initialized');
+  console.log('RESEND client properties:', resend ? Object.keys(resend) : 'No client');
   console.log('RESEND_API_KEY status:', process.env.RESEND_API_KEY ? 'Present' : 'Missing');
   console.log('RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
+  
+  if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+    console.error('Missing required environment variables');
+    throw new Error('Email configuration missing');
+  }
 
   if (!resend) {
     throw new Error('Resend API key not configured');
