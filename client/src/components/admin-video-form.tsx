@@ -75,15 +75,21 @@ export function AdminVideoForm() {
     onError: (error) => {
       console.error('Error loading subcategories:', error);
       console.error('Selected category ID when error occurred:', selectedCategoryId);
+      if (error instanceof Error) {
+        console.error('Error details:', error.message);
+      }
       toast({
         title: "Error",
-        description: "Failed to load subcategories. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to load subcategories. Please try again.",
         variant: "destructive"
       });
     },
     onSuccess: (data) => {
       console.log('Loaded subcategories for category:', selectedCategoryId);
       console.log('Subcategories data:', data);
+      if (!data || data.length === 0) {
+        console.log('No subcategories found for category:', selectedCategoryId);
+      }
     }
   });
 
@@ -532,7 +538,11 @@ export function AdminVideoForm() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {subcategories?.map((subcategory) => (
+                          {subcategoriesError ? (
+                            <div className="p-2 text-sm text-destructive">
+                              Failed to load subtopics. Please try again.
+                            </div>
+                          ) : subcategories?.map((subcategory) => (
                             <SelectItem key={subcategory.id} value={String(subcategory.id)}>
                               {subcategory.name}
                             </SelectItem>
@@ -607,11 +617,6 @@ export function AdminVideoForm() {
                         </AlertDialogContent>
                       </AlertDialog>
                     </div>
-                    {subcategoriesError && (
-                      <p className="text-sm text-destructive">
-                        Failed to load subcategories
-                      </p>
-                    )}
                     <FormMessage />
                   </FormItem>
                 )}

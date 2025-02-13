@@ -45,13 +45,27 @@ export function registerRoutes(app: Express): Server {
   });
 
   // Add new endpoint for subcategories by category
-  app.get("/api/subcategories/:categoryId", async (req, res) => {
+  app.get("/api/categories/:categoryId/subcategories", async (req, res) => {
     try {
       const categoryId = parseInt(req.params.categoryId);
+      console.log('Fetching subcategories for categoryId:', categoryId);
 
       if (isNaN(categoryId)) {
+        console.error('Invalid category ID provided:', req.params.categoryId);
         return res.status(400).json({ message: "Invalid category ID" });
       }
+
+      // Verify category exists first
+      const category = await db.query.categories.findFirst({
+        where: eq(categories.id, categoryId)
+      });
+
+      if (!category) {
+        console.error('Category not found for ID:', categoryId);
+        return res.status(404).json({ message: "Category not found" });
+      }
+
+      console.log('Found category:', category.name);
 
       const subCategories = await db.query.subcategories.findMany({
         where: and(
@@ -60,6 +74,8 @@ export function registerRoutes(app: Express): Server {
         ),
         orderBy: [desc(subcategories.displayOrder)]
       });
+
+      console.log('Found subcategories:', subCategories.length);
 
       res.json(subCategories);
     } catch (error) {
@@ -219,7 +235,7 @@ export function registerRoutes(app: Express): Server {
       const { title, url, description, categoryId, subcategoryId, platform } = req.body;
 
       if (!title || !url || !categoryId || !platform) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           message: "Missing required fields",
           required: ["title", "url", "categoryId", "platform"]
         });
@@ -751,7 +767,7 @@ export function registerRoutes(app: Express): Server {
           throw error;
         }
 
-        res.json({ 
+        res.json({
           message: "Test email notification sent. Check your inbox.",
           details: {
             sentTo: req.user.email,
