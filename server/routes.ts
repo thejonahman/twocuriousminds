@@ -557,6 +557,18 @@ export function registerRoutes(app: Express): Server {
         return res.status(400).json({ message: "No domain found in RESEND_FROM_EMAIL" });
       }
 
+      // Get domain status first
+      const domains = await resend.domains.list();
+      console.log('Current domains:', domains);
+
+      const domainDetails = await resend.domains.get(domain);
+      console.log('Domain details:', domainDetails);
+
+      if (!domainDetails) {
+        // If domain doesn't exist, create it
+        await resend.domains.create({ name: domain });
+      }
+
       const result = await resend.domains.verify(domain);
       return res.json(result);
     } catch (error) {
