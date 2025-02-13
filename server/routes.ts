@@ -1,14 +1,12 @@
 import { createServer, type Server } from "http";
-import express, { type Express, type Request, type Response } from 'express';
+import express, { type Express } from 'express';
 import { db } from "@db";
-import { sql, eq, and, desc } from "drizzle-orm";
-import { videos, categories, discussionGroups, groupMessages } from "@db/schema";
+import { sql, eq, and, desc, gt } from "drizzle-orm";
+import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
+import { Request, Response } from 'express';
 import groupMessagesRouter from './routes/group-messages';
-import { Resend } from 'resend';
-import { sendUnreadMessagesNotification } from './lib/email';
-
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+import { sendUnreadMessagesNotification, resend } from './lib/email';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -19,24 +17,21 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-interface CreateCategoryRequest {
-  name: string;
-  parentId?: number;
-}
-
 export function registerRoutes(app: Express): Server {
+  // Create HTTP server first
   const httpServer = createServer(app);
+
+  // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
+
+  // Register the group messages router after auth is set up
   app.use(groupMessagesRouter);
 
-  // Get all categories (only top-level)
+  // Public endpoints - no auth required
   app.get("/api/categories", async (req, res) => {
     try {
       const allCategories = await db.query.categories.findMany({
-        where: and(
-          eq(categories.isDeleted, false),
-          sql`${categories.parentId} IS NULL`
-        ),
+        where: eq(categories.isDeleted, false),
         orderBy: [desc(categories.displayOrder)]
       });
       res.json(allCategories);
@@ -49,84 +44,12 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Get subcategories for a category
-  app.get("/api/categories/:categoryId/subcategories", async (req, res) => {
-    try {
-      const categoryId = parseInt(req.params.categoryId);
-      if (isNaN(categoryId)) {
-        return res.status(400).json({ message: "Invalid category ID" });
-      }
-
-      const subcategories = await db.query.categories.findMany({
-        where: and(
-          eq(categories.parentId, categoryId),
-          eq(categories.isDeleted, false)
-        ),
-        orderBy: [desc(categories.displayOrder)]
-      });
-
-      res.json(subcategories);
-    } catch (error) {
-      console.error('Error fetching subcategories:', error);
-      res.status(500).json({
-        message: "Error fetching subcategories",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
-
-  // Create new category/subcategory
-  app.post("/api/categories", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const { name, parentId } = req.body as CreateCategoryRequest;
-
-      if (!name || name.trim().length === 0) {
-        return res.status(400).json({
-          message: "Category name is required"
-        });
-      }
-
-      // If parentId is provided, verify the parent category exists
-      if (parentId) {
-        const parentCategory = await db.query.categories.findFirst({
-          where: eq(categories.id, parentId)
-        });
-
-        if (!parentCategory) {
-          return res.status(400).json({
-            message: "Parent category not found"
-          });
-        }
-      }
-
-      // Insert the new category
-      const [newCategory] = await db
-        .insert(categories)
-        .values({
-          name: name.trim(),
-          parentId: parentId || null,
-          isDeleted: false,
-          displayOrder: 0
-        })
-        .returning();
-
-      res.status(201).json(newCategory);
-    } catch (error) {
-      console.error('Error creating category:', error);
-      res.status(500).json({
-        message: "Failed to create category",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
-
-  // Get all videos
   app.get("/api/videos", async (req, res) => {
     try {
       const allVideos = await db.query.videos.findMany({
-        where: eq(videos.isDeleted, false),
         with: {
-          category: true
+          category: true,
+          subcategory: true
         }
       });
       res.json(allVideos);
@@ -151,7 +74,8 @@ export function registerRoutes(app: Express): Server {
       const video = await db.query.videos.findFirst({
         where: eq(videos.id, videoId),
         with: {
-          category: true
+          category: true,
+          subcategory: true
         }
       });
 
@@ -182,7 +106,8 @@ export function registerRoutes(app: Express): Server {
       const currentVideo = await db.query.videos.findFirst({
         where: eq(videos.id, videoId),
         with: {
-          category: true
+          category: true,
+          subcategory: true
         }
       });
 
@@ -198,7 +123,8 @@ export function registerRoutes(app: Express): Server {
           sql`${videos.categoryId} = ${currentVideo.categoryId}`
         ),
         with: {
-          category: true
+          category: true,
+          subcategory: true
         },
         limit: 6
       });
@@ -213,65 +139,411 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-
-  // Add video
-  app.post("/api/videos", requireAuth, async (req: AuthenticatedRequest, res) => {
+  // Add this new endpoint near the other video-related endpoints
+  app.get("/api/videos/:videoId/last-active-group", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { title, description, url, categoryId, subcategoryId, platform, thumbnailUrl } = req.body;
+      const videoId = parseInt(req.params.videoId);
 
-      if (!title || !url || !categoryId || !platform) {
-        return res.status(400).json({
-          message: "Missing required fields",
-          details: "Title, URL, category, and platform are required"
-        });
+      if (isNaN(videoId)) {
+        return res.status(400).json({ message: "Invalid video ID" });
       }
 
-      // Verify if subcategoryId belongs to the selected category
-      if (subcategoryId) {
-        const subcategory = await db.query.categories.findFirst({
-          where: and(
-            eq(categories.id, parseInt(subcategoryId)),
-            eq(categories.parentId, parseInt(categoryId))
-          )
-        });
-
-        if (!subcategory) {
-          return res.status(400).json({
-            message: "Invalid subcategory",
-            details: "Selected subcategory does not belong to the selected category"
-          });
-        }
-      }
-
-      const [video] = await db
-        .insert(videos)
-        .values({
-          title,
-          description,
-          url,
-          categoryId: parseInt(categoryId),
-          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
-          platform,
-          thumbnailUrl,
-          watched: false,
-          isDeleted: false
-        })
-        .returning();
-
-      // Return the created video with category info
-      const videoWithDetails = await db.query.videos.findFirst({
-        where: eq(videos.id, video.id),
+      // Find the most recently active group for this video where the user is a member
+      const lastActiveGroup = await db.query.discussionGroups.findFirst({
+        where: and(
+          eq(discussionGroups.videoId, videoId),
+          sql`exists (
+            select 1 from ${groupMembers} 
+            where ${groupMembers.groupId} = ${discussionGroups.id} 
+            and ${groupMembers.userId} = ${req.user!.id}
+          )`
+        ),
         with: {
-          category: true,
-          subcategory: true
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: [desc(discussionGroups.updatedAt)]
+      });
+
+      if (!lastActiveGroup) {
+        return res.json(null);
+      }
+
+      res.json(lastActiveGroup);
+    } catch (error) {
+      console.error('Error fetching last active group:', error);
+      res.status(500).json({
+        message: "Error fetching last active group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Add REST endpoint for group invites
+  app.get("/api/groups/invite/:code", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const inviteCode = req.params.code;
+      console.log('Fetching group for invite code:', inviteCode);
+
+      // Find group by invite code
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.inviteCode, inviteCode),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
         }
       });
 
-      res.status(201).json(videoWithDetails);
+      if (!group) {
+        console.log('Group not found for invite code:', inviteCode);
+        return res.status(404).json({ message: "Invalid invite code" });
+      }
+
+      // Check if user is already a member
+      const existingMember = group.members.find(member => member.userId === req.user!.id);
+
+      if (!existingMember) {
+        // Add user as member
+        await db.insert(groupMembers)
+          .values({
+            userId: req.user!.id,
+            groupId: group.id,
+            role: 'member'
+          });
+
+        console.log('Added new member to group:', {
+          userId: req.user!.id,
+          groupId: group.id
+        });
+      }
+
+      console.log('Successfully joined group:', group.id);
+      res.json(group);
     } catch (error) {
-      console.error('Error creating video:', error);
+      console.error('Error processing group invite:', error);
       res.status(500).json({
-        message: "Failed to create video",
+        message: "Error processing invite",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Protected endpoints - require authentication
+
+  // Update the group creation endpoint
+  app.post("/api/groups", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { name, videoId, description } = req.body;
+      const userId = req.user?.id;
+
+      if (!userId || !videoId || !name) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Generate a random invite code
+      const inviteCode = Math.random().toString(36).substring(2, 15);
+
+      // Create the group and add creator as member in a single transaction
+      const [group] = await db.transaction(async (tx) => {
+        // Create the group with all required fields
+        const [newGroup] = await tx
+          .insert(discussionGroups)
+          .values({
+            name,
+            description: description || `Discussion group for video ${videoId}`,
+            videoId,
+            creatorId: userId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            inviteCode,
+            isPrivate: false,
+            isDeleted: false
+          })
+          .returning();
+
+        // Add the creator as a member and admin
+        await tx
+          .insert(groupMembers)
+          .values({
+            userId,
+            groupId: newGroup.id,
+            role: 'admin',
+            joinedAt: new Date(),
+            lastReadAt: new Date(),
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0
+          });
+
+        return [newGroup];
+      });
+
+      // Return the created group with member details
+      const groupWithDetails = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, group.id),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      res.status(201).json(groupWithDetails);
+    } catch (error) {
+      console.error('Error creating group:', error);
+      res.status(500).json({
+        message: "Failed to create group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+
+  // Add direct group access endpoint
+  app.get("/api/groups/:groupId", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      console.log('Fetching group:', groupId, 'for user:', req.user?.id);
+
+      // Get group with members and messages
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, groupId),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
+      }
+
+      console.log('Found group with', group.messages?.length || 0, 'messages');
+
+      // Check if user is already a member
+      const existingMember = group.members.find(member => member.userId === req.user!.id);
+
+      if (!existingMember) {
+        // Add user as member
+        await db.insert(groupMembers)
+          .values({
+            groupId: group.id,
+            userId: req.user!.id,
+            role: 'member'
+          });
+
+        // Add the new member to the response
+        group.members.push({
+          userId: req.user!.id,
+          groupId: group.id,
+          role: 'member',
+          user: {
+            username: req.user!.username
+          }
+        });
+      }
+
+      res.json(group);
+    } catch (error) {
+      console.error('Error accessing group:', error);
+      res.status(500).json({
+        message: "Error accessing group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Add this new endpoint after the other group-related endpoints
+  app.post("/api/groups/:groupId/leave", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      // Delete the group membership
+      await db
+        .delete(groupMembers)
+        .where(
+          and(
+            eq(groupMembers.groupId, groupId),
+            eq(groupMembers.userId, req.user!.id)
+          )
+        );
+
+      res.json({ message: "Successfully left the group" });
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      res.status(500).json({
+        message: "Error leaving group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Preferences endpoints
+  app.get("/api/preferences", requireAuth, async (req: AuthenticatedRequest, res: any) => {
+    try {
+      const preferences = await db.query.userPreferences.findFirst({
+        where: sql`${userPreferences.userId} = ${req.user!.id}`
+      });
+
+      if (!preferences) {
+        return res.status(404).json({
+          message: "No preferences found"
+        });
+      }
+
+      res.json(preferences);
+    } catch (error) {
+      console.error('Error fetching preferences:', error);
+      res.status(500).json({
+        message: "Error fetching preferences",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  app.post("/api/preferences", requireAuth, async (req: AuthenticatedRequest, res: any) => {
+    try {
+      const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
+
+      if (!Array.isArray(preferredCategories) || !Array.isArray(excludedCategories) || !Array.isArray(preferredPlatforms)) {
+        return res.status(400).json({
+          message: "Invalid preferences format"
+        });
+      }
+
+      const [savedPreferences] = await db
+        .insert(userPreferences)
+        .values({
+          userId: req.user!.id,
+          preferredCategories,
+          excludedCategories,
+          preferredPlatforms,
+          updatedAt: new Date()
+        })
+        .onConflictDoUpdate({
+          target: [userPreferences.userId],
+          set: {
+            preferredCategories,
+            excludedCategories,
+            preferredPlatforms,
+            updatedAt: new Date()
+          }
+        })
+        .returning();
+
+      res.json(savedPreferences);
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+      res.status(500).json({
+        message: "Error saving preferences",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Get unread count for a group
+  app.get("/api/groups/:groupId/unread-count", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      // Get the member record to get lastReadAt
+      const member = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user!.id)
+        )
+      });
+
+      if (!member) {
+        return res.status(404).json({ message: "Not a member of this group" });
+      }
+
+      // Count messages after lastReadAt
+      const unreadCount = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(groupMessages)
+        .where(
+          and(
+            eq(groupMessages.groupId, groupId),
+            gt(groupMessages.createdAt, member.lastReadAt!)
+          )
+        )
+        .then(result => Number(result[0].count));
+
+      res.json({ unreadCount });
+    } catch (error) {
+      console.error('Error fetching unread count:', error);
+      res.status(500).json({
+        message: "Error fetching unread count",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Mark messages as read
+  app.post("/api/groups/:groupId/mark-read", requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+      const groupId = parseInt(req.params.groupId);
+      if (isNaN(groupId)) {
+        return res.status(400).json({ message: "Invalid group ID" });
+      }
+
+      // Update lastReadAt for the member
+      await db
+        .update(groupMembers)
+        .set({
+          lastReadAt: new Date(),
+          unreadCount: 0
+        })
+        .where(
+          and(
+            eq(groupMembers.groupId, groupId),
+            eq(groupMembers.userId, req.user!.id)
+          )
+        );
+
+      res.json({ message: "Messages marked as read" });
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      res.status(500).json({
+        message: "Error marking messages as read",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
@@ -290,18 +562,18 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Get domain status first
-      const domains = await resend?.domains.list();
+      const domains = await resend.domains.list();
       console.log('Current domains:', domains);
 
-      const domainDetails = await resend?.domains.get(domain);
+      const domainDetails = await resend.domains.get(domain);
       console.log('Domain details:', domainDetails);
 
       if (!domainDetails) {
         // If domain doesn't exist, create it
-        await resend?.domains.create({ name: domain });
+        await resend.domains.create({ name: domain });
       }
 
-      const result = await resend?.domains.verify(domain);
+      const result = await resend.domains.verify(domain);
       return res.json(result);
     } catch (error) {
       console.error('Domain verification error:', error);
@@ -384,7 +656,7 @@ export function registerRoutes(app: Express): Server {
           throw error;
         }
 
-        res.json({
+        res.json({ 
           message: "Test email notification sent. Check your inbox.",
           details: {
             sentTo: req.user.email,
