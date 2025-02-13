@@ -31,6 +31,12 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   try {
     console.log(`Attempting to send email to ${to}`);
     console.log('Email subject:', subject);
+    console.log('Using from address:', process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev');
+
+    if (!resend.emails) {
+      console.error('Resend client emails property is undefined');
+      throw new Error('Invalid Resend client configuration');
+    }
 
     const result = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
@@ -38,6 +44,9 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
       subject,
       text,
       html: html || text,
+    }).catch(error => {
+      console.error('Resend API error:', error);
+      throw error;
     });
 
     console.log('Email sent successfully:', result);
