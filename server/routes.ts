@@ -1,10 +1,14 @@
 import { createServer, type Server } from "http";
-import express, { type Express } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
 import { db } from "@db";
 import { sql, eq, and, desc } from "drizzle-orm";
-import { videos, categories } from "@db/schema";
+import { videos, categories, discussionGroups, groupMessages } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
 import groupMessagesRouter from './routes/group-messages';
+import { Resend } from 'resend';
+import { sendUnreadMessagesNotification } from './lib/email';
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -13,6 +17,11 @@ export interface AuthenticatedRequest extends Request {
     email: string;
     is_admin?: boolean;
   };
+}
+
+interface CreateCategoryRequest {
+  name: string;
+  parentId?: number;
 }
 
 export function registerRoutes(app: Express): Server {
@@ -61,6 +70,51 @@ export function registerRoutes(app: Express): Server {
       console.error('Error fetching subcategories:', error);
       res.status(500).json({
         message: "Error fetching subcategories",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Create new category/subcategory
+  app.post("/api/categories", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { name, parentId } = req.body as CreateCategoryRequest;
+
+      if (!name || name.trim().length === 0) {
+        return res.status(400).json({
+          message: "Category name is required"
+        });
+      }
+
+      // If parentId is provided, verify the parent category exists
+      if (parentId) {
+        const parentCategory = await db.query.categories.findFirst({
+          where: eq(categories.id, parentId)
+        });
+
+        if (!parentCategory) {
+          return res.status(400).json({
+            message: "Parent category not found"
+          });
+        }
+      }
+
+      // Insert the new category
+      const [newCategory] = await db
+        .insert(categories)
+        .values({
+          name: name.trim(),
+          parentId: parentId || null,
+          isDeleted: false,
+          displayOrder: 0
+        })
+        .returning();
+
+      res.status(201).json(newCategory);
+    } catch (error) {
+      console.error('Error creating category:', error);
+      res.status(500).json({
+        message: "Failed to create category",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
@@ -163,13 +217,30 @@ export function registerRoutes(app: Express): Server {
   // Add video
   app.post("/api/videos", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
-      const { title, description, url, categoryId, platform, thumbnailUrl } = req.body;
+      const { title, description, url, categoryId, subcategoryId, platform, thumbnailUrl } = req.body;
 
       if (!title || !url || !categoryId || !platform) {
         return res.status(400).json({
           message: "Missing required fields",
           details: "Title, URL, category, and platform are required"
         });
+      }
+
+      // Verify if subcategoryId belongs to the selected category
+      if (subcategoryId) {
+        const subcategory = await db.query.categories.findFirst({
+          where: and(
+            eq(categories.id, parseInt(subcategoryId)),
+            eq(categories.parentId, parseInt(categoryId))
+          )
+        });
+
+        if (!subcategory) {
+          return res.status(400).json({
+            message: "Invalid subcategory",
+            details: "Selected subcategory does not belong to the selected category"
+          });
+        }
       }
 
       const [video] = await db
@@ -179,6 +250,7 @@ export function registerRoutes(app: Express): Server {
           description,
           url,
           categoryId: parseInt(categoryId),
+          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
           platform,
           thumbnailUrl,
           watched: false,
@@ -190,7 +262,8 @@ export function registerRoutes(app: Express): Server {
       const videoWithDetails = await db.query.videos.findFirst({
         where: eq(videos.id, video.id),
         with: {
-          category: true
+          category: true,
+          subcategory: true
         }
       });
 
@@ -217,18 +290,18 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Get domain status first
-      const domains = await resend.domains.list();
+      const domains = await resend?.domains.list();
       console.log('Current domains:', domains);
 
-      const domainDetails = await resend.domains.get(domain);
+      const domainDetails = await resend?.domains.get(domain);
       console.log('Domain details:', domainDetails);
 
       if (!domainDetails) {
         // If domain doesn't exist, create it
-        await resend.domains.create({ name: domain });
+        await resend?.domains.create({ name: domain });
       }
 
-      const result = await resend.domains.verify(domain);
+      const result = await resend?.domains.verify(domain);
       return res.json(result);
     } catch (error) {
       console.error('Domain verification error:', error);

@@ -47,12 +47,14 @@ export const videos = pgTable("videos", {
   thumbnailUrl: text("thumbnail_url"),
   description: text("description"),
   categoryId: integer("category_id").notNull().references(() => categories.id),
+  subcategoryId: integer("subcategory_id").references(() => categories.id),
   platform: text("platform").notNull(),
   watched: boolean("watched").default(false),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   categoryIdIdx: index("video_category_id_idx").on(table.categoryId),
+  subcategoryIdIdx: index("video_subcategory_id_idx").on(table.subcategoryId),
   platformIdx: index("video_platform_idx").on(table.platform),
   createdAtIdx: index("video_created_at_idx").on(table.createdAt),
   titleIdx: index("video_title_idx").on(table.title)
@@ -165,6 +167,10 @@ export const groupMemberRelations = relations(groupMembers, ({ one }) => ({
 export const videoRelations = relations(videos, ({ one }) => ({
   category: one(categories, {
     fields: [videos.categoryId],
+    references: [categories.id],
+  }),
+  subcategory: one(categories, {
+    fields: [videos.subcategoryId],
     references: [categories.id],
   }),
 }));
