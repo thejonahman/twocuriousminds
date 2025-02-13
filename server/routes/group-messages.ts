@@ -142,16 +142,49 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
       }
     });
 
+    // Get last 5 messages for context
+    const recentMessages = await db.query.groupMessages.findMany({
+      where: eq(groupMessages.groupId, parsedGroupId),
+      orderBy: [desc(groupMessages.createdAt)],
+      limit: 5,
+      with: {
+        user: {
+          columns: {
+            username: true
+          }
+        }
+      }
+    });
+
     // Send email notifications to inactive members
     for (const member of inactiveMembers) {
       if (member.emailNotifications && member.user.email) {
         try {
+          // Get unread messages for this member
+          const unreadMessages = await db.query.groupMessages.findMany({
+            where: and(
+              eq(groupMessages.groupId, parsedGroupId),
+              gt(groupMessages.createdAt, member.lastReadAt!)
+            ),
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            },
+            orderBy: [desc(groupMessages.createdAt)],
+            limit: 5
+          });
+
           await sendUnreadMessagesNotification({
             userEmail: member.user.email,
             userName: member.user.username,
             groupName: group?.name || 'Discussion Group',
             videoTitle: video?.title || 'Video Discussion',
             unreadCount: (member.unreadCount || 0) + 1,
+            unreadMessages: unreadMessages,
+            recentMessages: recentMessages,
             groupUrl: `${process.env.APP_URL}/video/${video?.id}/group/${parsedGroupId}`
           });
         } catch (error) {

@@ -33,12 +33,21 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   }
 }
 
+interface Message {
+  content: string;
+  user: {
+    username: string;
+  };
+  createdAt: Date;
+}
+
 export async function sendUnreadMessagesNotification({
   userEmail,
   userName,
   groupName,
   videoTitle,
   unreadCount,
+  unreadMessages,
   groupUrl
 }: {
   userEmail: string;
@@ -46,9 +55,22 @@ export async function sendUnreadMessagesNotification({
   groupName: string;
   videoTitle: string;
   unreadCount: number;
+  unreadMessages: Message[];
   groupUrl: string;
 }) {
   const subject = `💬 New messages in "${groupName}"`;
+
+  const formatMessage = (message: Message) => `
+    <div style="background: #f3f4f6; border-radius: 6px; padding: 12px; margin: 8px 0;">
+      <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+        <strong style="color: #4b5563;">${message.user.username}</strong>
+        <span style="color: #6b7280; font-size: 12px;">
+          ${new Date(message.createdAt).toLocaleTimeString()}
+        </span>
+      </div>
+      <p style="color: #374151; margin: 0;">${message.content}</p>
+    </div>
+  `;
 
   const html = `
     <!DOCTYPE html>
@@ -67,9 +89,14 @@ export async function sendUnreadMessagesNotification({
             in <strong>${groupName}</strong> about <em>"${videoTitle}"</em>.
           </p>
 
-          <div style="background: #f3f4f6; border-radius: 6px; padding: 15px; margin: 20px 0;">
+          <div style="margin: 24px 0;">
+            <h3 style="color: #1f2937; font-size: 16px; margin-bottom: 12px;">Recent messages you missed:</h3>
+            ${unreadMessages.map(formatMessage).join('')}
+          </div>
+
+          <div style="background: #f8fafc; border-radius: 6px; padding: 15px; margin: 20px 0; border-left: 4px solid #2563eb;">
             <p style="color: #4b5563; margin: 0;">
-              Don't miss out on the conversation! Join the discussion and share your thoughts.
+              Join the conversation and share your thoughts! The group is waiting to hear from you.
             </p>
           </div>
 
@@ -77,7 +104,7 @@ export async function sendUnreadMessagesNotification({
              style="display: inline-block; background-color: #2563eb; color: white; 
                     padding: 12px 24px; text-decoration: none; border-radius: 6px;
                     font-weight: 500; margin: 20px 0;">
-            Join the Discussion
+            Respond to Messages
           </a>
 
           <p style="color: #6b7280; font-size: 14px; margin-top: 30px; border-top: 1px solid #e5e7eb; padding-top: 20px;">
@@ -92,7 +119,9 @@ export async function sendUnreadMessagesNotification({
   await sendEmail({
     to: userEmail,
     subject,
-    text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}" discussing "${videoTitle}". Join the discussion here: ${groupUrl}`,
+    text: `Hey ${userName}! You have ${unreadCount} unread message${unreadCount === 1 ? '' : 's'} in "${groupName}" discussing "${videoTitle}". Here are some recent messages:\n\n${
+      unreadMessages.map(m => `${m.user.username}: ${m.content}`).join('\n')
+    }\n\nRespond to the discussion here: ${groupUrl}`,
     html,
   });
 }
