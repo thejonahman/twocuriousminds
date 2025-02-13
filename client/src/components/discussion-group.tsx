@@ -6,7 +6,6 @@ import { useToast } from "@/hooks/use-toast";
 import { usePolling } from "@/hooks/use-polling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ShareButton } from "@/components/ui/share-button";
 import { Send, MessageSquare, Plus, Users } from "lucide-react";
 import {
   Card,
@@ -63,13 +62,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
 
   // Queries
-  const { data: group } = useQuery<Group>({
+  const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data) => validateApiResponse(groupSchema, data),
   });
 
-  const { data: lastActiveGroup } = useQuery<Group>({
+  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<Group>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId,
     select: (data) => validateApiResponse(groupSchema, data),
@@ -80,7 +79,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     enabled: !!videoId,
   });
 
-  const { data: messages = [] } = useQuery<Message[]>({
+  const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[]>({
     queryKey: [`/api/groups/${currentGroup?.id}/messages`],
     enabled: !!currentGroup?.id && !!user,
     select: (data) => validateApiResponse(z.array(messageSchema), data),
@@ -259,16 +258,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         queryKey: [`/api/videos/${videoId}/last-active-group`]
       });
 
-      // Clear messages query
-      queryClient.invalidateQueries({
-        queryKey: [`/api/groups/${currentGroup.id}/messages`]
-      });
-
-      // Remove from cache completely
-      queryClient.removeQueries({
-        queryKey: [`/api/groups/${currentGroup.id}`]
-      });
-
       toast({
         title: "Success",
         description: "Successfully left the group",
@@ -294,6 +283,22 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           <p className="text-center text-muted-foreground">
             Please sign in to participate in discussions
           </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isGroupLoading || isLastActiveLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Loading discussion...</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="animate-pulse space-y-4">
+            <div className="h-4 bg-muted rounded w-3/4"></div>
+            <div className="h-4 bg-muted rounded w-1/2"></div>
+          </div>
         </CardContent>
       </Card>
     );
@@ -344,8 +349,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                 url={`${window.location.origin}/video/${videoId}/group/${currentGroup.id}`}
                 groupName={currentGroup.name}
                 videoTitle={videoData?.title}
-                memberCount={currentGroup.members.length}
-                messageCount={messages.length}
+                memberCount={currentGroup.members?.length || 0}
+                messageCount={messages?.length || 0}
               />
               <Button variant="outline" size="sm" onClick={handleLeaveGroup}>
                 Leave Group
@@ -389,7 +394,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         )}
 
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
-          {messages.length === 0 ? (
+          {isMessagesLoading ? (
+            <div className="animate-pulse space-y-4">
+              <div className="h-14 bg-muted rounded"></div>
+              <div className="h-14 bg-muted rounded"></div>
+              <div className="h-14 bg-muted rounded"></div>
+            </div>
+          ) : messages.length === 0 ? (
             <p className="text-center text-muted-foreground">
               No messages yet. Start the conversation!
             </p>
