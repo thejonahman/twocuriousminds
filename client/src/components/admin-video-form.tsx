@@ -64,53 +64,84 @@ export function AdminVideoForm() {
   const { data: categories, isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: ["/api/categories"],
     staleTime: 30000,
+    onSuccess: (data) => {
+      console.log('Categories loaded:', data);
+    },
+    onError: (error) => {
+      console.error('Error loading categories:', error);
+    }
   });
 
   const selectedCategoryId = form.watch("categoryId");
 
-  const { data: subcategories, isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
+  const { data: subcategories = [], isLoading: isSubcategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
-    enabled: !!selectedCategoryId,
+    enabled: !!selectedCategoryId && selectedCategoryId !== "",
     staleTime: 30000,
+    retry: false,
+    onSuccess: (data) => {
+      console.log('Subcategories loaded for category', selectedCategoryId, ':', data);
+    },
+    onError: (error) => {
+      console.error('Error loading subcategories:', error);
+      // Clear subcategory selection on error
+      form.setValue("subcategoryId", "");
+    }
   });
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("POST", "/api/videos", {
+      console.log('Submitting video with data:', {
         ...data,
-        thumbnailUrl: thumbnailUrl
+        thumbnailUrl,
+        categoryId: parseInt(data.categoryId),
+        subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : undefined
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to add video");
-      }
+      try {
+        const response = await apiRequest("POST", "/api/videos", {
+          ...data,
+          thumbnailUrl: thumbnailUrl,
+          categoryId: parseInt(data.categoryId),
+          subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : undefined
+        });
 
-      const videoData = await response.json();
-      setCurrentVideoId(videoData.id);
-
-      if (thumbnailUrl) {
-        try {
-          const thumbnailResponse = await fetch(`/api/videos/${videoData.id}/thumbnail`, {
-            method: "POST",
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ thumbnailUrl }),
-            credentials: "include",
-          });
-
-          if (!thumbnailResponse.ok) {
-            console.error('Failed to upload thumbnail');
-            throw new Error('Failed to upload thumbnail');
-          }
-        } catch (error) {
-          console.error('Thumbnail upload error:', error);
-          throw error;
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Server error response:', errorData);
+          throw new Error(errorData.message || "Failed to add video");
         }
-      }
 
-      return videoData;
+        const videoData = await response.json();
+        console.log('Video created successfully:', videoData);
+        setCurrentVideoId(videoData.id);
+
+        if (thumbnailUrl) {
+          try {
+            const thumbnailResponse = await fetch(`/api/videos/${videoData.id}/thumbnail`, {
+              method: "POST",
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ thumbnailUrl }),
+              credentials: "include",
+            });
+
+            if (!thumbnailResponse.ok) {
+              console.error('Failed to upload thumbnail:', await thumbnailResponse.json());
+              throw new Error('Failed to upload thumbnail');
+            }
+          } catch (error) {
+            console.error('Thumbnail upload error:', error);
+            throw error;
+          }
+        }
+
+        return videoData;
+      } catch (error) {
+        console.error('Error submitting video:', error);
+        throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -123,9 +154,10 @@ export function AdminVideoForm() {
       });
     },
     onError: (error: Error) => {
+      console.error('Video submission error:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Failed to add video",
         variant: "destructive",
       });
     },
@@ -138,10 +170,10 @@ export function AdminVideoForm() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ 
-          title, 
+        body: JSON.stringify({
+          title,
           description,
-          videoId: currentVideoId, // Send the video ID if we have one
+          videoId: currentVideoId,
           url: form.getValues("url"),
           platform: form.getValues("platform")
         }),
@@ -158,7 +190,6 @@ export function AdminVideoForm() {
       setThumbnailUrl(data.thumbnailUrl);
       setIsGeneratingThumbnail(false);
 
-      // If we have a current video ID, invalidate the videos query to refresh the data
       if (currentVideoId) {
         queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       }
@@ -292,6 +323,15 @@ export function AdminVideoForm() {
   };
 
   const onSubmit = (data: VideoFormData) => {
+    console.log('Form submission started with data:', data); // Added log statement
+    if (!data.categoryId) {
+      toast({
+        title: "Error",
+        description: "Please select a topic",
+        variant: "destructive"
+      });
+      return;
+    }
     addVideoMutation.mutate(data);
   };
 
@@ -562,9 +602,9 @@ export function AdminVideoForm() {
                             type="button"
                             variant="outline"
                             size="icon"
-                            className="text-destructive hover:text-destructive/90"
+                            className="text-destructive hover:bg-destructive/90"
                             disabled={!field.value}
-                            onClick={() => setSelectedSubtopicToDelete(field.value)}
+                            onClick={() => setSelectedSubtopicToDelete(field.value ?? null)}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
