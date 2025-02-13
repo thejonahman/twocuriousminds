@@ -602,7 +602,7 @@ export function registerRoutes(app: Express): Server {
             unreadCount: testGroup.messages.length,
             unreadMessages: testGroup.messages,
             recentMessages: testGroup.messages,
-            groupUrl: `${process.env.APP_URL || 'http://localhost:3000'}/video/1/group/${testGroup.id}`
+            groupUrl: `${process.env.APP_URL || 'https://twocuriousminds.com'}/video/1/group/${testGroup.id}`
           });
           console.log('Notification sent successfully');
         } catch (error) {
