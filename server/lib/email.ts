@@ -9,6 +9,10 @@ if (!process.env.RESEND_API_KEY) {
   console.error('RESEND_FROM_EMAIL is missing');
 } else {
   try {
+    console.log('Initializing Resend client with configuration:', {
+      hasApiKey: !!process.env.RESEND_API_KEY,
+      fromEmail: process.env.RESEND_FROM_EMAIL.trim(),
+    });
     resend = new Resend(process.env.RESEND_API_KEY.trim());
     console.log('Resend client initialized successfully');
   } catch (error) {
@@ -28,7 +32,8 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
   console.log('Email function called with params:', { to, subject });
 
   if (!resend) {
-    throw new Error('Resend client not initialized');
+    console.error('Resend client not initialized - missing configuration');
+    throw new Error('Email service not initialized');
   }
 
   try {
@@ -50,6 +55,11 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
     return result;
   } catch (error: any) {
     console.error('Failed to send email:', error);
+    console.error('Error details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack
+    });
     throw error;
   }
 }

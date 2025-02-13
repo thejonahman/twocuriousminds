@@ -18,9 +18,13 @@ export interface AuthenticatedRequest extends Request {
 }
 
 export function registerRoutes(app: Express): Server {
-  // The httpServer creation is moved after the test email endpoint registration
+  // Create HTTP server first
+  const httpServer = createServer(app);
 
-  // Register the group messages router
+  // Setup auth and get session middleware BEFORE registering routes
+  const sessionMiddleware = setupAuth(app);
+
+  // Register the group messages router after auth is set up
   app.use(groupMessagesRouter);
 
   // Public endpoints - no auth required
@@ -243,7 +247,7 @@ export function registerRoutes(app: Express): Server {
   // Update the group creation endpoint
   app.post("/api/groups", requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { name, videoId } = req.body;
+      const { name, videoId, description } = req.body;
       const userId = req.user?.id;
 
       if (!userId || !videoId || !name) {
@@ -260,9 +264,11 @@ export function registerRoutes(app: Express): Server {
           .insert(discussionGroups)
           .values({
             name,
+            description: description || `Discussion group for video ${videoId}`,
             videoId,
             creatorId: userId,
             createdAt: new Date(),
+            updatedAt: new Date(),
             inviteCode,
             isPrivate: false,
             isDeleted: false
@@ -277,10 +283,10 @@ export function registerRoutes(app: Express): Server {
             groupId: newGroup.id,
             role: 'admin',
             joinedAt: new Date(),
+            lastReadAt: new Date(),
             notificationsEnabled: true,
             emailNotifications: false,
-            unreadCount: 0,
-            lastReadAt: new Date()
+            unreadCount: 0
           });
 
         return [newGroup];
@@ -575,34 +581,37 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Update the test email endpoint
+  // Update the test email endpoint to include better error handling and logging
   if (process.env.NODE_ENV !== 'production') {
     app.post("/api/test/email-notification", requireAuth, async (req: AuthenticatedRequest, res) => {
-      console.log('Test email endpoint hit');
+      console.log('=== Test Email Endpoint Start ===');
       if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
-        console.error('Email configuration missing');
+        console.error('Email configuration missing:', {
+          hasApiKey: !!process.env.RESEND_API_KEY,
+          hasFromEmail: !!process.env.RESEND_FROM_EMAIL
+        });
         return res.status(500).json({ message: "Email configuration missing" });
       }
 
       if (!resend) {
-        console.error('Resend client not initialized');
+        console.error('Resend client not initialized in test endpoint');
         return res.status(500).json({ message: "Email service not initialized" });
       }
 
       try {
         if (!req.user?.email) {
-          console.log('Error: No email address available for testing');
+          console.error('No email address available for testing');
           return res.status(400).json({ message: "No email address available for testing" });
         }
 
         // Get the specific group
         const groupId = parseInt(req.query.groupId as string);
         if (!groupId) {
-          console.error('Group ID is required');
+          console.error('Group ID is required for test email');
           return res.status(400).json({ message: "Group ID is required" });
         }
 
-        console.log('Fetching test group with ID:', groupId);
+        console.log('Fetching test group:', groupId);
         const testGroup = await db.query.discussionGroups.findFirst({
           where: eq(discussionGroups.id, groupId),
           with: {
@@ -621,12 +630,15 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!testGroup) {
-          console.log('Error: No discussion group found for testing');
+          console.error('No discussion group found:', groupId);
           return res.status(404).json({ message: "No discussion group found for testing" });
         }
 
-        console.log('Found test group:', testGroup.name);
-        console.log('Attempting to send test email to:', req.user.email);
+        console.log('Found test group:', {
+          id: testGroup.id,
+          name: testGroup.name,
+          messageCount: testGroup.messages?.length || 0
+        });
 
         try {
           await sendUnreadMessagesNotification({
@@ -644,21 +656,24 @@ export function registerRoutes(app: Express): Server {
           throw error;
         }
 
-        res.json({ message: "Test email notification sent. Check your inbox." });
+        res.json({ 
+          message: "Test email notification sent. Check your inbox.",
+          details: {
+            sentTo: req.user.email,
+            groupName: testGroup.name,
+            messageCount: testGroup.messages?.length || 0
+          }
+        });
       } catch (error) {
         console.error('Error sending test email:', error);
         res.status(500).json({
           message: "Error sending test email",
-          error: error instanceof Error ? error.message : "Unknown error"
+          error: error instanceof Error ? error.message : "Unknown error",
+          details: error instanceof Error ? error.stack : undefined
         });
       }
     });
   }
-
-  const httpServer = createServer(app);
-
-  // Setup auth and get session middleware
-  const sessionMiddleware = setupAuth(app);
 
   return httpServer;
 }

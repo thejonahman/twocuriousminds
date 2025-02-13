@@ -1,11 +1,15 @@
 import express from 'express';
 import thumbnailRoutes from './routes/thumbnail';
+import { setupAuth } from './auth';
 
 const app = express();
 
 // Increase body parser size limits for large payloads (100MB)
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+// Setup authentication BEFORE registering routes
+setupAuth(app);
 
 // Set response type for all thumbnail routes to JSON
 app.use('/api/thumbnails', (req, res, next) => {

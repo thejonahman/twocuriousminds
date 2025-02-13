@@ -15,8 +15,12 @@ const PostgresSessionStore = connectPg(session);
 
 // Create requireAuth middleware
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  console.log('Auth check - isAuthenticated:', req.isAuthenticated());
-  if (!req.isAuthenticated()) {
+  // Debug log to track auth state
+  console.log('Auth check - session:', req.session);
+  console.log('Auth check - user:', req.user);
+
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    console.log('Auth check failed - not authenticated');
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();
@@ -45,6 +49,8 @@ async function getUserByUsername(username: string) {
 }
 
 export function setupAuth(app: Express) {
+  console.log('Setting up authentication...');
+
   // Create session store
   const store = new PostgresSessionStore({
     pool,
@@ -57,23 +63,27 @@ export function setupAuth(app: Express) {
   const sessionMiddleware = session({
     store,
     secret: process.env.REPL_ID || 'fallback-secret-key',
-    name: 'connect.sid', // Use default Express session cookie name
+    name: 'connect.sid',
     resave: false,
     saveUninitialized: false,
     rolling: true,
     cookie: {
-      secure: false, // Set to true in production with HTTPS
+      secure: false,
       httpOnly: true,
       sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      maxAge: 24 * 60 * 60 * 1000,
       path: '/',
     },
   });
 
+  // Initialize session middleware first
   app.use(sessionMiddleware);
+
+  // Initialize passport and session AFTER session middleware
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // Set up passport strategy
   passport.use(new LocalStrategy(async (username, password, done) => {
     try {
       const [user] = await getUserByUsername(username);
@@ -95,11 +105,13 @@ export function setupAuth(app: Express) {
   }));
 
   passport.serializeUser((user: any, done) => {
+    console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
+      console.log('Deserializing user:', id);
       const [user] = await db
         .select()
         .from(users)
@@ -107,9 +119,11 @@ export function setupAuth(app: Express) {
         .limit(1);
 
       if (!user) {
+        console.log('No user found during deserialization');
         return done(null, false);
       }
 
+      console.log('User deserialized successfully');
       done(null, user);
     } catch (error) {
       console.error('Deserialization error:', error);
@@ -117,7 +131,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Auth endpoints
+  // Auth endpoints must be registered AFTER passport setup
   app.post("/api/register", async (req, res, next) => {
     try {
       const result = insertUserSchema.safeParse(req.body);
@@ -166,5 +180,6 @@ export function setupAuth(app: Express) {
     res.json(req.user);
   });
 
+  console.log('Authentication setup completed');
   return sessionMiddleware;
 }
