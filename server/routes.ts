@@ -32,12 +32,6 @@ export function registerRoutes(app: Express): Server {
     try {
       const allCategories = await db.query.categories.findMany({
         where: eq(categories.isDeleted, false),
-        with: {
-          subcategories: {
-            where: eq(subcategories.isDeleted, false),
-            orderBy: [desc(subcategories.displayOrder)]
-          }
-        },
         orderBy: [desc(categories.displayOrder)]
       });
       res.json(allCategories);
@@ -45,34 +39,6 @@ export function registerRoutes(app: Express): Server {
       console.error('Error fetching categories:', error);
       res.status(500).json({
         message: "Error fetching categories",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  });
-
-  app.post("/api/videos", requireAuth, async (req: AuthenticatedRequest, res) => {
-    try {
-      const { title, description, url, categoryId, subcategoryId, platform, thumbnailUrl } = req.body;
-      
-      const [video] = await db.insert(videos)
-        .values({
-          title,
-          description,
-          url,
-          categoryId: parseInt(categoryId),
-          subcategoryId: subcategoryId ? parseInt(subcategoryId) : null,
-          platform,
-          thumbnailUrl,
-          createdAt: new Date(),
-          isDeleted: false
-        })
-        .returning();
-
-      res.status(201).json(video);
-    } catch (error) {
-      console.error('Error adding video:', error);
-      res.status(500).json({
-        message: "Error adding video",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }
@@ -173,17 +139,14 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Add logging to the group-related endpoints
+  // Add this new endpoint near the other video-related endpoints
   app.get("/api/videos/:videoId/last-active-group", requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
       const videoId = parseInt(req.params.videoId);
 
       if (isNaN(videoId)) {
-        console.error('Invalid video ID:', req.params.videoId);
         return res.status(400).json({ message: "Invalid video ID" });
       }
-
-      console.log('Fetching last active group for video:', videoId, 'user:', req.user?.id);
 
       // Find the most recently active group for this video where the user is a member
       const lastActiveGroup = await db.query.discussionGroups.findFirst({
@@ -200,7 +163,6 @@ export function registerRoutes(app: Express): Server {
             with: {
               user: {
                 columns: {
-                  id: true,
                   username: true
                 }
               }
@@ -210,10 +172,7 @@ export function registerRoutes(app: Express): Server {
         orderBy: [desc(discussionGroups.updatedAt)]
       });
 
-      console.log('Found last active group:', lastActiveGroup?.id);
-
       if (!lastActiveGroup) {
-        console.log('No active group found for video:', videoId);
         return res.json(null);
       }
 
@@ -291,10 +250,7 @@ export function registerRoutes(app: Express): Server {
       const { name, videoId, description } = req.body;
       const userId = req.user?.id;
 
-      console.log('Creating new group:', { name, videoId, userId });
-
       if (!userId || !videoId || !name) {
-        console.error('Missing required fields:', { userId, videoId, name });
         return res.status(400).json({ message: "Missing required fields" });
       }
 
@@ -303,8 +259,6 @@ export function registerRoutes(app: Express): Server {
 
       // Create the group and add creator as member in a single transaction
       const [group] = await db.transaction(async (tx) => {
-        console.log('Starting group creation transaction');
-
         // Create the group with all required fields
         const [newGroup] = await tx
           .insert(discussionGroups)
@@ -321,8 +275,6 @@ export function registerRoutes(app: Express): Server {
           })
           .returning();
 
-        console.log('Created group:', newGroup?.id);
-
         // Add the creator as a member and admin
         await tx
           .insert(groupMembers)
@@ -336,8 +288,6 @@ export function registerRoutes(app: Express): Server {
             emailNotifications: false,
             unreadCount: 0
           });
-
-        console.log('Added creator as admin member');
 
         return [newGroup];
       });
@@ -358,7 +308,6 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      console.log('Returning group with details:', groupWithDetails?.id);
       res.status(201).json(groupWithDetails);
     } catch (error) {
       console.error('Error creating group:', error);

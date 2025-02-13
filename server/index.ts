@@ -56,30 +56,10 @@ app.use((req, res, next) => {
     serveStatic(app);
   }
 
-  // Try different ports if 5000 is busy
-  const tryPort = (port: number): Promise<number> => {
-    return new Promise((resolve, reject) => {
-      server.listen(port, "0.0.0.0")
-        .once('listening', () => {
-          log(`serving on port ${port} (0.0.0.0)`);
-          resolve(port);
-        })
-        .once('error', (err: any) => {
-          if (err.code === 'EADDRINUSE') {
-            log(`Port ${port} is busy, trying next port...`);
-            resolve(tryPort(port + 1));
-          } else {
-            reject(err);
-          }
-        });
-    });
-  };
-
-  // Start with port 5000 and try subsequent ports if busy
-  try {
-    await tryPort(5000);
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  }
+  // ALWAYS serve the app on port 5000
+  // this serves both the API and the client
+  const PORT = 5000;
+  server.listen(PORT, "0.0.0.0", () => {
+    log(`serving on port ${PORT} (0.0.0.0)`);
+  });
 })();

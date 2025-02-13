@@ -58,8 +58,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false); // Added loading state
-
 
   // Polling setup
   const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
@@ -68,19 +66,13 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
-    select: (data) => {
-      console.log('Group query response:', data);
-      return validateApiResponse(groupSchema, data);
-    },
+    select: (data) => validateApiResponse(groupSchema, data),
   });
 
   const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<Group>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId,
-    select: (data) => {
-      console.log('Last active group query response:', data);
-      return validateApiResponse(groupSchema, data);
-    },
+    select: (data) => validateApiResponse(groupSchema, data),
   });
 
   const { data: videoData } = useQuery<VideoData>({
@@ -97,22 +89,19 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   // Effects
   useEffect(() => {
     if (group && !currentGroup) {
-      console.log('Setting current group from prop:', group);
+      console.log('Setting current group from prop:', group.id);
       setCurrentGroup(group);
       setLocation(`/video/${videoId}/group/${group.id}`);
+      // Store the active group ID in localStorage for persistence
       localStorage.setItem(`activeGroup-${videoId}`, group.id.toString());
     }
   }, [group, currentGroup, videoId, setLocation]);
 
   useEffect(() => {
     if (lastActiveGroup && !currentGroup && !initialGroupId) {
-      console.log('Found last active group:', lastActiveGroup);
       // Only check sessionStorage for recent "leave" actions
       const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
       const lastLeftTime = sessionStorage.getItem('lastLeftTime');
-
-      // Log the leave state
-      console.log('Last left group state:', { lastLeftGroup, lastLeftTime });
 
       // If we recently left this group, don't auto-join
       if (lastLeftGroup === lastActiveGroup.id.toString()) {
@@ -130,7 +119,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
       // Always set localStorage and join if there's no stored group or it matches
       if (!storedGroupId || storedGroupId === lastActiveGroup.id.toString()) {
-        console.log('Setting current group from lastActive:', lastActiveGroup);
+        console.log('Setting current group from lastActive:', lastActiveGroup.id);
         setCurrentGroup(lastActiveGroup);
         setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
         localStorage.setItem(`activeGroup-${videoId}`, lastActiveGroup.id.toString());
@@ -196,11 +185,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
   const handleCreateGroup = async () => {
     const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
-    console.log('Creating new group:', { groupName, videoId });
-
     try {
-      setIsSubmitting(true);
-
       const response = await fetch('/api/groups', {
         method: 'POST',
         headers: {
@@ -210,47 +195,34 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           name: groupName,
           videoId,
           description: `Discussion group for ${videoData?.title || 'video'}`
-        }),
-        credentials: 'include' // Important for authentication
+        })
       });
-
-      console.log('Create group response status:', response.status);
-      const responseData = await response.json();
-      console.log('Create group response:', responseData);
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Failed to create group');
+        throw new Error('Failed to create group');
       }
 
-      if (!responseData?.id) {
-        throw new Error('Invalid group data received');
-      }
+      const newGroup = await response.json();
+      console.log('Created new group:', newGroup.id);
 
-      console.log('Created new group:', responseData.id);
-      localStorage.setItem(`activeGroup-${videoId}`, responseData.id.toString());
-      setCurrentGroup(responseData);
+      // Set localStorage immediately after group creation
+      localStorage.setItem(`activeGroup-${videoId}`, newGroup.id.toString());
+
+      setCurrentGroup(newGroup);
       setIsCreateGroupOpen(false);
-      setLocation(`/video/${videoId}/group/${responseData.id}`);
-
-      // Invalidate queries to refresh the data
-      queryClient.invalidateQueries({
-        queryKey: [`/api/videos/${videoId}/last-active-group`]
-      });
+      setLocation(`/video/${videoId}/group/${newGroup.id}`);
 
       toast({
         title: "Success",
-        description: `Group "${responseData.name}" created! Share the link with friends to join the discussion.`,
+        description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
       });
     } catch (error) {
       console.error('Error creating group:', error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to create group. Please try again.",
+        description: "Failed to create group",
         variant: "destructive",
       });
-    } finally {
-      setIsSubmitting(false);
-      setGroupNameInput('');
     }
   };
 
@@ -269,14 +241,20 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error('Failed to leave group');
       }
 
+      // Store both the group ID and timestamp when leaving
       sessionStorage.setItem('lastLeftGroup', currentGroup.id.toString());
       sessionStorage.setItem('lastLeftTime', Date.now().toString());
 
+      // Only remove from localStorage if explicitly leaving
       localStorage.removeItem(`activeGroup-${videoId}`);
 
+      // Clear the current group
       setCurrentGroup(null);
+
+      // Reset the location without the group ID
       setLocation(`/video/${videoId}`);
 
+      // Invalidate all related queries
       queryClient.invalidateQueries({
         queryKey: [`/api/videos/${videoId}/last-active-group`]
       });
@@ -420,16 +398,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           <div className="flex items-center justify-between gap-2 mb-4">
             <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" size="sm" disabled={isSubmitting} className="relative">
+                <Button variant="outline" size="sm">
                   <Plus className="h-4 w-4 mr-2" />
-                  {isSubmitting ? (
-                    <span className="flex items-center gap-2">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-                      Creating...
-                    </span>
-                  ) : (
-                    'Create Group'
-                  )}
+                  Create Group
                 </Button>
               </DialogTrigger>
               <DialogContent>
@@ -446,18 +417,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                   className="mb-2"
                 />
                 <DialogFooter>
-                  <Button
-                    onClick={handleCreateGroup}
-                    disabled={isSubmitting}
-                  >
-                    {isSubmitting ? (
-                      <span className="flex items-center gap-2">
-                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
-                        Creating...
-                      </span>
-                    ) : (
-                      'Create Group'
-                    )}
+                  <Button onClick={handleCreateGroup}>
+                    Create Group
                   </Button>
                 </DialogFooter>
               </DialogContent>
