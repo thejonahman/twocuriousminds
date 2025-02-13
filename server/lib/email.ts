@@ -58,6 +58,12 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
     }
 
     console.log('=== Attempting Resend API Call ===');
+    console.log('Resend client state:', {
+      initialized: !!resend,
+      hasEmailsProperty: !!(resend && resend.emails),
+      apiKeyLength: process.env.RESEND_API_KEY?.length || 0
+    });
+    
     const payload = {
       from: process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev',
       to,
@@ -67,10 +73,20 @@ export async function sendEmail({ to, subject, text, html }: SendEmailParams) {
     };
     console.log('Email payload:', payload);
 
-    const result = await resend.emails.send(payload).catch(error => {
-      console.error('Caught error in Resend send:', error);
+    try {
+      console.log('Calling Resend API...');
+      const result = await resend.emails.send(payload);
+      console.log('Resend API response:', result);
+      return result;
+    } catch (error) {
+      console.error('Detailed Resend API error:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
       throw error;
-    });
+    }
 
     console.log('=== Email Sent Successfully ===');
     console.log('Resend API response:', result);
