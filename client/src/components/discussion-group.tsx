@@ -32,6 +32,7 @@ import {
 } from "@/lib/api-types";
 import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
+import { env } from "@/lib/env";
 
 interface Props {
   videoId: number;
@@ -352,6 +353,36 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                 memberCount={currentGroup.members?.length || 0}
                 messageCount={messages?.length || 0}
               />
+              {env.MODE === 'development' && (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      const response = await fetch('/api/test/email-notification', {
+                        method: 'POST',
+                      });
+
+                      if (!response.ok) {
+                        throw new Error('Failed to send test email');
+                      }
+
+                      toast({
+                        title: "Test email sent",
+                        description: "Check your email inbox and the server console for details.",
+                      });
+                    } catch (error) {
+                      toast({
+                        title: "Error",
+                        description: "Failed to send test email. Check server logs for details.",
+                        variant: "destructive",
+                      });
+                    }
+                  }}
+                >
+                  Test Email
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={handleLeaveGroup}>
                 Leave Group
               </Button>
