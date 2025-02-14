@@ -2,14 +2,14 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@db";
 import { groupMessages, users, groupMembers, discussionGroups, videos } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
-import { Router } from "express";
-import { AuthenticatedRequest } from "../auth";
+import { Router, Response } from "express";
+import { AuthenticatedRequest, asyncHandler } from "../auth";
 import { sendUnreadMessagesNotification } from "../lib/email";
 
 const router = Router();
 
 // Get messages for a group
-router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, res) => {
+router.get("/api/groups/:groupId/messages", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { groupId } = req.params;
     const parsedGroupId = parseInt(groupId);
@@ -83,10 +83,10 @@ router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, re
     console.error('Error in group messages:', error);
     res.status(500).json({ error: "Internal server error" });
   }
-});
+}));
 
 // Post a new message to a group
-router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, res) => {
+router.post("/api/groups/:groupId/messages", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -309,6 +309,6 @@ router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, r
     console.error('[Group Messages] Error posting message:', error);
     res.status(500).json({ error: "Internal server error" });
   }
-});
+}));
 
 export default router;
