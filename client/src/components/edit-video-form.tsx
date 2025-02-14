@@ -9,10 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect, useRef } from 'react';
-import { Upload } from 'lucide-react';
+import { useRef } from 'react';
 
-// Type definitions remain the same
 interface Category {
   id: number;
   name: string;
@@ -62,11 +60,52 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
+function getVideoThumbnail(url: string, platform: string): string {
+  // If it's a YouTube video, use the YouTube thumbnail API
+  if (platform === "youtube") {
+    const videoId = url.includes("youtu.be") 
+      ? url.split("/").pop() 
+      : new URL(url).searchParams.get("v");
+    return videoId 
+      ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+      : generatePlaceholder(platform);
+  }
+
+  // For other platforms, use a simple placeholder
+  return generatePlaceholder(platform);
+}
+
+function generatePlaceholder(platform: string): string {
+  const bgColors: Record<string, string> = {
+    youtube: "#FF0000",
+    tiktok: "#00F2EA",
+    instagram: "#833AB4"
+  };
+
+  // Create a simple colored rectangle with text
+  const canvas = document.createElement('canvas');
+  canvas.width = 1280;
+  canvas.height = 720;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) return '';
+
+  // Fill background
+  ctx.fillStyle = bgColors[platform] || "#000000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Add text
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = "bold 48px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`${platform.toUpperCase()} Video`, canvas.width / 2, canvas.height / 2);
+
+  return canvas.toDataURL('image/png');
+}
+
 export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormProps) {
   const queryClient = useQueryClient();
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl);
-  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const hasSubmitted = useRef(false);
 
@@ -81,62 +120,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       platform: video.platform as "youtube" | "tiktok" | "instagram",
     }
   });
-
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "Error",
-        description: "File size must be less than 5MB",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsUploadingThumbnail(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('thumbnail', file);
-
-      const response = await fetch(`/api/thumbnails/${video.id}/thumbnail`, {
-        method: 'PATCH',
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || 'Upload failed');
-      }
-
-      setThumbnailUrl(data.thumbnailUrl);
-      queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
-        if (!oldData) return oldData;
-        return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl: data.thumbnailUrl } : v);
-      });
-
-      toast({
-        title: "Success",
-        description: "Thumbnail uploaded successfully",
-      });
-    } catch (error) {
-      console.error('Thumbnail upload error:', error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Upload failed',
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploadingThumbnail(false);
-    }
-  };
-
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -153,9 +136,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      if (!thumbnailUrl) {
-        throw new Error("Please upload a thumbnail image");
-      }
+      const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
 
       const payload = {
         ...data,
@@ -197,21 +178,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     updateVideoMutation.mutate(data);
   };
 
-  useEffect(() => {
-    if (hasSubmitted.current && !updateVideoMutation.isPending) {
-      const timeoutId = setTimeout(() => {
-        window.scrollTo({
-          top: scrollPosition,
-          behavior: 'instant'
-        });
-        if (onClose) {
-          onClose();
-        }
-      }, 100);
-
-      return () => clearTimeout(timeoutId);
-    }
-  }, [updateVideoMutation.isPending, scrollPosition, onClose]);
+  // Watch URL and platform changes to preview the thumbnail
+  const url = form.watch("url");
+  const platform = form.watch("platform");
+  const thumbnailUrl = url && platform ? getVideoThumbnail(url, platform) : null;
 
   return (
     <Form {...form}>
@@ -231,7 +201,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         />
 
         <FormItem>
-          <FormLabel>Thumbnail (Required)</FormLabel>
+          <FormLabel>Thumbnail Preview</FormLabel>
           <div className="flex flex-col gap-4">
             {thumbnailUrl ? (
               <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
@@ -243,28 +213,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
               </div>
             ) : (
               <div className="flex aspect-video w-full items-center justify-center rounded-lg border bg-muted">
-                <span className="text-sm text-muted-foreground">No thumbnail</span>
+                <span className="text-sm text-muted-foreground">Enter a valid video URL to see thumbnail</span>
               </div>
             )}
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleUploadClick}
-                disabled={isUploadingThumbnail}
-                className="flex-1"
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                {isUploadingThumbnail ? 'Uploading...' : 'Upload New Thumbnail'}
-              </Button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept="image/*"
-                className="hidden"
-              />
-            </div>
           </div>
         </FormItem>
 
@@ -397,7 +348,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         <Button
           type="submit"
           className="w-full"
-          disabled={updateVideoMutation.isPending || !thumbnailUrl}
+          disabled={updateVideoMutation.isPending}
         >
           {updateVideoMutation.isPending ? "Updating..." : "Update Video"}
         </Button>

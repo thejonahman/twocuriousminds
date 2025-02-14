@@ -9,8 +9,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardHeader, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useRef } from 'react';
-import { Upload } from 'lucide-react';
 
 // Type definitions
 interface Category {
@@ -42,11 +40,52 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
+function getVideoThumbnail(url: string, platform: string): string {
+  // If it's a YouTube video, use the YouTube thumbnail API
+  if (platform === "youtube") {
+    const videoId = url.includes("youtu.be")
+      ? url.split("/").pop()
+      : new URL(url).searchParams.get("v");
+    return videoId
+      ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+      : generatePlaceholder(platform);
+  }
+
+  // For other platforms, use a simple placeholder
+  return generatePlaceholder(platform);
+}
+
+function generatePlaceholder(platform: string): string {
+  const bgColors: Record<string, string> = {
+    youtube: "#FF0000",
+    tiktok: "#00F2EA",
+    instagram: "#833AB4"
+  };
+
+  // Create a simple colored rectangle with text
+  const canvas = document.createElement('canvas');
+  canvas.width = 1280;
+  canvas.height = 720;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) return '';
+
+  // Fill background
+  ctx.fillStyle = bgColors[platform] || "#000000";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Add text
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = "bold 48px system-ui";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`${platform.toUpperCase()} Video`, canvas.width / 2, canvas.height / 2);
+
+  return canvas.toDataURL('image/png');
+}
+
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -55,57 +94,6 @@ export function AdminVideoForm() {
       description: "",
     },
   });
-
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "Error",
-        description: "File size must be less than 5MB",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsUploadingThumbnail(true);
-
-    try {
-      const formData = new FormData();
-      formData.append('thumbnail', file);
-
-      const response = await fetch('/api/thumbnails/default/thumbnail', {
-        method: 'PATCH',
-        body: formData,
-      });
-
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || 'Upload failed');
-      }
-
-      setThumbnailUrl(data.thumbnailUrl);
-      toast({
-        title: "Success",
-        description: "Thumbnail uploaded successfully",
-      });
-    } catch (error) {
-      console.error('Thumbnail upload error:', error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : 'Upload failed',
-        variant: "destructive",
-      });
-    } finally {
-      setIsUploadingThumbnail(false);
-    }
-  };
-
-  const handleUploadClick = () => {
-    fileInputRef.current?.click();
-  };
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -122,9 +110,7 @@ export function AdminVideoForm() {
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      if (!thumbnailUrl) {
-        throw new Error("Please upload a thumbnail image");
-      }
+      const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
 
       const payload = {
         ...data,
@@ -143,7 +129,6 @@ export function AdminVideoForm() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       form.reset();
-      setThumbnailUrl(null);
       toast({
         title: "Success",
         description: "Video added successfully",
@@ -183,41 +168,6 @@ export function AdminVideoForm() {
                 </FormItem>
               )}
             />
-
-            <div className="space-y-2">
-              <FormLabel>Thumbnail (Required)</FormLabel>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                {thumbnailUrl ? (
-                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                    <img
-                      src={thumbnailUrl}
-                      alt="Video thumbnail"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                ) : (
-                  <div className="w-40 h-24 bg-muted rounded-lg flex items-center justify-center">
-                    <span className="text-sm text-muted-foreground">No thumbnail</span>
-                  </div>
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleUploadClick}
-                  disabled={isUploadingThumbnail}
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  {isUploadingThumbnail ? "Uploading..." : "Upload Thumbnail"}
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  onChange={handleFileChange}
-                  accept="image/*"
-                  className="hidden"
-                />
-              </div>
-            </div>
 
             <FormField
               control={form.control}
@@ -305,7 +255,7 @@ export function AdminVideoForm() {
             <Button
               type="submit"
               className="w-full"
-              disabled={addVideoMutation.isPending || !thumbnailUrl}
+              disabled={addVideoMutation.isPending}
             >
               {addVideoMutation.isPending ? "Adding..." : "Add Video"}
             </Button>
