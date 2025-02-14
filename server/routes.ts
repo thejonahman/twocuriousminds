@@ -495,23 +495,47 @@ export function registerRoutes(app: Express): Server {
     res.json({ message: "Successfully left the group" });
   }));
 
-  app.delete("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
+  app.delete("/api/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.id);
+    console.log(`Attempting to delete video ${videoId}`);
 
     if (isNaN(videoId)) {
+      console.error('Invalid video ID provided:', req.params.id);
       return res.status(400).json({ message: "Invalid video ID" });
     }
 
-    // Implement soft delete by updating isDeleted flag
-    await db
-      .update(videos)
-      .set({
-        isDeleted: true,
-        updatedAt: new Date()
-      })
-      .where(eq(videos.id, videoId));
+    try {
+      // Get the video first to check if it exists
+      const video = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId)
+      });
 
-    res.json({ message: "Video deleted successfully" });
+      if (!video) {
+        console.error('Video not found:', videoId);
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      console.log(`Found video to delete:`, video);
+
+      // Implement soft delete by updating isDeleted flag
+      const [updatedVideo] = await db
+        .update(videos)
+        .set({
+          isDeleted: true,
+          updatedAt: new Date()
+        })
+        .where(eq(videos.id, videoId))
+        .returning();
+
+      console.log(`Video ${videoId} soft deleted successfully:`, updatedVideo);
+      res.json({ message: "Video deleted successfully", video: updatedVideo });
+    } catch (error) {
+      console.error('Error soft deleting video:', error);
+      res.status(500).json({ 
+        message: "Error deleting video", 
+        error: error instanceof Error ? error.message : "Unknown error" 
+      });
+    }
   }));
 
   // Preferences endpoints

@@ -23,11 +23,9 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-
-  console.log('VideoGrid received videos:', videos);
+  const [deletingVideoId, setDeletingVideoId] = useState<number | null>(null);
 
   if (!videos || videos.length === 0) {
-    console.log('No videos available:', { videos });
     return (
       <div className="text-center py-8">
         <p className="text-muted-foreground">No videos found</p>
@@ -41,41 +39,62 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
-      console.log('Attempting to delete video:', videoId);
-      const response = await fetch(`/api/videos/${videoId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json'
+      console.log('Starting delete mutation for video:', videoId);
+      try {
+        const response = await fetch(`/api/videos/${videoId}`, {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          console.error('Delete request failed:', error);
+          throw new Error(error.message || 'Failed to delete video');
         }
+
+        const data = await response.json();
+        console.log('Delete successful:', data);
+        return data;
+      } catch (error) {
+        console.error('Error in delete mutation:', error);
+        throw error;
+      } finally {
+        setDeletingVideoId(null);
+      }
+    },
+    onMutate: (videoId) => {
+      console.log('Optimistically updating UI for video deletion:', videoId);
+      setDeletingVideoId(videoId);
+      queryClient.cancelQueries({ queryKey: ["/api/videos"] });
+      const previousVideos = queryClient.getQueryData<Video[]>(["/api/videos"]);
+
+      queryClient.setQueryData<Video[]>(["/api/videos"], (old) => {
+        if (!old) return [];
+        return old.filter(video => video.id !== videoId);
       });
 
-      console.log('Delete response status:', response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Delete response error:', errorData);
-        throw new Error(errorData.message || "Failed to delete video");
+      return { previousVideos };
+    },
+    onError: (err: Error, videoId, context) => {
+      console.error('Delete mutation error:', err);
+      if (context?.previousVideos) {
+        queryClient.setQueryData(["/api/videos"], context.previousVideos);
       }
-
-      const data = await response.json();
-      console.log('Delete response data:', data);
-      return data;
+      toast({
+        title: "Error",
+        description: err.message || "Failed to delete video",
+        variant: "destructive",
+      });
     },
     onSuccess: (data) => {
-      console.log('Delete mutation success:', data);
+      console.log('Delete mutation succeeded:', data);
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
         description: "Video deleted successfully",
-      });
-    },
-    onError: (error: Error) => {
-      console.error('Delete mutation error:', error);
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
       });
     },
   });
@@ -92,6 +111,11 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
       setSelectedVideo(null);
     }, 300);
   }, []);
+
+  const handleDelete = useCallback((videoId: number) => {
+    if (deletingVideoId !== null) return; // Prevent multiple deletion attempts
+    deleteMutation.mutate(videoId);
+  }, [deleteMutation, deletingVideoId]);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -134,11 +158,6 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
       return newSet;
     });
   };
-
-  const handleDelete = useCallback((videoId: number) => {
-    console.log('Delete handler called for video:', videoId);
-    deleteMutation.mutate(videoId);
-  }, [deleteMutation]);
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" ref={gridRef}>
@@ -210,8 +229,10 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                     size="icon"
                     onClick={(e) => {
                       e.preventDefault();
+                      e.stopPropagation();
                       handleDialogOpen(video);
                     }}
+                    className="text-muted-foreground hover:text-foreground"
                   >
                     <Pencil className="h-4 w-4" />
                   </Button>
@@ -226,11 +247,19 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                           e.preventDefault();
                           e.stopPropagation();
                         }}
+                        disabled={deleteMutation.isPending && deletingVideoId === video.id}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        {deleteMutation.isPending && deletingVideoId === video.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
                       </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                    <AlertDialogContent 
+                      onClick={(e) => e.stopPropagation()}
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                    >
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete Video</AlertDialogTitle>
                         <AlertDialogDescription>
@@ -243,12 +272,19 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            console.log('Delete button clicked for video:', video.id);
                             handleDelete(video.id);
                           }}
-                          className="bg-destructive hover:bg-destructive/90"
+                          className="bg-destructive hover:bg-destructive/90 relative"
+                          disabled={deleteMutation.isPending && deletingVideoId === video.id}
                         >
-                          Delete
+                          {deleteMutation.isPending && deletingVideoId === video.id ? (
+                            <div className="flex items-center">
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              <span>Deleting...</span>
+                            </div>
+                          ) : (
+                            'Delete'
+                          )}
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
