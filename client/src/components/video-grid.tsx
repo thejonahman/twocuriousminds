@@ -15,12 +15,6 @@ import { apiRequest } from "@/lib/queryClient";
 import { Video } from "@/lib/types";
 import { ErrorBoundary } from "./error-boundary";
 
-interface VideoGridProps {
-  videos: Video[];
-  showEditButton?: boolean;
-  highlightVideoId?: number;
-}
-
 interface ThumbnailState {
   loading: Set<number>;
   failed: Set<number>;
@@ -164,6 +158,13 @@ const VideoThumbnail = memo(({ video, thumbnailState, onThumbnailStateChange }: 
     </AspectRatio>
   );
 });
+
+export interface VideoGridProps {
+  videos: Video[];
+  showEditButton?: boolean;
+  highlightVideoId?: number;
+}
+
 
 export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: VideoGridProps) {
   const startTime = useRef(performance.now());

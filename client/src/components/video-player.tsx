@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { AspectRatio } from "@/components/ui/aspect-ratio";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Maximize2, Minimize2, AlertTriangle } from "lucide-react";
+import { Maximize2, Minimize2, AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 interface Video {
@@ -15,14 +15,17 @@ export function VideoPlayer({ video }: { video: Video }) {
   const [isFullWidth, setIsFullWidth] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const loadStartTime = useRef(Date.now());
+  const loadStartTime = useRef(performance.now());
+  const maxRetries = 3;
 
   const getEmbedUrl = (url: string, platform: string) => {
     try {
       console.log(`Generating embed URL for platform: ${platform}`, {
         originalUrl: url,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        retryAttempt: retryCount + 1
       });
 
       switch (platform.toLowerCase()) {
@@ -43,11 +46,20 @@ export function VideoPlayer({ video }: { video: Video }) {
           return url;
         }
         default:
-          console.warn(`Unsupported platform: ${platform}`);
+          console.warn(`Unsupported platform: ${platform}`, {
+            url,
+            timestamp: new Date().toISOString()
+          });
           return url;
       }
     } catch (error) {
-      console.error('Error parsing video URL:', error);
+      console.error('Error parsing video URL:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        platform,
+        url,
+        timestamp: new Date().toISOString()
+      });
       setHasError(true);
       toast({
         title: "Error Loading Video",
@@ -62,29 +74,53 @@ export function VideoPlayer({ video }: { video: Video }) {
 
   useEffect(() => {
     const handleIframeLoad = () => {
-      const loadTime = Date.now() - loadStartTime.current;
-      console.log(`Video iframe loaded`, {
+      const loadTime = performance.now() - loadStartTime.current;
+      console.log(`Video iframe loaded successfully`, {
         platform: video.platform,
-        loadTime: `${loadTime}ms`,
+        loadTime: `${loadTime.toFixed(2)}ms`,
+        retryCount,
         timestamp: new Date().toISOString()
       });
       setIsLoading(false);
       setHasError(false);
+      // Reset retry count on successful load
+      setRetryCount(0);
     };
 
     const handleIframeError = () => {
+      const currentRetryCount = retryCount + 1;
       console.error(`Failed to load video iframe`, {
         platform: video.platform,
         url: embedUrl,
-        timestamp: new Date().toISOString()
+        attempt: currentRetryCount,
+        maxRetries,
+        timestamp: new Date().toISOString(),
+        performance: {
+          totalTime: performance.now() - loadStartTime.current,
+          retryDelay: currentRetryCount * 1000
+        }
       });
-      setHasError(true);
-      setIsLoading(false);
-      toast({
-        title: "Video Load Error",
-        description: `Failed to load ${video.title || 'video'}. Please try again later.`,
-        variant: "destructive",
-      });
+
+      if (currentRetryCount < maxRetries) {
+        setRetryCount(currentRetryCount);
+        console.log(`Retrying video load... (Attempt ${currentRetryCount}/${maxRetries})`);
+
+        // Reset iframe src to trigger reload
+        const iframe = iframeRef.current;
+        if (iframe) {
+          setTimeout(() => {
+            iframe.src = `${embedUrl}?retry=${currentRetryCount}&t=${Date.now()}`;
+          }, currentRetryCount * 1000); // Exponential backoff
+        }
+      } else {
+        setHasError(true);
+        setIsLoading(false);
+        toast({
+          title: "Video Load Error",
+          description: `Failed to load ${video.title || 'video'} after ${maxRetries} attempts. Please try again later.`,
+          variant: "destructive",
+        });
+      }
     };
 
     const iframe = iframeRef.current;
@@ -93,24 +129,25 @@ export function VideoPlayer({ video }: { video: Video }) {
       iframe.addEventListener('error', handleIframeError);
     }
 
+    // Log component mount
+    console.log(`VideoPlayer mounted for ${video.platform} video`, {
+      timestamp: new Date().toISOString(),
+      platform: video.platform,
+      hasIframe: !!iframe
+    });
+
     return () => {
+      // Cleanup event listeners and log unmount
       if (iframe) {
         iframe.removeEventListener('load', handleIframeLoad);
         iframe.removeEventListener('error', handleIframeError);
       }
+      console.log(`VideoPlayer unmounted for ${video.platform} video`, {
+        timestamp: new Date().toISOString(),
+        totalMountTime: performance.now() - loadStartTime.current
+      });
     };
-  }, [video.platform, video.title, embedUrl]);
-
-  const getAspectRatio = () => {
-    switch (video.platform.toLowerCase()) {
-      case 'tiktok':
-        return 9/16;
-      case 'instagram':
-        return 4/5;
-      default:
-        return 16/9;
-    }
-  };
+  }, [video.platform, video.title, embedUrl, retryCount, video.url]);
 
   return (
     <div className="space-y-4">
@@ -146,10 +183,17 @@ export function VideoPlayer({ video }: { video: Video }) {
                   : 'w-full max-w-[800px]'
           }`}
         >
-          <AspectRatio ratio={getAspectRatio()}>
-            {isLoading && (
-              <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
-                <div className="animate-pulse text-muted-foreground">Loading...</div>
+          <AspectRatio ratio={getAspectRatio(video.platform)}>
+            {(isLoading || retryCount > 0) && (
+              <div className="absolute inset-0 flex items-center justify-center bg-muted/50 backdrop-blur-sm">
+                <div className="flex flex-col items-center gap-2">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  {retryCount > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      Retry attempt {retryCount}/{maxRetries}
+                    </span>
+                  )}
+                </div>
               </div>
             )}
             {hasError && (
@@ -157,13 +201,30 @@ export function VideoPlayer({ video }: { video: Video }) {
                 <div className="flex flex-col items-center gap-2 text-destructive">
                   <AlertTriangle className="h-6 w-6" />
                   <span className="text-sm">Failed to load video</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setHasError(false);
+                      setIsLoading(true);
+                      setRetryCount(0);
+                      if (iframeRef.current) {
+                        iframeRef.current.src = embedUrl;
+                      }
+                    }}
+                    className="mt-2"
+                  >
+                    Try Again
+                  </Button>
                 </div>
               </div>
             )}
             <iframe
               ref={iframeRef}
               src={embedUrl}
-              className={`w-full h-full transition-opacity duration-300 ${isLoading ? 'opacity-0' : 'opacity-100'}`}
+              className={`w-full h-full transition-opacity duration-300 ${
+                isLoading || hasError ? 'opacity-0' : 'opacity-100'
+              }`}
               frameBorder="0"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
@@ -174,4 +235,15 @@ export function VideoPlayer({ video }: { video: Video }) {
       </div>
     </div>
   );
+}
+
+function getAspectRatio(platform: string): number {
+  switch (platform.toLowerCase()) {
+    case 'tiktok':
+      return 9/16;
+    case 'instagram':
+      return 4/5;
+    default:
+      return 16/9;
+  }
 }

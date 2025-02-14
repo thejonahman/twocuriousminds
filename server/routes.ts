@@ -356,79 +356,109 @@ export function registerRoutes(app: Express): Server {
     const { name, videoId, description } = req.body;
     const userId = req.user?.id;
 
+    console.log('Creating new group:', {
+      name,
+      videoId,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+
     if (!userId || !videoId || !name) {
+      console.error('Missing required fields:', {
+        hasUserId: !!userId,
+        hasVideoId: !!videoId,
+        hasName: !!name
+      });
       return res.status(400).json({ message: "Missing required fields" });
     }
 
     // Generate a random invite code
     const inviteCode = Math.random().toString(36).substring(2, 15);
 
-    // Create the group and add creator as member in a single transaction
-    const [group] = await db.transaction(async (tx) => {
-      // Create the group with all required fields
-      const [newGroup] = await tx
-        .insert(discussionGroups)
-        .values({
-          groupName: name, // Changed from name to groupName to match schema
-          description: description || `Discussion group for video ${videoId}`,
-          videoId,
-          creatorId: userId,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          inviteCode,
-          isPrivate: false,
-          isDeleted: false
-        })
-        .returning();
+    try {
+      // Create the group and add creator as member in a single transaction
+      const [group] = await db.transaction(async (tx) => {
+        // Create the group with all required fields
+        const [newGroup] = await tx
+          .insert(discussionGroups)
+          .values({
+            name, // Changed from groupName to name to match schema
+            description: description || `Discussion group for video ${videoId}`,
+            videoId,
+            creatorId: userId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            inviteCode,
+            isPrivate: false,
+            isDeleted: false
+          })
+          .returning();
 
-      // Add the creator as a member and admin
-      await tx
-        .insert(groupMembers)
-        .values({
-          userId,
+        // Add the creator as a member and admin
+        await tx
+          .insert(groupMembers)
+          .values({
+            userId,
+            groupId: newGroup.id,
+            role: 'admin',
+            joinedAt: new Date(),
+            lastReadAt: new Date(),
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0
+          });
+
+        console.log('Successfully created group:', {
           groupId: newGroup.id,
-          role: 'admin',
-          joinedAt: new Date(),
-          lastReadAt: new Date(),
-          notificationsEnabled: true,
-          emailNotifications: false,
-          unreadCount: 0
+          creatorId: userId,
+          timestamp: new Date().toISOString()
         });
 
-      return [newGroup];
-    });
+        return [newGroup];
+      });
 
-    // Update the group response to include username
-    const groupWithDetails = await db.query.discussionGroups.findFirst({
-      where: eq(discussionGroups.id, group.id),
-      with: {
-        members: {
-          with: {
-            user: {
-              columns: {
-                username: true,
-                id: true
+      // Update the group response to include username
+      const groupWithDetails = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, group.id),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true,
+                  id: true,
+                  email: true
+                }
               }
             }
           }
         }
+      });
+
+      if (!groupWithDetails) {
+        throw new Error('Failed to create group');
       }
-    });
 
-    if (!groupWithDetails) {
-      throw new Error('Failed to create group');
+      // Transform the response to match the expected schema
+      const response = {
+        ...groupWithDetails,
+        members: groupWithDetails.members.map(member => ({
+          ...member,
+          username: member.user.username,
+          userId: member.user.id,
+          email: member.user.email
+        }))
+      };
+
+      res.status(201).json(response);
+    } catch (error) {
+      console.error('Error creating group:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      throw error; // Let the global error handler handle it
     }
-
-    // Transform the response to match the expected schema
-    const response = {
-      ...groupWithDetails,
-      members: groupWithDetails.members.map(member => ({
-        ...member,
-        username: member.user.username
-      }))
-    };
-
-    res.status(201).json(response);
   }));
 
 

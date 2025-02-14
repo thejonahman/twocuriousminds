@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { createServer as createNetServer, type Server as NetServer } from 'net';
 
 const app = express();
 app.use(express.json());
@@ -79,24 +80,24 @@ app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
 
   // Ensure we always return JSON for API routes
   res.status(status)
-     .set('Content-Type', 'application/json')
-     .json({
-       error: message,
-       success: false,
-       timestamp: new Date().toISOString()
-     });
+    .set('Content-Type', 'application/json')
+    .json({
+      error: message,
+      success: false,
+      timestamp: new Date().toISOString()
+    });
 });
 
 // Add catch-all handler for /api routes to prevent falling through to Vite
 app.use('/api/*', (req: Request, res: Response) => {
   console.log(`[404] No API route found for ${req.method} ${req.path}`);
   res.status(404)
-     .set('Content-Type', 'application/json')
-     .json({
-       error: 'API endpoint not found',
-       success: false,
-       timestamp: new Date().toISOString()
-     });
+    .set('Content-Type', 'application/json')
+    .json({
+      error: 'API endpoint not found',
+      success: false,
+      timestamp: new Date().toISOString()
+    });
 });
 
 // Setup Vite only after API routes are registered
@@ -110,15 +111,45 @@ if (app.get("env") === "development") {
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 
-// Start server with explicit host binding and additional logging
-server.listen(Number(PORT), HOST, () => {
-  const startupMessage = `Server started and ready on http://${HOST}:${PORT}`;
-  log(startupMessage);
-  console.log('=== Server Configuration ===');
-  console.log(`Environment: ${app.get("env")}`);
-  console.log(`Port: ${PORT}`);
-  console.log(`Host: ${HOST}`);
-  console.log(`Timestamp: ${new Date().toISOString()}`);
-  console.log('=========================');
-  console.log('Server is now ready to accept connections');
-});
+// Function to check if port is in use using ESM
+function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester: NetServer = createNetServer()
+      .once('error', () => resolve(true))
+      .once('listening', () => {
+        tester.once('close', () => resolve(false)).close();
+      })
+      .listen(port);
+  });
+}
+
+// Start server with port availability check and explicit host binding
+async function startServer() {
+  try {
+    const portInUse = await isPortInUse(Number(PORT));
+    if (portInUse) {
+      console.error(`Port ${PORT} is already in use. Please choose a different port.`);
+      process.exit(1);
+    }
+
+    server.listen(Number(PORT), HOST, () => {
+      const startupMessage = `Server started and ready on http://${HOST}:${PORT}`;
+      log(startupMessage);
+      console.log('=== Server Configuration ===');
+      console.log(`Environment: ${app.get("env")}`);
+      console.log(`Port: ${PORT}`);
+      console.log(`Host: ${HOST}`);
+      console.log(`Timestamp: ${new Date().toISOString()}`);
+      console.log('=========================');
+      console.log('Server is now ready to accept connections');
+
+      // Signal that the server is ready (for workflow port waiting)
+      process.send?.('ready');
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
