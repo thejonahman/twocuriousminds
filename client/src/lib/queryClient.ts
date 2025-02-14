@@ -19,24 +19,44 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+interface ApiRequestOptions {
+  headers?: Record<string, string>;
+  isFormData?: boolean;
+}
+
 export async function apiRequest(
   method: string,
   url: string,
-  data?: unknown | undefined,
+  data?: unknown,
+  options: ApiRequestOptions = {}
 ): Promise<Response> {
-  console.log(`Making ${method} request to ${url}`, data);
+  const { headers = {}, isFormData = false } = options;
 
-  const res = await fetch(url, {
+  const requestHeaders: Record<string, string> = {
+    Accept: "application/json",
+    ...headers
+  };
+
+  // Only set Content-Type for non-FormData requests
+  if (!isFormData && data) {
+    requestHeaders["Content-Type"] = "application/json";
+  }
+
+  const config: RequestInit = {
     method,
-    headers: {
-      ...(data ? { "Content-Type": "application/json" } : {}),
-      Accept: "application/json"
-    },
-    body: data ? JSON.stringify(data) : undefined,
+    headers: requestHeaders,
     credentials: "include",
-  });
+  };
 
+  if (data) {
+    config.body = isFormData ? data as FormData : JSON.stringify(data);
+  }
+
+  console.log(`Making ${method} request to ${url}`, { headers: requestHeaders, isFormData });
+
+  const res = await fetch(url, config);
   console.log(`Response status: ${res.status}`);
+
   await throwIfResNotOk(res);
   return res;
 }
@@ -68,7 +88,7 @@ export const queryClient = new QueryClient({
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
       refetchOnWindowFocus: false,
-      staleTime: 0, // Changed from Infinity to 0 to ensure fresh data after mutations
+      staleTime: 0,
       retry: false,
     },
     mutations: {

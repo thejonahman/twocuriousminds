@@ -90,7 +90,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const generateThumbnailMutation = useMutation({
     mutationFn: async () => {
       setIsGeneratingThumbnail(true);
-      const formData = {
+      const payload = {
         url: form.getValues("url"),
         platform: form.getValues("platform"),
         title: form.getValues("title"),
@@ -98,15 +98,15 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         videoId: video.id
       };
 
-      console.log('Generating thumbnail with data:', formData);
-      const response = await apiRequest("POST", '/api/thumbnails/generate', formData);
+      console.log('Generating thumbnail with data:', payload);
+      const response = await apiRequest("POST", '/api/thumbnails/generate', payload);
+      const data = await response.json();
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to generate thumbnail");
+      if (!data.success) {
+        throw new Error(data.error || "Failed to generate thumbnail");
       }
 
-      return response.json();
+      return data;
     },
     onSuccess: (data) => {
       console.log('Thumbnail generated successfully:', data);
@@ -140,18 +140,20 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       const formData = new FormData();
       formData.append('thumbnail', file);
 
-      const response = await fetch(`/api/thumbnails/${video.id}/thumbnail`, {
-        method: 'PATCH',
-        body: formData,
-        credentials: 'include'
-      });
+      const response = await apiRequest(
+        "PATCH",
+        `/api/thumbnails/${video.id}/thumbnail`,
+        formData,
+        { isFormData: true }
+      );
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to upload thumbnail");
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || "Failed to upload thumbnail");
       }
 
-      return response.json();
+      return data;
     },
     onSuccess: (data) => {
       console.log('Thumbnail uploaded successfully:', data);

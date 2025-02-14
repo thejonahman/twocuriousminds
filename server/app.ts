@@ -1,6 +1,7 @@
 import express from 'express';
 import thumbnailRoutes from './routes/thumbnail';
 import { setupAuth } from './auth';
+import multer from 'multer';
 
 const app = express();
 
@@ -17,6 +18,19 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// Handle multer errors before routes
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err instanceof multer.MulterError) {
+    console.error('Multer error:', err);
+    return res.status(400).json({
+      success: false,
+      error: 'File upload error',
+      details: err.message
+    });
+  }
+  next(err);
+});
+
 // Register thumbnail routes
 app.use('/api/thumbnails', thumbnailRoutes);
 
@@ -26,15 +40,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
   // Always set JSON content type
   res.setHeader('Content-Type', 'application/json');
-
-  // Handle multer errors specifically
-  if (err instanceof Error && err.name === 'MulterError') {
-    return res.status(400).json({
-      success: false,
-      error: 'File upload error',
-      details: err.message
-    });
-  }
 
   // Handle other errors
   const status = err.status || 500;

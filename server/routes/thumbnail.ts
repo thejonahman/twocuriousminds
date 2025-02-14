@@ -15,21 +15,14 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
   fileFilter: (req, file, cb) => {
-    console.log('Processing uploaded file:', {
-      originalname: file.originalname,
-      mimetype: file.mimetype,
-      size: file.size
-    });
-
+    console.log('Multer processing file:', file.originalname, 'type:', file.mimetype);
     if (!file.mimetype.startsWith('image/')) {
-      console.error('Invalid file type:', file.mimetype);
       cb(new Error('Only image files are allowed'));
       return;
     }
-    console.log('File type validated successfully');
     cb(null, true);
   }
-});
+}).single('thumbnail');
 
 const thumbnailRequestSchema = z.object({
   url: z.string().url("Must be a valid URL"),
@@ -41,7 +34,7 @@ const thumbnailRequestSchema = z.object({
 
 router.post('/generate', async (req, res) => {
   try {
-    console.log('Starting thumbnail generation request:', req.body);
+    console.log('Received thumbnail generation request:', req.body);
 
     // Validate request body
     const validation = thumbnailRequestSchema.safeParse(req.body);
@@ -55,11 +48,10 @@ router.post('/generate', async (req, res) => {
     }
 
     const { title, description, videoId, url, platform } = validation.data;
-    console.log('Processing request for:', { title, description, videoId, url, platform });
 
     // Get images folder path
     const imagesFolder = path.join(process.cwd(), 'attached_assets');
-    console.log('Using images folder:', imagesFolder);
+    console.log('Looking for images in:', imagesFolder);
 
     if (!fs.existsSync(imagesFolder)) {
       console.error('Images folder not found:', imagesFolder);
@@ -76,7 +68,7 @@ router.post('/generate', async (req, res) => {
       description || '',
       imagesFolder
     );
-    console.log('Found matching file:', fileName);
+    console.log('Selected image file:', fileName);
 
     let thumbnailUrl: string;
 
@@ -87,6 +79,7 @@ router.post('/generate', async (req, res) => {
         const imageBuffer = fs.readFileSync(imagePath);
         const extension = path.extname(fileName).substring(1);
         thumbnailUrl = `data:image/${extension};base64,${imageBuffer.toString('base64')}`;
+        console.log('Successfully generated thumbnail from file');
       } catch (readError) {
         console.error('Error reading image file:', readError);
         return res.status(500).json({
@@ -109,12 +102,10 @@ router.post('/generate', async (req, res) => {
       thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(svgContent.trim()).toString('base64')}`;
     }
 
-    console.log('Sending successful response');
     return res.status(200).json({ 
       success: true,
       thumbnailUrl
     });
-
   } catch (error) {
     console.error('Unhandled error in thumbnail generation:', error);
     return res.status(500).json({ 
@@ -126,37 +117,55 @@ router.post('/generate', async (req, res) => {
 });
 
 // Handle custom thumbnail uploads
-router.patch('/:videoId/thumbnail', upload.single('thumbnail'), async (req, res) => {
-  try {
-    console.log('Processing thumbnail upload request for video:', req.params.videoId);
-    console.log('Request headers:', req.headers);
-    console.log('Request files:', req.file);
+router.patch('/:videoId/thumbnail', (req, res) => {
+  console.log('Received thumbnail upload request for video:', req.params.videoId);
 
-    if (!req.file) {
-      console.error('No file provided in request');
+  upload(req, res, (err) => {
+    if (err instanceof multer.MulterError) {
+      console.error('Multer error:', err);
       return res.status(400).json({
         success: false,
-        error: 'No file uploaded',
-        details: 'Please provide a thumbnail image file'
+        error: 'File upload error',
+        details: err.message
+      });
+    } else if (err) {
+      console.error('Unknown upload error:', err);
+      return res.status(400).json({
+        success: false,
+        error: 'File upload failed',
+        details: err.message
       });
     }
 
-    // Convert the uploaded file to base64
-    const thumbnailUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
-    console.log('Successfully processed uploaded thumbnail');
+    try {
+      console.log('File upload completed, processing request');
+      console.log('Request file:', req.file);
 
-    return res.status(200).json({
-      success: true,
-      thumbnailUrl
-    });
-  } catch (error) {
-    console.error('Error uploading thumbnail:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to upload thumbnail',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
+      if (!req.file) {
+        console.error('No file provided in request');
+        return res.status(400).json({
+          success: false,
+          error: 'No file uploaded',
+          details: 'Please provide a thumbnail image file'
+        });
+      }
+
+      const thumbnailUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+      console.log('Successfully processed thumbnail');
+
+      return res.status(200).json({
+        success: true,
+        thumbnailUrl
+      });
+    } catch (error) {
+      console.error('Error processing thumbnail:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to process thumbnail',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
 });
 
 export default router;
