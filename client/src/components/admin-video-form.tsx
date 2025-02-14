@@ -123,8 +123,10 @@ export function AdminVideoForm() {
         title: "Success",
         description: "Video added successfully",
       });
-      // Navigate to admin manage page
-      setLocation("/admin/manage");
+      // Add logging to confirm the video ID
+      console.log('New video added with ID:', data.id);
+      // Navigate to admin manage page with highlight parameter
+      setLocation(`/admin/manage?highlight=${data.id}`);
     },
     onError: (error: Error) => {
       toast({
