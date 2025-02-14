@@ -1,7 +1,7 @@
 import { createServer, type Server } from "http";
-import express, { type Express, type NextFunction, type Request, type Response } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
 import { db } from "@db";
-import { sql, eq, and, desc } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
 import { videos } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
 import multer from 'multer';
@@ -68,37 +68,44 @@ export function registerRoutes(app: Express): Server {
   // Setup static file serving for uploads
   app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 
-  // File upload endpoint - moved to top to ensure proper registration
-  app.post("/api/upload", requireAuth, upload.single('thumbnail'), async (req: AuthenticatedRequest, res: Response) => {
-    console.log('[API] Processing file upload request');
+  // Test upload endpoint
+  app.post("/api/test-upload", upload.single('file'), async (req: Request, res: Response) => {
+    console.log('[API] Testing file upload');
     try {
       if (!req.file) {
-        console.log('[API] No file uploaded');
-        return res.status(400).json({ message: "No file uploaded" });
+        console.log('[API] No file received in test upload');
+        return res.status(400).json({ success: false, message: "No file uploaded" });
       }
 
-      // Return the URL path to the uploaded file
-      const fileUrl = `/uploads/${req.file.filename}`;
-      console.log('[API] File uploaded successfully:', fileUrl);
-      res.json({ url: fileUrl });
+      console.log('[API] Test file uploaded successfully:', req.file);
+      res.json({ 
+        success: true, 
+        message: "File uploaded successfully",
+        file: {
+          filename: req.file.filename,
+          path: `/uploads/${req.file.filename}`,
+          size: req.file.size,
+          mimetype: req.file.mimetype
+        }
+      });
     } catch (error) {
-      console.error('[API] File upload error:', error);
-      res.status(500).json({ message: "Error uploading file" });
+      console.error('[API] Test upload error:', error);
+      res.status(500).json({ success: false, message: "Error uploading file" });
     }
   });
 
-  // Add thumbnail update endpoint for existing videos
-  app.patch("/api/videos/:id/thumbnail", requireAuth, upload.single('thumbnail'), async (req: AuthenticatedRequest, res: Response) => {
+  // File upload endpoint for video thumbnails
+  app.post("/api/videos/:id/thumbnail", requireAuth, upload.single('thumbnail'), async (req: AuthenticatedRequest, res: Response) => {
     console.log('[API] Processing thumbnail update for video');
     const videoId = parseInt(req.params.id);
 
     if (isNaN(videoId)) {
-      return res.status(400).json({ message: "Invalid video ID" });
+      return res.status(400).json({ success: false, message: "Invalid video ID" });
     }
 
     try {
       if (!req.file) {
-        return res.status(400).json({ message: "No thumbnail uploaded" });
+        return res.status(400).json({ success: false, message: "No thumbnail uploaded" });
       }
 
       // Get the existing video
@@ -107,7 +114,7 @@ export function registerRoutes(app: Express): Server {
       });
 
       if (!existingVideo) {
-        return res.status(404).json({ message: "Video not found" });
+        return res.status(404).json({ success: false, message: "Video not found" });
       }
 
       // Generate the new thumbnail URL
@@ -129,10 +136,10 @@ export function registerRoutes(app: Express): Server {
         }
       });
 
-      res.json(updatedVideo);
+      res.json({ success: true, video: updatedVideo });
     } catch (error) {
       console.error('[API] Error updating thumbnail:', error);
-      res.status(500).json({ message: "Error updating thumbnail" });
+      res.status(500).json({ success: false, message: "Error updating thumbnail" });
     }
   });
 
