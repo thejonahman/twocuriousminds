@@ -151,9 +151,9 @@ export function AdminVideoForm() {
   const generateThumbnailMutation = useMutation({
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
       const response = await apiRequest("POST", "/api/thumbnails/generate", {
-        title, 
+        title,
         description,
-        videoId: currentVideoId, 
+        videoId: currentVideoId,
         url: form.getValues("url"),
         platform: form.getValues("platform")
       });
@@ -190,6 +190,167 @@ export function AdminVideoForm() {
 
   const onSubmit = (data: VideoFormData) => {
     addVideoMutation.mutate(data);
+  };
+
+  const handleGenerateThumbnail = async () => {
+    const title = form.getValues("title");
+    const description = form.getValues("description");
+
+    if (!title) {
+      toast({
+        title: "Error",
+        description: "Please enter a title before generating a thumbnail",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsGeneratingThumbnail(true);
+    generateThumbnailMutation.mutate({ title, description });
+  };
+
+  const handleAddTopic = async () => {
+    if (!newTopicName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a topic name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const response = await apiRequest("POST", "/api/categories", {
+        name: newTopicName.trim()
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to add topic");
+      }
+
+      const newCategory = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      setNewTopicDialogOpen(false);
+      setNewTopicName("");
+
+      toast({
+        title: "Success",
+        description: "Topic added successfully"
+      });
+
+      // Select the newly created category
+      form.setValue("categoryId", String(newCategory.id));
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add topic",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteTopic = async () => {
+    if (!selectedTopicToDelete) return;
+
+    try {
+      const response = await apiRequest("DELETE", `/api/categories/${selectedTopicToDelete}`);
+
+      if (!response.ok) {
+        throw new Error("Failed to delete topic");
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      setDeleteTopicDialogOpen(false);
+      setSelectedTopicToDelete(null);
+      form.setValue("categoryId", "");
+      form.setValue("subcategoryId", "");
+
+      toast({
+        title: "Success",
+        description: "Topic deleted successfully"
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete topic",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleAddSubtopic = async () => {
+    if (!newSubtopicName.trim() || !selectedCategoryId) {
+      toast({
+        title: "Error",
+        description: "Please enter a subtopic name and select a topic",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const response = await apiRequest("POST", `/api/categories/${selectedCategoryId}/subcategories`, {
+        name: newSubtopicName.trim()
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to add subtopic");
+      }
+
+      const newSubcategory = await response.json();
+      queryClient.invalidateQueries({
+        queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
+      });
+      setNewSubtopicDialogOpen(false);
+      setNewSubtopicName("");
+
+      toast({
+        title: "Success",
+        description: "Subtopic added successfully"
+      });
+
+      // Select the newly created subcategory
+      form.setValue("subcategoryId", String(newSubcategory.id));
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to add subtopic",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteSubtopic = async () => {
+    if (!selectedSubtopicToDelete || !selectedCategoryId) return;
+
+    try {
+      const response = await apiRequest(
+        "DELETE",
+        `/api/categories/${selectedCategoryId}/subcategories/${selectedSubtopicToDelete}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to delete subtopic");
+      }
+
+      queryClient.invalidateQueries({
+        queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
+      });
+      setDeleteSubtopicDialogOpen(false);
+      setSelectedSubtopicToDelete(null);
+      form.setValue("subcategoryId", "");
+
+      toast({
+        title: "Success",
+        description: "Subtopic deleted successfully"
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete subtopic",
+        variant: "destructive"
+      });
+    }
   };
 
   return (
@@ -382,10 +543,10 @@ export function AdminVideoForm() {
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder={
-                              isSubcategoriesLoading 
-                                ? "Loading..." 
-                                : selectedCategoryId 
-                                  ? "Select subtopic" 
+                              isSubcategoriesLoading
+                                ? "Loading..."
+                                : selectedCategoryId
+                                  ? "Select subtopic"
                                   : "Select a topic first"
                             } />
                           </SelectTrigger>

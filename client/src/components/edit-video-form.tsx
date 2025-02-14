@@ -140,7 +140,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       const formData = new FormData();
       formData.append('thumbnail', file);
 
-      const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
+      const response = await fetch(`/api/thumbnails/${video.id}/thumbnail`, {
         method: 'PATCH',
         body: formData,
         credentials: 'include'
@@ -156,6 +156,11 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     onSuccess: (data) => {
       console.log('Thumbnail uploaded successfully:', data);
       setThumbnailUrl(data.thumbnailUrl);
+      queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
+        if (!oldData) return oldData;
+        return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl: data.thumbnailUrl } : v);
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
         description: "Thumbnail uploaded successfully",
