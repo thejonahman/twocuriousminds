@@ -41,43 +41,35 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
-      console.log('Attempting to delete video:', videoId);
       const response = await fetch(`/api/videos/${videoId}`, {
         method: 'DELETE',
-        credentials: 'include',
         headers: {
           'Content-Type': 'application/json'
-        }
+        },
+        credentials: 'include'
       });
-
-      console.log('Delete response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Delete response error:', errorData);
         throw new Error(errorData.message || "Failed to delete video");
       }
 
-      const data = await response.json();
-      console.log('Delete response data:', data);
-      return data;
+      return response.json();
     },
-    onSuccess: (data) => {
-      console.log('Delete mutation success:', data);
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
-        description: "Video deleted successfully",
+        description: "Video deleted successfully"
       });
     },
     onError: (error: Error) => {
-      console.error('Delete mutation error:', error);
       toast({
         title: "Error",
-        description: error.message,
-        variant: "destructive",
+        description: error.message || "Failed to delete video",
+        variant: "destructive"
       });
-    },
+    }
   });
 
   const handleDialogOpen = useCallback((video: Video) => {
@@ -264,7 +256,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
       ))}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Video</DialogTitle>
           </DialogHeader>
