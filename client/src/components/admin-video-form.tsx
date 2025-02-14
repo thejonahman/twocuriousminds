@@ -9,6 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardHeader, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { AspectRatio } from "@/components/ui/aspect-ratio";
+import { Image as ImageIcon } from "lucide-react";
+import { useState, useRef } from "react";
 
 // Type definitions
 interface Category {
@@ -20,6 +23,9 @@ interface Subcategory {
   id: number;
   name: string;
 }
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ACCEPTED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
@@ -35,7 +41,19 @@ const videoSchema = z.object({
     }, "Must be a YouTube, TikTok, or Instagram URL"),
   categoryId: z.string().min(1, "Category is required"),
   subcategoryId: z.string().optional(),
-  platform: z.enum(["youtube", "tiktok", "instagram"])
+  platform: z.enum(["youtube", "tiktok", "instagram"]),
+  thumbnail: z
+    .instanceof(FileList)
+    .optional()
+    .refine((files) => !files || files.length === 0 || files.length === 1, "Please upload a single file")
+    .refine(
+      (files) => !files || files.length === 0 || files[0].size <= MAX_FILE_SIZE,
+      "Max file size is 5MB"
+    )
+    .refine(
+      (files) => !files || files.length === 0 || ACCEPTED_IMAGE_TYPES.includes(files[0].type),
+      "Only .jpg, .jpeg, .png and .webp files are accepted"
+    ),
 });
 
 type VideoFormData = z.infer<typeof videoSchema>;
@@ -54,6 +72,8 @@ function getVideoThumbnail(url: string, platform: string): string | null {
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -79,9 +99,26 @@ export function AdminVideoForm() {
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
       try {
-        console.log('Form data before submission:', data);
+        let thumbnailUrl = getVideoThumbnail(data.url, data.platform);
 
-        const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
+        // Handle custom thumbnail upload if provided
+        if (data.thumbnail && data.thumbnail.length > 0) {
+          const formData = new FormData();
+          formData.append("thumbnail", data.thumbnail[0]);
+
+          const uploadResponse = await fetch("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          if (!uploadResponse.ok) {
+            throw new Error("Failed to upload thumbnail");
+          }
+
+          const { url } = await uploadResponse.json();
+          thumbnailUrl = url;
+        }
+
         const payload = {
           ...data,
           categoryId: parseInt(data.categoryId),
@@ -89,12 +126,12 @@ export function AdminVideoForm() {
           thumbnailUrl
         };
 
-        console.log('Sending video creation request:', payload);
+        // Remove the thumbnail field as it's already processed
+        delete (payload as any).thumbnail;
 
         const response = await apiRequest("POST", "/api/videos", payload);
         if (!response.ok) {
           const errorData = await response.json().catch(() => null);
-          console.error('Video creation failed:', errorData);
           throw new Error(errorData?.message || errorData?.error || "Failed to add video");
         }
 
@@ -107,6 +144,10 @@ export function AdminVideoForm() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       form.reset();
+      setPreviewUrl(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
       toast({
         title: "Success",
         description: "Video added successfully",
@@ -122,6 +163,19 @@ export function AdminVideoForm() {
     }
   });
 
+  const handleThumbnailChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setPreviewUrl(null);
+    }
+  };
+
   const onSubmit = (data: VideoFormData) => {
     console.log('Form submitted with data:', data);
     addVideoMutation.mutate(data);
@@ -135,6 +189,46 @@ export function AdminVideoForm() {
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <CardContent className="space-y-4">
+            <FormField
+              control={form.control}
+              name="thumbnail"
+              render={({ field: { onChange, value, ...field } }) => (
+                <FormItem>
+                  <FormLabel>Custom Thumbnail (Optional)</FormLabel>
+                  <FormControl>
+                    <div className="space-y-4">
+                      <AspectRatio ratio={16 / 9} className="bg-muted">
+                        <div className="h-full w-full relative">
+                          {previewUrl ? (
+                            <img
+                              src={previewUrl}
+                              alt="Thumbnail preview"
+                              className="object-cover w-full h-full rounded-md"
+                            />
+                          ) : (
+                            <div className="flex items-center justify-center h-full w-full border-2 border-dashed border-muted-foreground/25 rounded-md">
+                              <ImageIcon className="h-8 w-8 text-muted-foreground/25" />
+                            </div>
+                          )}
+                        </div>
+                      </AspectRatio>
+                      <Input
+                        type="file"
+                        accept={ACCEPTED_IMAGE_TYPES.join(",")}
+                        onChange={(e) => {
+                          handleThumbnailChange(e);
+                          onChange(e.target.files);
+                        }}
+                        ref={fileInputRef}
+                        {...field}
+                      />
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
             <FormField
               control={form.control}
               name="title"

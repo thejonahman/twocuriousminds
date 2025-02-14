@@ -7,6 +7,41 @@ import { setupAuth, requireAuth } from "./auth";
 import { Request, Response } from 'express';
 import groupMessagesRouter from './routes/group-messages';
 import { sendUnreadMessagesNotification, resend } from './lib/email';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Invalid file type. Only JPEG, JPG, PNG and WebP are allowed.'));
+    }
+  }
+});
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -24,6 +59,9 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
 
+  // Setup static file serving for uploads
+  app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
+
   // Global middleware to ensure JSON responses for all /api routes
   app.use('/api', (req, res, next) => {
     // Set JSON content type header for all API routes
@@ -36,9 +74,21 @@ export function registerRoutes(app: Express): Server {
   app.use(groupMessagesRouter);
 
   // Wrap all route handlers to ensure proper error handling
-  const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
-    return Promise.resolve(fn(req, res, next)).catch(next);
-  };
+  const asyncHandler = (fn: (req: Request, res: Response, next: NextFunction) => Promise<void>) => 
+    (req: Request, res: Response, next: NextFunction) => {
+      return Promise.resolve(fn(req, res, next)).catch(next);
+    };
+
+  // Add file upload endpoint
+  app.post("/api/upload", requireAuth, upload.single('thumbnail'), asyncHandler(async (req: Request, res: Response) => {
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    // Return the URL path to the uploaded file
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
+  }));
 
   // Public endpoints - no auth required
   app.get("/api/categories", asyncHandler(async (req, res) => {
