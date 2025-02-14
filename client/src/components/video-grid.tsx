@@ -40,42 +40,84 @@ const PlatformIcon = memo(({ platform }: { platform: string }) => {
   }
 });
 
-// Memoized thumbnail component with performance monitoring
+// Memoized thumbnail component with performance monitoring and retry mechanism
 const VideoThumbnail = memo(({ video, thumbnailState, onThumbnailStateChange }: {
   video: Video;
   thumbnailState: ThumbnailState;
   onThumbnailStateChange: (videoId: number, type: 'loading' | 'failed', value: boolean) => void;
 }) => {
   const startTime = useRef(performance.now());
+  const retryCount = useRef(0);
+  const maxRetries = 3;
 
   useEffect(() => {
     const loadTime = performance.now() - startTime.current;
-    console.log(`Thumbnail component mounted for video ${video.id} in ${loadTime.toFixed(2)}ms`);
+    console.log(`Thumbnail component mounted for video ${video.id}:`, {
+      loadTime: `${loadTime.toFixed(2)}ms`,
+      thumbnailUrl: video.thumbnailUrl,
+      platform: video.platform,
+      retryCount: retryCount.current
+    });
 
     return () => {
       console.log(`Thumbnail component unmounted for video ${video.id}`);
     };
-  }, [video.id]);
+  }, [video.id, video.thumbnailUrl, video.platform]);
 
   const handleThumbnailLoading = useCallback(() => {
-    console.log(`Starting to load thumbnail for video ${video.id}`);
+    console.log(`Starting to load thumbnail for video ${video.id}:`, {
+      url: video.thumbnailUrl,
+      attempt: retryCount.current + 1
+    });
     onThumbnailStateChange(video.id, 'loading', true);
-  }, [video.id, onThumbnailStateChange]);
+  }, [video.id, video.thumbnailUrl, onThumbnailStateChange]);
 
   const handleThumbnailLoaded = useCallback(() => {
     const loadTime = performance.now() - startTime.current;
-    console.log(`Thumbnail loaded for video ${video.id} in ${loadTime.toFixed(2)}ms`);
+    console.log(`Thumbnail loaded for video ${video.id}:`, {
+      loadTime: `${loadTime.toFixed(2)}ms`,
+      retryCount: retryCount.current
+    });
     onThumbnailStateChange(video.id, 'loading', false);
+    onThumbnailStateChange(video.id, 'failed', false); // Reset failed state on successful load
   }, [video.id, onThumbnailStateChange]);
 
   const handleThumbnailError = useCallback(() => {
-    console.error(`Failed to load thumbnail for video ${video.id}`, {
+    retryCount.current += 1;
+    console.error(`Failed to load thumbnail for video ${video.id}:`, {
       url: video.thumbnailUrl,
-      platform: video.platform
+      platform: video.platform,
+      attempt: retryCount.current,
+      timestamp: new Date().toISOString(),
+      performance: {
+        totalTime: performance.now() - startTime.current,
+        retryDelay: retryCount.current * 1000
+      }
     });
-    onThumbnailStateChange(video.id, 'failed', true);
-    onThumbnailStateChange(video.id, 'loading', false);
-  }, [video.id, onThumbnailStateChange, video.thumbnailUrl, video.platform]);
+
+    if (retryCount.current < maxRetries) {
+      console.log(`Retrying thumbnail load for video ${video.id}... (Attempt ${retryCount.current + 1}/${maxRetries})`);
+      const img = document.querySelector(`[data-thumbnail-id="${video.id}"]`) as HTMLImageElement;
+      if (img && video.thumbnailUrl) {
+        setTimeout(() => {
+          const cacheBuster = `?retry=${retryCount.current}&t=${Date.now()}`;
+          img.src = video.thumbnailUrl + cacheBuster;
+        }, retryCount.current * 1000); // Exponential backoff
+      }
+    } else {
+      console.error(`Max retries reached for video ${video.id}, marking as failed`, {
+        totalAttempts: retryCount.current,
+        totalTime: performance.now() - startTime.current
+      });
+      onThumbnailStateChange(video.id, 'failed', true);
+      onThumbnailStateChange(video.id, 'loading', false);
+      toast({
+        title: "Thumbnail Load Failed",
+        description: `Could not load thumbnail for "${video.title}" after ${maxRetries} attempts. Using fallback display.`,
+        variant: "destructive",
+      });
+    }
+  }, [video.id, video.thumbnailUrl, video.platform, video.title, onThumbnailStateChange]);
 
   return (
     <AspectRatio ratio={16 / 9}>
@@ -88,13 +130,26 @@ const VideoThumbnail = memo(({ video, thumbnailState, onThumbnailStateChange }: 
           } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
         >
           {thumbnailState.loading.has(video.id) ? (
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <div className="flex flex-col items-center gap-2">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              {retryCount.current > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  Retry {retryCount.current}/{maxRetries}
+                </span>
+              )}
+            </div>
+          ) : thumbnailState.failed.has(video.id) ? (
+            <div className="flex flex-col items-center gap-2">
+              <PlatformIcon platform={video.platform} />
+              <span className="text-xs text-muted-foreground">Failed to load thumbnail</span>
+            </div>
           ) : (
             <PlatformIcon platform={video.platform} />
           )}
         </div>
         {video.thumbnailUrl && !thumbnailState.failed.has(video.id) && (
           <img
+            data-thumbnail-id={video.id}
             src={video.thumbnailUrl}
             alt={video.title}
             className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"

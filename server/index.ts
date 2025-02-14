@@ -13,8 +13,9 @@ app.use((req, res, next) => {
   const method = req.method;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  // Log request details
+  // Enhanced logging for debugging
   console.log(`[REQUEST] ${method} ${path}`, {
+    timestamp: new Date().toISOString(),
     headers: req.headers,
     query: req.query,
     body: req.body
@@ -28,13 +29,14 @@ app.use((req, res, next) => {
     return originalResJson.apply(res, [bodyJson, ...args]);
   };
 
-  // Log response details
+  // Log response details with enhanced information
   res.on("finish", () => {
     const duration = Date.now() - start;
     const contentType = res.get('Content-Type');
     const status = res.statusCode;
 
     console.log(`[COMPLETE] ${method} ${path}`, {
+      timestamp: new Date().toISOString(),
       status,
       duration: `${duration}ms`,
       contentType,
@@ -65,6 +67,7 @@ const server = registerRoutes(app);
 // Add API-specific error handler for /api routes
 app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
   console.error('API Error:', {
+    timestamp: new Date().toISOString(),
     path: req.path,
     method: req.method,
     error: err,
@@ -79,7 +82,8 @@ app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
      .set('Content-Type', 'application/json')
      .json({
        error: message,
-       success: false
+       success: false,
+       timestamp: new Date().toISOString()
      });
 });
 
@@ -90,7 +94,8 @@ app.use('/api/*', (req: Request, res: Response) => {
      .set('Content-Type', 'application/json')
      .json({
        error: 'API endpoint not found',
-       success: false
+       success: false,
+       timestamp: new Date().toISOString()
      });
 });
 
@@ -105,13 +110,15 @@ if (app.get("env") === "development") {
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 
-// Start server with explicit host binding
+// Start server with explicit host binding and additional logging
 server.listen(Number(PORT), HOST, () => {
-  log(`Server started and ready on http://${HOST}:${PORT}`); 
+  const startupMessage = `Server started and ready on http://${HOST}:${PORT}`;
+  log(startupMessage);
   console.log('=== Server Configuration ===');
   console.log(`Environment: ${app.get("env")}`);
   console.log(`Port: ${PORT}`);
   console.log(`Host: ${HOST}`);
+  console.log(`Timestamp: ${new Date().toISOString()}`);
   console.log('=========================');
-  console.log('Server is now ready to accept connections'); 
+  console.log('Server is now ready to accept connections');
 });

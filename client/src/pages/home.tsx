@@ -10,29 +10,20 @@ import { useLocation, useSearch } from "wouter";
 import debounce from 'lodash/debounce';
 import { ErrorBoundary } from "@/components/error-boundary";
 import { toast } from "@/hooks/use-toast";
+import { Video } from "@/lib/types";
 
-interface Video {
-  id: number;
-  title: string;
-  url: string;
-  thumbnailUrl: string | null;
-  platform: string;
-  watched: boolean;
-  description: string;
-  categoryId: number;
-  subcategoryId?: number;
-  category: {
-    id: number;
+interface CategoryData {
+  name: string;
+  subcategories: Record<string, {
     name: string;
-  };
-  subcategory: {
-    id: number;
-    name: string;
+    videos: Video[];
     displayOrder?: number;
-  } | null;
+  }>;
 }
 
 export default function Home() {
+  console.log('Home component rendering');
+
   const [searchQuery, setSearchQuery] = useState("");
   const [, setLocation] = useLocation();
   const search = useSearch();
@@ -49,19 +40,31 @@ export default function Home() {
     retry: 3,
     refetchOnWindowFocus: false,
     refetchOnMount: true,
-    meta: {
-      credentials: 'include',
+    onError: (error: Error) => {
+      console.error('Failed to fetch videos:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load videos. Please try again later.",
+        variant: "destructive",
+      });
+    },
+    onSuccess: (data: Video[]) => {
+      console.log('Videos fetched successfully:', {
+        count: data.length,
+        categories: Array.from(new Set(data.map(v => v.category.name))),
+        subcategories: Array.from(new Set(data.map(v => v.subcategory?.name).filter(Boolean)))
+      });
     }
   });
 
   const debouncedSearch = useCallback(
     debounce((query: string) => {
+      console.log('Debounced search triggered:', query);
       setSearchQuery(query);
     }, 300),
     []
   );
 
-  // Define filteredVideos before using it in useEffect
   const filteredVideos = searchQuery
     ? videos.filter(video => {
         const searchTerms = searchQuery.toLowerCase().split(" ");
@@ -124,15 +127,8 @@ export default function Home() {
     }
   }, [initialSubcategoryId, videos]);
 
-  const videosByCategory = !searchQuery
-    ? videos.reduce<Record<string, {
-        name: string;
-        subcategories: Record<string, {
-          name: string;
-          videos: Video[];
-          displayOrder?: number
-        }>;
-      }>>((acc, video) => {
+  const videosByCategory: Record<string, CategoryData> | null = !searchQuery
+    ? videos.reduce<Record<string, CategoryData>>((acc, video) => {
         try {
           const categoryId = String(video.category.id);
           if (!acc[categoryId]) {
