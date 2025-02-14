@@ -40,48 +40,16 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
-function getVideoThumbnail(url: string, platform: string): string {
-  // If it's a YouTube video, use the YouTube thumbnail API
+function getVideoThumbnail(url: string, platform: string): string | null {
   if (platform === "youtube") {
     const videoId = url.includes("youtu.be")
       ? url.split("/").pop()
       : new URL(url).searchParams.get("v");
     return videoId
       ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
-      : generatePlaceholder(platform);
+      : null;
   }
-
-  // For other platforms, use a simple placeholder
-  return generatePlaceholder(platform);
-}
-
-function generatePlaceholder(platform: string): string {
-  const bgColors: Record<string, string> = {
-    youtube: "#FF0000",
-    tiktok: "#00F2EA",
-    instagram: "#833AB4"
-  };
-
-  // Create a simple colored rectangle with text
-  const canvas = document.createElement('canvas');
-  canvas.width = 1280;
-  canvas.height = 720;
-  const ctx = canvas.getContext('2d');
-
-  if (!ctx) return '';
-
-  // Fill background
-  ctx.fillStyle = bgColors[platform] || "#000000";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Add text
-  ctx.fillStyle = "#FFFFFF";
-  ctx.font = "bold 48px system-ui";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(`${platform.toUpperCase()} Video`, canvas.width / 2, canvas.height / 2);
-
-  return canvas.toDataURL('image/png');
+  return null;
 }
 
 export function AdminVideoForm() {
@@ -110,21 +78,31 @@ export function AdminVideoForm() {
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
+      try {
+        console.log('Form data before submission:', data);
 
-      const payload = {
-        ...data,
-        categoryId: parseInt(data.categoryId),
-        subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
-        thumbnailUrl
-      };
+        const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
+        const payload = {
+          ...data,
+          categoryId: parseInt(data.categoryId),
+          subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
+          thumbnailUrl
+        };
 
-      const response = await apiRequest("POST", "/api/videos", payload);
-      if (!response.ok) {
-        throw new Error("Failed to add video");
+        console.log('Sending video creation request:', payload);
+
+        const response = await apiRequest("POST", "/api/videos", payload);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => null);
+          console.error('Video creation failed:', errorData);
+          throw new Error(errorData?.message || errorData?.error || "Failed to add video");
+        }
+
+        return response.json();
+      } catch (error) {
+        console.error('Video mutation error:', error);
+        throw error;
       }
-
-      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
@@ -135,15 +113,17 @@ export function AdminVideoForm() {
       });
     },
     onError: (error: Error) => {
+      console.error('Video mutation error handler:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error.message || "Failed to add video",
         variant: "destructive",
       });
     }
   });
 
   const onSubmit = (data: VideoFormData) => {
+    console.log('Form submitted with data:', data);
     addVideoMutation.mutate(data);
   };
 
