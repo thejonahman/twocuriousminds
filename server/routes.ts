@@ -1,10 +1,10 @@
 import { createServer, type Server } from "http";
 import express, { type Express, type NextFunction } from 'express';
+import { Request, Response } from 'express';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences, subcategories } from "@db/schema";
 import { setupAuth, requireAuth } from "./auth";
-import { Request, Response } from 'express';
 import groupMessagesRouter from './routes/group-messages';
 import { sendUnreadMessagesNotification, resend } from './lib/email';
 
@@ -41,7 +41,7 @@ export function registerRoutes(app: Express): Server {
   };
 
   // Public endpoints - no auth required
-  app.get("/api/categories", asyncHandler(async (req, res) => {
+  app.get("/api/categories", asyncHandler(async (req: Request, res: Response) => {
     const allCategories = await db.query.categories.findMany({
       where: eq(categories.isDeleted, false),
       orderBy: [desc(categories.displayOrder)]
@@ -50,7 +50,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Add new endpoint for subcategories by category
-  app.get("/api/categories/:categoryId/subcategories", asyncHandler(async (req, res) => {
+  app.get("/api/categories/:categoryId/subcategories", asyncHandler(async (req: Request, res: Response) => {
     const categoryId = parseInt(req.params.categoryId);
     console.log('Fetching subcategories for categoryId:', categoryId);
 
@@ -84,8 +84,9 @@ export function registerRoutes(app: Express): Server {
     res.json(subCategories);
   }));
 
-  app.get("/api/videos", asyncHandler(async (req, res) => {
+  app.get("/api/videos", asyncHandler(async (req: Request, res: Response) => {
     const allVideos = await db.query.videos.findMany({
+      where: eq(videos.isDeleted, false),
       with: {
         category: true,
         subcategory: true
@@ -95,7 +96,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Get individual video
-  app.get("/api/videos/:id", asyncHandler(async (req, res) => {
+  app.get("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
 
     if (isNaN(videoId)) {
@@ -103,7 +104,10 @@ export function registerRoutes(app: Express): Server {
     }
 
     const video = await db.query.videos.findFirst({
-      where: eq(videos.id, videoId),
+      where: and(
+        eq(videos.id, videoId),
+        eq(videos.isDeleted, false)
+      ),
       with: {
         category: true,
         subcategory: true
@@ -118,7 +122,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Get video recommendations
-  app.get("/api/videos/:id/recommendations", asyncHandler(async (req, res) => {
+  app.get("/api/videos/:id/recommendations", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
 
     if (isNaN(videoId)) {
@@ -156,7 +160,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Add this new endpoint near the other video-related endpoints
-  app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.videoId);
 
     if (isNaN(videoId)) {
@@ -195,7 +199,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Add video submission endpoint
-  app.post("/api/videos", asyncHandler(async (req, res) => {
+  app.post("/api/videos", asyncHandler(async (req: Request, res: Response) => {
     const { title, url, description, categoryId, subcategoryId, platform } = req.body;
 
     if (!title || !url || !categoryId || !platform) {
@@ -255,7 +259,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Update video endpoint
-  app.patch("/api/videos/:id", asyncHandler(async (req, res) => {
+  app.patch("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
     const { title, url, description, categoryId, subcategoryId, platform } = req.body;
 
@@ -298,7 +302,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Add REST endpoint for group invites
-  app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const inviteCode = req.params.code;
     console.log('Fetching group for invite code:', inviteCode);
 
@@ -415,7 +419,7 @@ export function registerRoutes(app: Express): Server {
 
 
   // Add direct group access endpoint
-  app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -472,7 +476,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Add this new endpoint after the other group-related endpoints
-  app.post("/api/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  app.post("/api/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -491,8 +495,27 @@ export function registerRoutes(app: Express): Server {
     res.json({ message: "Successfully left the group" });
   }));
 
+  app.delete("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
+    const videoId = parseInt(req.params.id);
+
+    if (isNaN(videoId)) {
+      return res.status(400).json({ message: "Invalid video ID" });
+    }
+
+    // Implement soft delete by updating isDeleted flag
+    await db
+      .update(videos)
+      .set({
+        isDeleted: true,
+        updatedAt: new Date()
+      })
+      .where(eq(videos.id, videoId));
+
+    res.json({ message: "Video deleted successfully" });
+  }));
+
   // Preferences endpoints
-  app.get("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: any) => {
+  app.get("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const preferences = await db.query.userPreferences.findFirst({
       where: sql`${userPreferences.userId} = ${req.user!.id}`
     });
@@ -506,7 +529,7 @@ export function registerRoutes(app: Express): Server {
     res.json(preferences);
   }));
 
-  app.post("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: any) => {
+  app.post("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
 
     if (!Array.isArray(preferredCategories) || !Array.isArray(excludedCategories) || !Array.isArray(preferredPlatforms)) {
@@ -539,7 +562,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Get unread count for a group
-  app.get("/api/groups/:groupId/unread-count", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  app.get("/api/groups/:groupId/unread-count", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -573,7 +596,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Mark messages as read
-  app.post("/api/groups/:groupId/mark-read", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  app.post("/api/groups/:groupId/mark-read", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -597,7 +620,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
   // Domain verification endpoint. Moved this before the httpServer creation.
-  app.get("/api/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+  app.get("/api/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.is_admin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -630,7 +653,7 @@ export function registerRoutes(app: Express): Server {
 
   // Update the test email endpoint to include better error handling and logging
   if (process.env.NODE_ENV !== 'production') {
-    app.post("/api/test/email-notification", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res) => {
+    app.post("/api/test/email-notification", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       console.log('=== Test Email Endpoint Start ===');
       if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
         console.error('Email configuration missing:', {

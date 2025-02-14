@@ -61,6 +61,7 @@ export const videos = pgTable("videos", {
   watched: boolean("watched").default(false),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
   categoryIdIdx: index("video_category_id_idx").on(table.categoryId),
   subcategoryIdIdx: index("video_subcategory_id_idx").on(table.subcategoryId),

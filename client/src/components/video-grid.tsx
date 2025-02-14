@@ -264,7 +264,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
       ))}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Video</DialogTitle>
           </DialogHeader>
