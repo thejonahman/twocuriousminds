@@ -7,17 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger
-} from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -108,31 +98,23 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         videoId: video.id
       };
 
-      const response = await fetch('/api/thumbnails/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-        credentials: 'include'
-      });
+      console.log('Generating thumbnail with data:', formData);
+      const response = await apiRequest("POST", '/api/thumbnails/generate', formData);
 
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to generate thumbnail");
       }
 
-      const data = await response.json();
-      return data.thumbnailUrl;
+      return response.json();
     },
-    onSuccess: (thumbnailUrl) => {
-      setThumbnailUrl(thumbnailUrl);
-      // Update the cache immediately
+    onSuccess: (data) => {
+      console.log('Thumbnail generated successfully:', data);
+      setThumbnailUrl(data.thumbnailUrl);
       queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
         if (!oldData) return oldData;
-        return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl } : v);
+        return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl: data.thumbnailUrl } : v);
       });
-      // Also invalidate the query to ensure we get fresh data
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
@@ -140,6 +122,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       });
     },
     onError: (error: Error) => {
+      console.error('Error generating thumbnail:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -160,6 +143,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       const response = await fetch(`/api/videos/${video.id}/thumbnail`, {
         method: 'PATCH',
         body: formData,
+        credentials: 'include'
       });
 
       if (!response.ok) {
@@ -167,17 +151,18 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         throw new Error(errorData.message || "Failed to upload thumbnail");
       }
 
-      const data = await response.json();
-      return data.thumbnailUrl;
+      return response.json();
     },
-    onSuccess: (thumbnailUrl) => {
-      setThumbnailUrl(thumbnailUrl);
+    onSuccess: (data) => {
+      console.log('Thumbnail uploaded successfully:', data);
+      setThumbnailUrl(data.thumbnailUrl);
       toast({
         title: "Success",
         description: "Thumbnail uploaded successfully",
       });
     },
     onError: (error: Error) => {
+      console.error('Error uploading thumbnail:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -186,6 +171,68 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     },
     onSettled: () => {
       setIsUploadingThumbnail(false);
+    }
+  });
+
+  const updateVideoMutation = useMutation({
+    mutationFn: async (data: VideoFormData) => {
+      console.log('Updating video with form data:', data);
+      const payload = {
+        ...data,
+        categoryId: parseInt(data.categoryId),
+        subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
+      };
+      console.log('Transformed payload:', payload);
+
+      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, payload);
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Error updating video:', errorData);
+        throw new Error(errorData.message || "Failed to update video");
+      }
+
+      const responseData = await response.json();
+      console.log('Update response:', responseData);
+      return responseData;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/videos"],
+        refetchType: "active"
+      });
+
+      if (form.formState.dirtyFields.categoryId || form.formState.dirtyFields.subcategoryId) {
+        queryClient.invalidateQueries({
+          queryKey: ["/api/categories"],
+          refetchType: "active"
+        });
+
+        if (form.formState.dirtyFields.categoryId) {
+          const categoryId = form.getValues("categoryId");
+          queryClient.invalidateQueries({
+            queryKey: [`/api/categories/${categoryId}/subcategories`],
+            refetchType: "active"
+          });
+        }
+      }
+
+      toast({
+        title: "Success",
+        description: "Video updated successfully",
+      });
+      hasSubmitted.current = true;
+    },
+    onError: (error: Error) => {
+      console.error('Video update error:', error);
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsSubmitting(false);
     }
   });
 
@@ -324,53 +371,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
-  const updateVideoMutation = useMutation({
-    mutationFn: async (data: VideoFormData) => {
-      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, data);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update video");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["/api/videos"],
-        refetchType: "active"
-      });
-
-      if (form.formState.dirtyFields.categoryId || form.formState.dirtyFields.subcategoryId) {
-        queryClient.invalidateQueries({
-          queryKey: ["/api/categories"],
-          refetchType: "active"
-        });
-
-        if (form.formState.dirtyFields.categoryId) {
-          const categoryId = form.getValues("categoryId");
-          queryClient.invalidateQueries({
-            queryKey: [`/api/categories/${categoryId}/subcategories`],
-            refetchType: "active"
-          });
-        }
-      }
-
-      toast({
-        title: "Success",
-        description: "Video updated successfully",
-      });
-      hasSubmitted.current = true;
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
-      setIsSubmitting(false);
-    }
-  });
 
   const handleHideTopic = () => {
     const categoryId = form.getValues("categoryId");
@@ -430,9 +430,11 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const onSubmit = useCallback(async (data: VideoFormData) => {
     try {
+      console.log('Form submission data:', data);
       setIsSubmitting(true);
       await updateVideoMutation.mutateAsync(data);
     } catch (error) {
+      console.error('Form submission error:', error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "An unexpected error occurred",
@@ -567,6 +569,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                   ) : (
                     <Select
                       onValueChange={(value) => {
+                        console.log('Selected category:', value);
                         field.onChange(value);
                         form.setValue("subcategoryId", "");
                       }}
@@ -586,36 +589,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </SelectContent>
                     </Select>
                   )}
-
-                  <Dialog open={newTopicDialogOpen} onOpenChange={setNewTopicDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button type="button" variant="outline" size="icon">
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                      <DialogHeader>
-                        <DialogTitle>Add New Topic</DialogTitle>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <FormItem>
-                          <FormLabel>Topic Name</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Enter topic name"
-                              value={newTopicName}
-                              onChange={(e) => setNewTopicName(e.target.value)}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      </div>
-                      <DialogFooter>
-                        <Button type="button" onClick={handleAddTopic}>
-                          Add Topic
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
 
                   <AlertDialog open={hideTopicDialogOpen} onOpenChange={setHideTopicDialogOpen}>
                     <AlertDialogTrigger asChild>
@@ -661,7 +634,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                     <Skeleton className="h-10 w-full" />
                   ) : (
                     <Select
-                      onValueChange={field.onChange}
+                      onValueChange={(value) => {
+                        console.log('Selected subcategory:', value);
+                        field.onChange(value);
+                      }}
                       value={field.value}
                       disabled={!selectedCategoryId}
                     >
@@ -679,41 +655,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                       </SelectContent>
                     </Select>
                   )}
-
-                  <Dialog open={newSubtopicDialogOpen} onOpenChange={setNewSubtopicDialogOpen}>
-                    <DialogTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        disabled={!selectedCategoryId}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                      <DialogHeader>
-                        <DialogTitle>Add New Subtopic</DialogTitle>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <FormItem>
-                          <FormLabel>Subtopic Name</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Enter subtopic name"
-                              value={newSubtopicName}
-                              onChange={(e) => setNewSubtopicName(e.target.value)}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      </div>
-                      <DialogFooter>
-                        <Button type="button" onClick={handleAddSubtopic}>
-                          Add Subtopic
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
 
                   <AlertDialog open={hideSubtopicDialogOpen} onOpenChange={setHideSubtopicDialogOpen}>
                     <AlertDialogTrigger asChild>

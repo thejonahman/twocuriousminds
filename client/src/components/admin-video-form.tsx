@@ -150,18 +150,12 @@ export function AdminVideoForm() {
 
   const generateThumbnailMutation = useMutation({
     mutationFn: async ({ title, description }: { title: string; description?: string }) => {
-      const response = await fetch("/api/thumbnails/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          title, 
-          description,
-          videoId: currentVideoId, 
-          url: form.getValues("url"),
-          platform: form.getValues("platform")
-        }),
+      const response = await apiRequest("POST", "/api/thumbnails/generate", {
+        title, 
+        description,
+        videoId: currentVideoId, 
+        url: form.getValues("url"),
+        platform: form.getValues("platform")
       });
 
       if (!response.ok) {
@@ -194,149 +188,8 @@ export function AdminVideoForm() {
     },
   });
 
-  const deleteCategoryMutation = useMutation({
-    mutationFn: async (categoryId: string) => {
-      const response = await apiRequest("DELETE", `/api/categories/${categoryId}`);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to delete category");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
-      if (selectedCategoryId) {
-        queryClient.invalidateQueries({
-          queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
-        });
-      }
-      toast({
-        title: "Success",
-        description: "Category deleted successfully"
-      });
-      setDeleteTopicDialogOpen(false);
-      setDeleteSubtopicDialogOpen(false);
-      form.setValue("categoryId", "");
-      form.setValue("subcategoryId", "");
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
-  });
-
-  const addTopicMutation = useMutation({
-    mutationFn: async (data: NewTopicFormData) => {
-      const response = await apiRequest("POST", "/api/categories", {
-        name: data.name,
-        parentId: data.parentCategoryId ? parseInt(data.parentCategoryId) : undefined,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to create topic");
-      }
-      return response.json();
-    },
-    onSuccess: async (data) => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
-      if (selectedCategoryId) {
-        await queryClient.invalidateQueries({
-          queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
-        });
-      }
-
-      if (data.isSubcategory) {
-        form.setValue("subcategoryId", String(data.id));
-      } else {
-        form.setValue("categoryId", String(data.id));
-        form.setValue("subcategoryId", "");
-      }
-
-      toast({
-        title: "Success",
-        description: `${data.isSubcategory ? "Subtopic" : "Topic"} added successfully`
-      });
-
-      setNewTopicDialogOpen(false);
-      setNewSubtopicDialogOpen(false);
-      setNewTopicName("");
-      setNewSubtopicName("");
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
-  });
-
-  const handleGenerateThumbnail = async () => {
-    const title = form.getValues("title");
-    const description = form.getValues("description");
-
-    if (!title || title.trim().length === 0) {
-      toast({
-        title: "Missing title",
-        description: "Please enter a video title before generating a thumbnail",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setIsGeneratingThumbnail(true);
-    generateThumbnailMutation.mutate({
-      title: title.trim(),
-      description: description?.trim()
-    });
-  };
-
-  const handleDeleteTopic = () => {
-    if (selectedTopicToDelete) {
-      deleteCategoryMutation.mutate(selectedTopicToDelete);
-    }
-  };
-
-  const handleDeleteSubtopic = () => {
-    if (selectedSubtopicToDelete) {
-      deleteCategoryMutation.mutate(selectedSubtopicToDelete);
-    }
-  };
-
   const onSubmit = (data: VideoFormData) => {
     addVideoMutation.mutate(data);
-  };
-
-  const handleAddTopic = () => {
-    if (!newTopicName.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a topic name",
-        variant: "destructive"
-      });
-      return;
-    }
-    addTopicMutation.mutate({ name: newTopicName });
-  };
-
-  const handleAddSubtopic = () => {
-    if (!newSubtopicName.trim() || !selectedCategoryId) {
-      toast({
-        title: "Error",
-        description: "Please enter a subtopic name and select a parent topic",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    addTopicMutation.mutate({
-      name: newSubtopicName,
-      parentCategoryId: selectedCategoryId,
-    });
   };
 
   return (
