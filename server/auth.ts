@@ -13,8 +13,25 @@ import { fromZodError } from "zod-validation-error";
 const scryptAsync = promisify(scrypt);
 const PostgresSessionStore = connectPg(session);
 
+// Define the AuthenticatedRequest type
+export interface AuthenticatedRequest extends Request {
+  user?: {
+    id: number;
+    username: string;
+    email: string;
+    isAdmin: boolean;
+  };
+}
+
+// Create asyncHandler wrapper for async route handlers
+export const asyncHandler = (fn: (req: AuthenticatedRequest, res: Response, next: NextFunction) => Promise<any>) => {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    return Promise.resolve(fn(req, res, next)).catch(next);
+  };
+};
+
 // Create requireAuth middleware
-export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+export const requireAuth = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   // Debug log to track auth state
   console.log('Auth check - session:', req.session);
   console.log('Auth check - user:', req.user);

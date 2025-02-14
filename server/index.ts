@@ -1,9 +1,12 @@
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
+import routes from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { setupAuth } from './auth';
+import { setupWebSocketServer } from './websocket';
+import { createServer } from 'http';
 
 const app = express();
+const server = createServer(app);
 
 // Basic middleware
 app.use(express.json());
@@ -52,9 +55,12 @@ app.use((req, res, next) => {
 // Setup authentication
 const sessionMiddleware = setupAuth(app);
 
+// Register WebSocket server
+setupWebSocketServer(server, sessionMiddleware);
+
 // Register all API routes - this must come before any catch-all handlers
 console.log('[SERVER] Registering API routes...');
-const server = registerRoutes(app);
+app.use(routes);
 
 // Add API-specific error handler for /api routes
 app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {

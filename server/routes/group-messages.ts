@@ -3,7 +3,7 @@ import { db } from "@db";
 import { groupMessages, users, groupMembers, discussionGroups, videos } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
 import { Router } from "express";
-import { AuthenticatedRequest } from "../routes";
+import { AuthenticatedRequest } from "../auth";
 import { sendUnreadMessagesNotification } from "../lib/email";
 
 const router = Router();
@@ -18,12 +18,25 @@ router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, re
       return res.status(400).json({ error: "Invalid group ID" });
     }
 
-    // Check if user is member of group
+    // Check if group exists and is not deleted
+    const group = await db.query.discussionGroups.findFirst({
+      where: and(
+        eq(discussionGroups.id, parsedGroupId),
+        eq(discussionGroups.isDeleted, false)
+      )
+    });
+
+    if (!group) {
+      return res.status(404).json({ error: "Group not found" });
+    }
+
+    // Check if user is member of group and membership is not deleted
     if (req.user) {
       const memberCheck = await db.query.groupMembers.findFirst({
         where: and(
           eq(groupMembers.groupId, parsedGroupId),
-          eq(groupMembers.userId, req.user.id)
+          eq(groupMembers.userId, req.user.id),
+          eq(groupMembers.isDeleted, false)
         )
       });
 
@@ -32,8 +45,12 @@ router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, re
       }
     }
 
+    // Get only non-deleted messages
     const messages = await db.query.groupMessages.findMany({
-      where: eq(groupMessages.groupId, parsedGroupId),
+      where: and(
+        eq(groupMessages.groupId, parsedGroupId),
+        eq(groupMessages.isDeleted, false)
+      ),
       with: {
         user: {
           columns: {
@@ -46,7 +63,7 @@ router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, re
       limit: 100
     });
 
-    // Update last read timestamp for the current user
+    // Update last read timestamp for the current user if their membership is active
     if (req.user) {
       await db
         .update(groupMembers)
@@ -56,7 +73,8 @@ router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, re
         })
         .where(and(
           eq(groupMembers.groupId, parsedGroupId),
-          eq(groupMembers.userId, req.user.id)
+          eq(groupMembers.userId, req.user.id),
+          eq(groupMembers.isDeleted, false)
         ));
     }
 
