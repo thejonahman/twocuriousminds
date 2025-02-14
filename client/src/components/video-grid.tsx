@@ -7,79 +7,73 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Card, CardContent } from "@/components/ui/card";
 import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2, Loader2 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 import { Video } from "@/lib/types";
 
 interface VideoGridProps {
   videos: Video[];
   showEditButton?: boolean;
+  highlightVideoId?: number;
 }
 
-export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
+export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: VideoGridProps) {
   const [failedThumbnails, setFailedThumbnails] = useState<Set<number>>(new Set());
   const [loadingThumbnails, setLoadingThumbnails] = useState<Set<number>>(new Set());
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deletingVideoId, setDeletingVideoId] = useState<number | null>(null);
-
-  if (!videos || videos.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-muted-foreground">No videos found</p>
-      </div>
-    );
-  }
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const scrollPositionRef = useRef(0);
   const queryClient = useQueryClient();
   const gridRef = useRef<HTMLDivElement>(null);
 
+  // Effect to scroll to highlighted video
+  useEffect(() => {
+    if (highlightVideoId && gridRef.current) {
+      const videoElement = gridRef.current.querySelector(`[data-video-id="${highlightVideoId}"]`);
+      if (videoElement) {
+        setTimeout(() => {
+          videoElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Add a brief highlight animation
+          videoElement.classList.add('highlight-animation');
+          setTimeout(() => {
+            videoElement.classList.remove('highlight-animation');
+          }, 2000);
+        }, 100);
+      }
+    }
+  }, [highlightVideoId, videos]);
+
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
-      console.log('Starting delete mutation for video:', videoId);
+      setIsDeleting(true);
       try {
-        const response = await fetch(`/api/videos/${videoId}`, {
-          method: 'DELETE',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-
+        const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
         if (!response.ok) {
           const error = await response.json();
-          console.error('Delete request failed:', error);
           throw new Error(error.message || 'Failed to delete video');
         }
-
-        const data = await response.json();
-        console.log('Delete successful:', data);
-        return data;
+        return await response.json();
       } catch (error) {
         console.error('Error in delete mutation:', error);
         throw error;
-      } finally {
-        setDeletingVideoId(null);
       }
     },
     onMutate: (videoId) => {
-      console.log('Optimistically updating UI for video deletion:', videoId);
       setDeletingVideoId(videoId);
       queryClient.cancelQueries({ queryKey: ["/api/videos"] });
       const previousVideos = queryClient.getQueryData<Video[]>(["/api/videos"]);
-
-      queryClient.setQueryData<Video[]>(["/api/videos"], (old) => {
-        if (!old) return [];
-        return old.filter(video => video.id !== videoId);
-      });
-
+      queryClient.setQueryData<Video[]>(["/api/videos"], (old) =>
+        old?.filter(video => video.id !== videoId) || []
+      );
       return { previousVideos };
     },
-    onError: (err: Error, videoId, context) => {
-      console.error('Delete mutation error:', err);
+    onError: (err: Error, _, context) => {
       if (context?.previousVideos) {
         queryClient.setQueryData(["/api/videos"], context.previousVideos);
       }
@@ -89,21 +83,18 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
         variant: "destructive",
       });
     },
-    onSuccess: (data) => {
-      console.log('Delete mutation succeeded:', data);
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
         description: "Video deleted successfully",
       });
     },
+    onSettled: () => {
+      setDeletingVideoId(null);
+      setIsDeleting(false);
+    }
   });
-
-  const handleDialogOpen = useCallback((video: Video) => {
-    scrollPositionRef.current = window.scrollY;
-    setSelectedVideo(video);
-    setDialogOpen(true);
-  }, []);
 
   const handleDialogClose = useCallback(() => {
     setDialogOpen(false);
@@ -112,10 +103,20 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     }, 300);
   }, []);
 
-  const handleDelete = useCallback((videoId: number) => {
-    if (deletingVideoId !== null) return; // Prevent multiple deletion attempts
-    deleteMutation.mutate(videoId);
-  }, [deleteMutation, deletingVideoId]);
+  const handleDialogOpen = useCallback((video: Video) => {
+    scrollPositionRef.current = window.scrollY;
+    setSelectedVideo(video);
+    setDialogOpen(true);
+  }, []);
+
+  const handleDelete = useCallback(async (videoId: number) => {
+    if (isDeleting) return;
+    try {
+      await deleteMutation.mutateAsync(videoId);
+    } catch (error) {
+      console.error('Error in handleDelete:', error);
+    }
+  }, [deleteMutation, isDeleting]);
 
   const getPlatformIcon = (platform: string) => {
     switch (platform.toLowerCase()) {
@@ -160,145 +161,173 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   };
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" ref={gridRef}>
-      {videos.map((video) => (
-        <Card key={video.id} className="overflow-hidden bg-card hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-1 border-accent/20">
-          <Link href={`/video/${video.id}`}>
-            <AspectRatio ratio={16 / 9}>
-              <div className="w-full h-full bg-muted/50 relative group">
-                <div
-                  className={`absolute inset-0 flex items-center justify-center ${
-                    video.thumbnailUrl && !failedThumbnails.has(video.id) && !loadingThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
-                  } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
-                >
-                  {loadingThumbnails.has(video.id) ? (
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                  ) : (
-                    getPlatformIcon(video.platform)
+    <>
+      <style>{`
+        .highlight-animation {
+          animation: highlight 2s ease-in-out;
+        }
+        @keyframes highlight {
+          0%, 100% {
+            transform: scale(1);
+            box-shadow: 0 0 0 0 rgba(var(--primary) / 0.1);
+          }
+          50% {
+            transform: scale(1.02);
+            box-shadow: 0 0 0 8px rgba(var(--primary) / 0.1);
+          }
+        }
+      `}</style>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" ref={gridRef}>
+        {videos.map((video) => (
+          <Card 
+            key={video.id}
+            data-video-id={video.id}
+            className={`overflow-hidden bg-card hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-1 border-accent/20 ${
+              video.id === highlightVideoId ? 'ring-2 ring-primary ring-offset-2' : ''
+            }`}
+          >
+            <Link href={`/video/${video.id}`}>
+              <AspectRatio ratio={16 / 9}>
+                <div className="w-full h-full bg-muted/50 relative group">
+                  <div
+                    className={`absolute inset-0 flex items-center justify-center ${
+                      video.thumbnailUrl && !failedThumbnails.has(video.id) && !loadingThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
+                    } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
+                  >
+                    {loadingThumbnails.has(video.id) ? (
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    ) : (
+                      getPlatformIcon(video.platform)
+                    )}
+                  </div>
+                  {(video.thumbnailUrl !== null && video.thumbnailUrl !== undefined) && !failedThumbnails.has(video.id) && (
+                    <img
+                      src={video.thumbnailUrl}
+                      alt={video.title}
+                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      loading="lazy"
+                      onLoadStart={() => handleThumbnailLoading(video.id)}
+                      onLoad={() => handleThumbnailLoaded(video.id)}
+                      onError={() => handleThumbnailError(video.id)}
+                    />
+                  )}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent h-1/2 transition-opacity opacity-0 group-hover:opacity-100" />
+                  <div className="absolute top-2 right-2 z-10">
+                    <Badge
+                      variant={video.watched ? "secondary" : "outline"}
+                      className="flex items-center gap-1.5 bg-background/95 backdrop-blur-sm shadow-sm"
+                    >
+                      {video.watched ? (
+                        <>
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Watched</span>
+                        </>
+                      ) : (
+                        <>
+                          {getPlatformIcon(video.platform)}
+                          <span className="capitalize">{video.platform}</span>
+                        </>
+                      )}
+                    </Badge>
+                  </div>
+                </div>
+              </AspectRatio>
+            </Link>
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary" className="capitalize bg-primary/10">
+                    {video.category.name}
+                  </Badge>
+                  {video.subcategory && (
+                    <Badge variant="outline" className="border-accent/20">
+                      {video.subcategory.name}
+                    </Badge>
                   )}
                 </div>
-                {(video.thumbnailUrl !== null && video.thumbnailUrl !== undefined) && !failedThumbnails.has(video.id) && (
-                  <img
-                    src={video.thumbnailUrl}
-                    alt={video.title}
-                    className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    loading="lazy"
-                    onLoadStart={() => handleThumbnailLoading(video.id)}
-                    onLoad={() => handleThumbnailLoaded(video.id)}
-                    onError={() => handleThumbnailError(video.id)}
-                  />
-                )}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent h-1/2 transition-opacity opacity-0 group-hover:opacity-100" />
-                <div className="absolute top-2 right-2 z-10">
-                  <Badge
-                    variant={video.watched ? "secondary" : "outline"}
-                    className="flex items-center gap-1.5 bg-background/95 backdrop-blur-sm shadow-sm"
-                  >
-                    {video.watched ? (
-                      <>
-                        <CheckCircle2 className="h-3 w-3" />
-                        <span>Watched</span>
-                      </>
-                    ) : (
-                      <>
-                        {getPlatformIcon(video.platform)}
-                        <span className="capitalize">{video.platform}</span>
-                      </>
-                    )}
-                  </Badge>
-                </div>
-              </div>
-            </AspectRatio>
-          </Link>
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary" className="capitalize bg-primary/10">
-                  {video.category.name}
-                </Badge>
-                {video.subcategory && (
-                  <Badge variant="outline" className="border-accent/20">
-                    {video.subcategory.name}
-                  </Badge>
-                )}
-              </div>
-              {showEditButton && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      handleDialogOpen(video);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive/90"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                        disabled={deleteMutation.isPending && deletingVideoId === video.id}
-                      >
-                        {deleteMutation.isPending && deletingVideoId === video.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent 
-                      onClick={(e) => e.stopPropagation()}
-                      onOpenAutoFocus={(e) => e.preventDefault()}
+                {showEditButton && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleDialogOpen(video);
+                      }}
+                      className="text-muted-foreground hover:text-foreground"
                     >
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Video</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete "{video.title}"? This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive/90"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            handleDelete(video.id);
                           }}
-                          className="bg-destructive hover:bg-destructive/90 relative"
-                          disabled={deleteMutation.isPending && deletingVideoId === video.id}
+                          disabled={isDeleting}
                         >
-                          {deleteMutation.isPending && deletingVideoId === video.id ? (
-                            <div className="flex items-center">
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              <span>Deleting...</span>
-                            </div>
+                          {isDeleting && deletingVideoId === video.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            'Delete'
+                            <Trash2 className="h-4 w-4" />
                           )}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              )}
-            </div>
-            <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
-              {video.title}
-            </h3>
-          </CardContent>
-        </Card>
-      ))}
-
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent
+                        onClick={(e) => e.stopPropagation()}
+                        onOpenAutoFocus={(e) => e.preventDefault()}
+                        className="sm:max-w-[425px]"
+                      >
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Video</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{video.title}"? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel
+                            onClick={(e) => e.stopPropagation()}
+                            disabled={isDeleting}
+                          >
+                            Cancel
+                          </AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDelete(video.id);
+                            }}
+                            className="bg-destructive hover:bg-destructive/90 relative"
+                            disabled={isDeleting}
+                          >
+                            {isDeleting && deletingVideoId === video.id ? (
+                              <div className="flex items-center">
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                <span>Deleting...</span>
+                              </div>
+                            ) : (
+                              'Delete'
+                            )}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
+              </div>
+              <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
+                {video.title}
+              </h3>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -313,6 +342,6 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }

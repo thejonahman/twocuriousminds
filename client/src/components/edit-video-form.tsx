@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface Category {
   id: number;
@@ -63,10 +64,10 @@ type VideoFormData = z.infer<typeof videoSchema>;
 function getVideoThumbnail(url: string, platform: string): string {
   // If it's a YouTube video, use the YouTube thumbnail API
   if (platform === "youtube") {
-    const videoId = url.includes("youtu.be") 
-      ? url.split("/").pop() 
+    const videoId = url.includes("youtu.be")
+      ? url.split("/").pop()
       : new URL(url).searchParams.get("v");
-    return videoId 
+    return videoId
       ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
       : generatePlaceholder(platform);
   }
@@ -108,6 +109,13 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const queryClient = useQueryClient();
   const formRef = useRef<HTMLFormElement>(null);
   const hasSubmitted = useRef(false);
+
+  // Effect to restore scroll position when form is closed after successful submission
+  useEffect(() => {
+    if (hasSubmitted.current && onClose) {
+      window.scrollTo(0, scrollPosition);
+    }
+  }, [hasSubmitted, scrollPosition, onClose]);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -154,6 +162,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       return response.json();
     },
     onSuccess: () => {
+      // Invalidate and refetch
       queryClient.invalidateQueries({
         queryKey: ["/api/videos"],
         refetchType: "active"
@@ -163,7 +172,18 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         title: "Success",
         description: "Video updated successfully",
       });
+
+      // Set submission flag and close dialog
       hasSubmitted.current = true;
+      if (onClose) {
+        setTimeout(() => {
+          onClose();
+          // Restore scroll position after a brief delay to ensure the list has re-rendered
+          setTimeout(() => {
+            window.scrollTo(0, scrollPosition);
+          }, 100);
+        }, 500);
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -347,10 +367,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
         <Button
           type="submit"
-          className="w-full"
+          className="w-full relative"
           disabled={updateVideoMutation.isPending}
         >
-          {updateVideoMutation.isPending ? "Updating..." : "Update Video"}
+          {updateVideoMutation.isPending ? (
+            <div className="flex items-center justify-center">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              <span>Updating...</span>
+            </div>
+          ) : (
+            'Update Video'
+          )}
         </Button>
       </form>
     </Form>
