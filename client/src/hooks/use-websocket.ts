@@ -10,6 +10,7 @@ export type WebSocketMessage = {
 interface WebSocketState {
   connected: boolean;
   connecting: boolean;
+  error: Error | null;
 }
 
 export function useWebSocket() {
@@ -21,7 +22,8 @@ export function useWebSocket() {
   const reconnectAttemptsRef = useRef(0);
   const [state, setState] = useState<WebSocketState>({
     connected: false,
-    connecting: false
+    connecting: false,
+    error: null
   });
 
   const connect = useCallback(() => {
@@ -34,7 +36,7 @@ export function useWebSocket() {
       clearTimeout(reconnectTimeoutRef.current);
     }
 
-    setState(prev => ({ ...prev, connecting: true }));
+    setState(prev => ({ ...prev, connecting: true, error: null }));
     console.log('[WebSocket] Attempting to connect...');
 
     try {
@@ -56,7 +58,8 @@ export function useWebSocket() {
         reconnectAttemptsRef.current = 0;
         setState({
           connected: true,
-          connecting: false
+          connecting: false,
+          error: null
         });
       };
 
@@ -64,7 +67,8 @@ export function useWebSocket() {
         console.log('[WebSocket] Connection closed:', event.code, event.reason);
         setState({
           connected: false,
-          connecting: false
+          connecting: false,
+          error: new Error(event.reason || 'Connection closed')
         });
 
         // Only attempt to reconnect if not a clean closure
@@ -80,7 +84,8 @@ export function useWebSocket() {
         console.error('[WebSocket] Connection error:', error);
         setState({
           connected: false,
-          connecting: false
+          connecting: false,
+          error: new Error('Failed to connect to chat server')
         });
 
         if (reconnectAttemptsRef.current === 0) {
@@ -105,7 +110,8 @@ export function useWebSocket() {
       console.error('[WebSocket] Setup error:', error);
       setState({
         connected: false,
-        connecting: false
+        connecting: false,
+        error: error instanceof Error ? error : new Error('Failed to setup WebSocket connection')
       });
 
       toast({

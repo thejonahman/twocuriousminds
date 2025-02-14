@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/hooks/use-auth';
 import { useToast } from '@/hooks/use-toast';
-import { Message } from '@/lib/api-types';
+import { Message, validateApiResponse, messageSchema } from '@/lib/api-types';
 
 interface PollingState {
   polling: boolean;
@@ -9,11 +9,13 @@ interface PollingState {
 }
 
 const POLLING_INTERVAL = 1000; // Poll every second
+const MAX_RETRIES = 3;
 
 export function usePolling(groupId?: number) {
   const { user } = useAuth();
   const { toast } = useToast();
   const messageHandlers = useRef<Set<(messages: Message[]) => void>>(new Set());
+  const retryCount = useRef(0);
   const [state, setState] = useState<PollingState>({
     polling: false,
     error: null
@@ -24,6 +26,7 @@ export function usePolling(groupId?: number) {
 
     setState({ polling: true, error: null });
     let intervalId: NodeJS.Timeout;
+    let isActive = true;
 
     const pollMessages = async () => {
       try {
@@ -33,11 +36,25 @@ export function usePolling(groupId?: number) {
           throw new Error('Failed to fetch messages');
         }
 
-        const messages = await response.json();
-        messageHandlers.current.forEach(handler => handler(messages));
+        const rawMessages = await response.json();
+        const messages = validateApiResponse(messageSchema.array(), rawMessages);
+
+        if (isActive) {
+          retryCount.current = 0;
+          messageHandlers.current.forEach(handler => handler(messages));
+        }
       } catch (error: any) {
         console.error('Polling error:', error);
-        setState(prev => ({ ...prev, error: error.message }));
+        retryCount.current++;
+
+        if (retryCount.current >= MAX_RETRIES) {
+          setState(prev => ({ ...prev, error: error.message }));
+          toast({
+            title: 'Connection Error',
+            description: 'Failed to fetch messages. Retrying...',
+            variant: 'destructive'
+          });
+        }
       }
     };
 
@@ -48,10 +65,11 @@ export function usePolling(groupId?: number) {
     pollMessages();
 
     return () => {
+      isActive = false;
       clearInterval(intervalId);
       setState({ polling: false, error: null });
     };
-  }, [user, groupId]);
+  }, [user, groupId, toast]);
 
   const sendMessage = useCallback(async (content: string): Promise<boolean> => {
     if (!user || !groupId) {
@@ -70,19 +88,23 @@ export function usePolling(groupId?: number) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          content
+          content: content.trim()
         })
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to send message');
+        const error = await response.text();
+        throw new Error(error || 'Failed to send message');
       }
 
+      const newMessage = validateApiResponse(messageSchema, await response.json());
+
       // Update handlers immediately with the new message
-      const newMessage = await response.json();
-      const currentMessages = await fetch(`/api/groups/${groupId}/messages`).then(r => r.json());
-      messageHandlers.current.forEach(handler => handler(currentMessages));
+      const response2 = await fetch(`/api/groups/${groupId}/messages`);
+      if (response2.ok) {
+        const messages = validateApiResponse(messageSchema.array(), await response2.json());
+        messageHandlers.current.forEach(handler => handler(messages));
+      }
 
       return true;
     } catch (error) {
