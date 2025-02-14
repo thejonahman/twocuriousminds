@@ -116,6 +116,20 @@ export function useWebSocket() {
     }
   }, [user, state.connecting, toast]);
 
+  // Add visibility change handler to reconnect when tab becomes visible
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user) {
+        connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [connect, user]);
+
   const sendMessage = useCallback((message: WebSocketMessage): boolean => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
       console.log('[WebSocket] Cannot send message - not connected');

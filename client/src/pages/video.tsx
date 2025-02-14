@@ -3,7 +3,6 @@ import { useParams, useLocation } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DelphiBubble } from "@/components/delphi-bubble";
 import { DiscussionGroup } from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
 import { Share2, Copy, Check, Mail } from "lucide-react";
@@ -22,7 +21,7 @@ const lastActiveGroupSchema = z.object({
   id: z.number(),
   name: z.string(),
   videoId: z.number().nullable(),
-});
+}).nullable();
 
 type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
 
@@ -53,14 +52,13 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Add query for last active group with proper type validation
+  // Update lastActiveGroup query with proper type validation
   const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${id}/last-active-group`],
     enabled: !!id && !groupId, // Only run if no groupId provided
     select: (data) => {
       try {
-        // Only attempt to parse if we have data
-        return data ? lastActiveGroupSchema.parse(data) : null;
+        return lastActiveGroupSchema.parse(data);
       } catch (error) {
         console.error('Invalid last active group data:', error);
         return null;
@@ -70,12 +68,12 @@ export default function Video() {
 
   // If there's a last active group and no current groupId, check persistence
   useEffect(() => {
-    if (lastActiveGroup?.id && !groupId) {
+    if (lastActiveGroup && !groupId) {
       // Check if user explicitly left this group recently
       const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
       const lastLeftTime = sessionStorage.getItem('lastLeftTime');
 
-      if (lastLeftGroup === lastActiveGroup.id.toString()) {
+      if (lastLeftGroup === String(lastActiveGroup.id)) {
         const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
         const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
         if (timeSinceLeft < REJOIN_TIMEOUT) {
@@ -88,10 +86,10 @@ export default function Video() {
       const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
       console.log('Found stored group:', storedGroupId, 'vs lastActive:', lastActiveGroup.id);
 
-      if (!storedGroupId || storedGroupId === lastActiveGroup.id.toString()) {
+      if (!storedGroupId || storedGroupId === String(lastActiveGroup.id)) {
         console.log('Reconnecting to stored group:', lastActiveGroup.id);
         setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
-        localStorage.setItem(`activeGroup-${id}`, lastActiveGroup.id.toString());
+        localStorage.setItem(`activeGroup-${id}`, String(lastActiveGroup.id));
       }
     }
   }, [lastActiveGroup, id, groupId, setLocation]);
@@ -269,8 +267,6 @@ export default function Video() {
               <p className="text-muted-foreground">{video?.description}</p>
             </div>
           </div>
-
-          <DelphiBubble videoId={video?.id} />
 
           <div className="rounded-xl border bg-card shadow-sm">
             <DiscussionGroup
