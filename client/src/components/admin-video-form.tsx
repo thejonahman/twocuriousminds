@@ -1,6 +1,5 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -11,49 +10,8 @@ import { Card, CardHeader, CardContent, CardFooter, CardTitle } from "@/componen
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
-
-// Type definitions
-interface Category {
-  id: number;
-  name: string;
-}
-
-interface Subcategory {
-  id: number;
-  name: string;
-  displayOrder?: number;
-}
-
-const videoSchema = z.object({
-  title: z.string().min(1, "Title is required"),
-  description: z.string().optional(),
-  url: z.string().url("Must be a valid URL")
-    .refine((url) => {
-      return (
-        url.includes("youtube.com") ||
-        url.includes("youtu.be") ||
-        url.includes("tiktok.com") ||
-        url.includes("instagram.com")
-      );
-    }, "Must be a YouTube, TikTok, or Instagram URL"),
-  categoryId: z.string().min(1, "Category is required"),
-  subcategoryId: z.string().optional(),
-  platform: z.enum(["youtube", "tiktok", "instagram"])
-});
-
-type VideoFormData = z.infer<typeof videoSchema>;
-
-function getVideoThumbnail(url: string, platform: string): string | null {
-  if (platform === "youtube") {
-    const videoId = url.includes("youtu.be")
-      ? url.split("/").pop()
-      : new URL(url).searchParams.get("v");
-    return videoId
-      ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
-      : null;
-  }
-  return null;
-}
+import { Loader2 } from 'lucide-react';
+import { VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory } from "@/types/video";
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
@@ -67,6 +25,12 @@ export function AdminVideoForm() {
     },
   });
 
+  // Log form errors for debugging
+  const formErrors = form.formState.errors;
+  if (Object.keys(formErrors).length > 0) {
+    console.log('Form validation errors:', formErrors);
+  }
+
   // Fetch categories
   const { data: categories = [], isLoading: isCategoriesLoading, error: categoriesError } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -74,8 +38,21 @@ export function AdminVideoForm() {
     retry: 3,
   });
 
+  if (categoriesError) {
+    console.error('Error fetching categories:', categoriesError);
+  }
+
   // Watch selected category to fetch subcategories
   const selectedCategoryId = form.watch("categoryId");
+  const selectedPlatform = form.watch("platform");
+  const videoUrl = form.watch("url");
+
+  // Log current form values for debugging
+  console.log('Current form values:', {
+    categoryId: selectedCategoryId,
+    platform: selectedPlatform,
+    url: videoUrl
+  });
 
   // Fetch subcategories based on selected category
   const { data: subcategories = [], isLoading: isSubcategoriesLoading, error: subcategoriesError } = useQuery<Subcategory[]>({
@@ -84,6 +61,10 @@ export function AdminVideoForm() {
     staleTime: 30000,
     retry: 3,
   });
+
+  if (subcategoriesError) {
+    console.error('Error fetching subcategories:', subcategoriesError);
+  }
 
   // Sort subcategories by displayOrder if available, then by name
   const sortedSubcategories = [...subcategories].sort((a, b) => {
@@ -96,7 +77,12 @@ export function AdminVideoForm() {
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
       try {
+        console.log('Starting video submission:', data);
+
+        // Generate thumbnail URL
         const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
+        console.log('Generated thumbnail URL:', thumbnailUrl);
+
         const payload = {
           ...data,
           categoryId: parseInt(data.categoryId),
@@ -104,31 +90,37 @@ export function AdminVideoForm() {
           thumbnailUrl
         };
 
+        console.log('Sending POST request to /api/videos with payload:', payload);
+
         const response = await apiRequest("POST", "/api/videos", payload);
+        console.log('API response status:', response.status);
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => null);
+          console.error('API error response:', errorData);
           throw new Error(errorData?.message || errorData?.error || "Failed to add video");
         }
 
-        return response.json();
+        const responseData = await response.json();
+        console.log('API success response:', responseData);
+        return responseData;
       } catch (error) {
-        console.error('Video mutation error:', error);
+        console.error('Video submission error:', error);
         throw error;
       }
     },
     onSuccess: (data) => {
+      console.log('Video added successfully:', data);
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       form.reset();
       toast({
         title: "Success",
         description: "Video added successfully",
       });
-      // Add logging to confirm the video ID
-      console.log('New video added with ID:', data.id);
-      // Navigate to admin manage page with highlight parameter
       setLocation(`/admin/manage?highlight=${data.id}`);
     },
     onError: (error: Error) => {
+      console.error('Mutation error:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to add video",
@@ -138,8 +130,27 @@ export function AdminVideoForm() {
   });
 
   const onSubmit = (data: VideoFormData) => {
+    console.log('Form submitted with data:', data);
     addVideoMutation.mutate(data);
   };
+
+  // Show loading state while categories are being fetched
+  if (isCategoriesLoading) {
+    return (
+      <Card className="w-full max-w-2xl mx-auto">
+        <CardHeader>
+          <CardTitle>Add New Video</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="w-full max-w-2xl mx-auto">
@@ -210,7 +221,6 @@ export function AdminVideoForm() {
                       <Select
                         onValueChange={(value) => {
                           field.onChange(value);
-                          // Reset subcategory when category changes
                           form.setValue("subcategoryId", "");
                         }}
                         value={field.value}
@@ -311,10 +321,17 @@ export function AdminVideoForm() {
           <CardFooter>
             <Button
               type="submit"
-              className="w-full"
+              className="w-full relative"
               disabled={addVideoMutation.isPending}
             >
-              {addVideoMutation.isPending ? "Adding..." : "Add Video"}
+              {addVideoMutation.isPending ? (
+                <div className="flex items-center justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  <span>Adding...</span>
+                </div>
+              ) : (
+                'Add Video'
+              )}
             </Button>
           </CardFooter>
         </form>

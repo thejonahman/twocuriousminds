@@ -1,6 +1,5 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
@@ -11,30 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-
-interface Category {
-  id: number;
-  name: string;
-}
-
-interface Subcategory {
-  id: number;
-  name: string;
-  displayOrder?: number;
-}
-
-interface Video {
-  id: number;
-  title: string;
-  description?: string;
-  url: string;
-  categoryId: number;
-  subcategoryId?: number;
-  platform: string;
-  thumbnailUrl: string | null;
-  category: Category;
-  subcategory: Subcategory | null;
-}
+import { Video, VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory, getPlatformColor } from "@/types/video";
 
 interface EditVideoFormProps {
   video: Video;
@@ -42,75 +18,11 @@ interface EditVideoFormProps {
   scrollPosition: number;
 }
 
-const videoSchema = z.object({
-  title: z.string().min(1, "Title is required"),
-  description: z.string().optional(),
-  url: z.string().url("Must be a valid URL")
-    .refine((url) => {
-      return (
-        url.includes("youtube.com") ||
-        url.includes("youtu.be") ||
-        url.includes("tiktok.com") ||
-        url.includes("instagram.com")
-      );
-    }, "Must be a YouTube, TikTok, or Instagram URL"),
-  categoryId: z.string().min(1, "Category is required"),
-  subcategoryId: z.string().optional(),
-  platform: z.enum(["youtube", "tiktok", "instagram"])
-});
-
-type VideoFormData = z.infer<typeof videoSchema>;
-
-function getVideoThumbnail(url: string, platform: string): string {
-  // If it's a YouTube video, use the YouTube thumbnail API
-  if (platform === "youtube") {
-    const videoId = url.includes("youtu.be")
-      ? url.split("/").pop()
-      : new URL(url).searchParams.get("v");
-    return videoId
-      ? `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
-      : generatePlaceholder(platform);
-  }
-
-  // For other platforms, use a simple placeholder
-  return generatePlaceholder(platform);
-}
-
-function generatePlaceholder(platform: string): string {
-  const bgColors: Record<string, string> = {
-    youtube: "#FF0000",
-    tiktok: "#00F2EA",
-    instagram: "#833AB4"
-  };
-
-  // Create a simple colored rectangle with text
-  const canvas = document.createElement('canvas');
-  canvas.width = 1280;
-  canvas.height = 720;
-  const ctx = canvas.getContext('2d');
-
-  if (!ctx) return '';
-
-  // Fill background
-  ctx.fillStyle = bgColors[platform] || "#000000";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Add text
-  ctx.fillStyle = "#FFFFFF";
-  ctx.font = "bold 48px system-ui";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(`${platform.toUpperCase()} Video`, canvas.width / 2, canvas.height / 2);
-
-  return canvas.toDataURL('image/png');
-}
-
 export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormProps) {
   const queryClient = useQueryClient();
   const formRef = useRef<HTMLFormElement>(null);
   const hasSubmitted = useRef(false);
 
-  // Effect to restore scroll position when form is closed after successful submission
   useEffect(() => {
     if (hasSubmitted.current && onClose) {
       window.scrollTo(0, scrollPosition);
@@ -129,6 +41,12 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
+  // Log form errors for debugging
+  const formErrors = form.formState.errors;
+  if (Object.keys(formErrors).length > 0) {
+    console.log('Form validation errors:', formErrors);
+  }
+
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     staleTime: 30000,
@@ -144,25 +62,32 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
+      try {
+        console.log('Making PATCH request to /api/videos', { videoId: video.id, data });
+        const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
+        console.log('Generated thumbnail URL:', thumbnailUrl);
 
-      const payload = {
-        ...data,
-        categoryId: parseInt(data.categoryId),
-        subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
-        thumbnailUrl
-      };
+        const payload = {
+          ...data,
+          categoryId: parseInt(data.categoryId),
+          subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
+          thumbnailUrl
+        };
 
-      const response = await apiRequest("PATCH", `/api/videos/${video.id}`, payload);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to update video");
+        const response = await apiRequest("PATCH", `/api/videos/${video.id}`, payload);
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to update video");
+        }
+
+        console.log('Response status:', response.status);
+        return response.json();
+      } catch (error) {
+        console.error('Update video mutation error:', error);
+        throw error;
       }
-
-      return response.json();
     },
     onSuccess: () => {
-      // Invalidate and refetch
       queryClient.invalidateQueries({
         queryKey: ["/api/videos"],
         refetchType: "active"
@@ -173,12 +98,10 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         description: "Video updated successfully",
       });
 
-      // Set submission flag and close dialog
       hasSubmitted.current = true;
       if (onClose) {
         setTimeout(() => {
           onClose();
-          // Restore scroll position after a brief delay to ensure the list has re-rendered
           setTimeout(() => {
             window.scrollTo(0, scrollPosition);
           }, 100);
@@ -186,6 +109,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       }
     },
     onError: (error: Error) => {
+      console.error('Update mutation error:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -202,6 +126,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   const url = form.watch("url");
   const platform = form.watch("platform");
   const thumbnailUrl = url && platform ? getVideoThumbnail(url, platform) : null;
+
+  // Show loading state while categories are being fetched
+  if (isCategoriesLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
 
   return (
     <Form {...form}>
@@ -232,8 +167,15 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                 />
               </div>
             ) : (
-              <div className="flex aspect-video w-full items-center justify-center rounded-lg border bg-muted">
-                <span className="text-sm text-muted-foreground">Enter a valid video URL to see thumbnail</span>
+              <div 
+                className="flex aspect-video w-full items-center justify-center rounded-lg border" 
+                style={{ 
+                  backgroundColor: getPlatformColor(platform)
+                }}
+              >
+                <span className="text-sm text-white">
+                  {platform.toUpperCase()} Video
+                </span>
               </div>
             )}
           </div>

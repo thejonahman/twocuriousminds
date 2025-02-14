@@ -101,7 +101,16 @@ if (app.get("env") === "development") {
   serveStatic(app);
 }
 
-const PORT = 5000;
-server.listen(PORT, "0.0.0.0", () => {
-  log(`serving on port ${PORT} (0.0.0.0)`);
+// Configure the port and host for better accessibility
+const PORT = process.env.PORT || 5000;
+const HOST = '0.0.0.0';
+
+// Start server with explicit host binding
+server.listen(PORT, HOST, () => {
+  log(`Server listening on http://${HOST}:${PORT}`);
+  console.log('=== Server Configuration ===');
+  console.log(`Environment: ${app.get("env")}`);
+  console.log(`Port: ${PORT}`);
+  console.log(`Host: ${HOST}`);
+  console.log('=========================');
 });
