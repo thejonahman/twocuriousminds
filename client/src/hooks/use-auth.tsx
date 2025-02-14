@@ -34,16 +34,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  // Use staleTime to prevent unnecessary refetches
   const {
     data: user,
     error,
     isLoading,
   } = useQuery<User | null>({
     queryKey: ["/api/user"],
-    retry: 3,
-    staleTime: 30000,
-    refetchInterval: 300000,
-    initialData: null,
+    retry: 3, // Increase retries for auth state
+    staleTime: 30000, // Consider data fresh for 30 seconds
+    refetchInterval: 300000, // Refetch every 5 minutes
   });
 
   const loginMutation = useMutation({
@@ -113,7 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/user"], null);
-      queryClient.clear(); 
+      queryClient.clear(); // Clear all queries on logout
       toast({
         title: "Logged out",
         description: "See you next time!",
@@ -129,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
+  // Clear stored navigation data on unmount
   useEffect(() => {
     return () => {
       sessionStorage.removeItem('targetType');

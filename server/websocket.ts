@@ -2,9 +2,10 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { Server } from 'http';
 import { db } from "@db";
 import { eq } from "drizzle-orm";
-import { groupMessages, groupMembers, users } from "@db/schema";
+import { groupMessages, groupMembers } from "@db/schema";
 import cookie from 'cookie';
 
+// Define session type to include passport
 interface Session {
   passport?: {
     user?: number;
@@ -18,8 +19,7 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
   console.log('[WebSocket] Setting up WebSocket server');
 
   const wss = new WebSocketServer({ 
-    noServer: true,
-    path: '/ws'
+    noServer: true
   });
 
   // Handle upgrade requests
@@ -35,7 +35,6 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
       const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
       if (pathname !== '/ws') {
         console.log('[WebSocket] Invalid path:', pathname);
-        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
         socket.destroy();
         return;
       }
@@ -51,9 +50,9 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
         return;
       }
 
-      // Get session from store
+      // Get session from store with proper typing
       const session = await new Promise<Session | null>((resolve, reject) => {
-        sessionMiddleware.store.get(sessionId.slice(2), (err: any, session: Session | null) => {
+        sessionMiddleware.store.get(sessionId, (err: any, session: Session | null) => {
           if (err) {
             console.error('[WebSocket] Session store error:', err);
             reject(err);
@@ -104,9 +103,15 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
 
     // Handle messages
     ws.on('message', async (data: Buffer) => {
+      let parsedMessage;
+
       try {
-        const parsedMessage = JSON.parse(data.toString());
+        parsedMessage = JSON.parse(data.toString());
         console.log('[WebSocket] Received message:', parsedMessage);
+
+        if (!parsedMessage.type) {
+          throw new Error('Message type is required');
+        }
 
         if (parsedMessage.type === 'group_message') {
           const { groupId, content } = parsedMessage;
@@ -115,81 +120,68 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
             throw new Error('Group message must include groupId and content');
           }
 
-          // Verify user is member of group
-          const [membership] = await db
-            .select()
-            .from(groupMembers)
-            .where(eq(groupMembers.groupId, groupId))
-            .where(eq(groupMembers.userId, userId))
-            .limit(1);
-
-          if (!membership) {
-            throw new Error('User is not a member of this group');
-          }
-
           // Save message to database
-          const [savedMessage] = await db
-            .insert(groupMessages)
+          const [savedMessage] = await db.insert(groupMessages)
             .values({
               groupId,
               userId,
-              content,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-              isDeleted: false
+              content
             })
             .returning();
 
-          // Get user info
-          const [user] = await db
-            .select()
-            .from(users)
-            .where(eq(users.id, userId))
-            .limit(1);
+          console.log('[WebSocket] Saved message:', savedMessage);
 
-          // Get all group members
-          const groupMemberIds = await db
-            .select()
-            .from(groupMembers)
-            .where(eq(groupMembers.groupId, groupId));
+          // Get group members
+          const members = await db.query.groupMembers.findMany({
+            where: eq(groupMembers.groupId, groupId),
+            with: {
+              user: {
+                columns: {
+                  username: true
+                }
+              }
+            }
+          });
 
-          // Broadcast to all group members
-          const messageToSend = {
+          // Send to all group members
+          const broadcastMessage = {
             type: 'new_group_message',
             data: {
               ...savedMessage,
-              user: user ? { username: user.username } : { username: 'Unknown User' }
+              user: members.find(m => m.userId === userId)?.user
             }
           };
 
-          for (const member of groupMemberIds) {
+          console.log('[WebSocket] Broadcasting to members:', members.length);
+          for (const member of members) {
             const client = connectedClients.get(member.userId);
             if (client?.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify(messageToSend));
+              client.send(JSON.stringify(broadcastMessage));
             }
           }
         }
       } catch (error) {
         console.error('[WebSocket] Message handling error:', error);
-        ws.send(JSON.stringify({
-          type: 'error',
-          message: error instanceof Error ? error.message : 'Failed to process message'
-        }));
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Failed to process message'
+          }));
+        }
       }
     });
 
-    // Handle connection close
     ws.on('close', () => {
       console.log('[WebSocket] Connection closed for user:', userId);
       connectedClients.delete(userId);
     });
 
-    // Handle errors
     ws.on('error', (error) => {
       console.error('[WebSocket] Connection error for user:', userId, error);
       connectedClients.delete(userId);
     });
   });
 
+  console.log('[WebSocket] Server setup complete');
   return wss;
 }

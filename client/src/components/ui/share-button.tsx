@@ -25,9 +25,6 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
 
   const handleNativeShare = async () => {
     try {
-      if (typeof navigator.share !== 'function') {
-        throw new Error('Native sharing not supported');
-      }
       await navigator.share({
         url: absoluteUrl,
         title,
@@ -62,11 +59,8 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
     }
   };
 
-  // Check for native sharing support
-  const hasNativeShare = typeof navigator !== 'undefined' && 
-                        typeof navigator.share === 'function';
-
-  if (hasNativeShare) {
+  // If native sharing is available, show both options in a dropdown
+  if (navigator.share) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -93,6 +87,7 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
     );
   }
 
+  // If native sharing is not available, show only copy button
   return (
     <Button
       variant="outline"

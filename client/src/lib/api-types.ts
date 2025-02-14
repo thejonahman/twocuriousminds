@@ -18,9 +18,7 @@ export const messageSchema = baseEntitySchema.extend({
   userId: z.number(),
   user: z.object({
     username: z.string(),
-  }).optional(),
-  groupId: z.number().optional(),
-  videoId: z.number().optional(),
+  }),
 });
 
 export const videoMessageSchema = messageSchema.extend({
@@ -34,7 +32,6 @@ export const groupMessageSchema = messageSchema.extend({
 // Group schemas
 export const groupSchema = baseEntitySchema.extend({
   name: z.string(),
-  groupName: z.string().optional(),
   description: z.string().nullable(),
   videoId: z.number().nullable(),
   creatorId: z.number(),

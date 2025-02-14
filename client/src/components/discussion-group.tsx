@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useWebSocket } from "@/hooks/use-websocket";
+import { usePolling } from "@/hooks/use-polling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, MessageSquare, Plus, Users } from "lucide-react";
@@ -32,6 +32,7 @@ import {
 } from "@/lib/api-types";
 import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
+import { env } from "@/lib/env";
 
 interface Props {
   videoId: number;
@@ -50,7 +51,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { state: wsState, sendMessage, addMessageHandler } = useWebSocket();
 
   // State
   const [messageInput, setMessageInput] = useState("");
@@ -60,13 +60,34 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [restorationAttempted, setRestorationAttempted] = useState(false);
 
-  // Queries
+  // Debug logging function with timestamp
+  const logDebug = (action: string, data: any) => {
+    console.log(`[DiscussionGroup ${new Date().toISOString()}] ${action}:`, data);
+  };
+
+  // Polling setup
+  const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
+
+  // Queries with proper enabled conditions
   const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data) => validateApiResponse(groupSchema, data),
     retry: 3,
     staleTime: 30000,
+  });
+
+  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<Group>({
+    queryKey: [`/api/videos/${videoId}/last-active-group`],
+    enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
+    select: (data) => validateApiResponse(groupSchema, data),
+    retry: 3,
+    staleTime: 30000,
+  });
+
+  const { data: videoData } = useQuery<VideoData>({
+    queryKey: [`/api/videos/${videoId}`],
+    enabled: !!videoId,
   });
 
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[]>({
@@ -76,25 +97,147 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     staleTime: 1000,
   });
 
-  // WebSocket message handler
+  // Group restoration effect
+  useEffect(() => {
+    if (!user || restorationAttempted) return;
+
+    const restoreGroup = async () => {
+      try {
+        logDebug('Starting group restoration', { videoId, initialGroupId });
+
+        // If we have an initialGroupId from URL, use that
+        if (initialGroupId && group) {
+          logDebug('Restoring from URL group ID', { groupId: initialGroupId });
+          setCurrentGroup(prevGroup => {
+            if (prevGroup?.id === group.id) return prevGroup;
+            return group;
+          });
+          localStorage.setItem(`activeGroup-${videoId}`, group.id.toString());
+          return;
+        }
+
+        // Check localStorage for previously active group
+        const storedGroupId = localStorage.getItem(`activeGroup-${videoId}`);
+        logDebug('Checking stored group', { storedGroupId });
+
+        if (storedGroupId) {
+          const groupId = parseInt(storedGroupId);
+          if (!isNaN(groupId)) {
+            try {
+              const response = await fetch(`/api/groups/${groupId}`);
+              if (!response.ok) throw new Error('Failed to fetch stored group');
+
+              const storedGroup = await response.json();
+              logDebug('Successfully restored stored group', { groupId: storedGroup.id });
+              setCurrentGroup(storedGroup);
+              setLocation(`/video/${videoId}/group/${storedGroup.id}`);
+              return;
+            } catch (error) {
+              logDebug('Failed to restore stored group', { error });
+              localStorage.removeItem(`activeGroup-${videoId}`);
+            }
+          }
+        }
+
+        // Fall back to last active group if available
+        if (lastActiveGroup) {
+          const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
+          const lastLeftTime = sessionStorage.getItem('lastLeftTime');
+          const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
+          const REJOIN_TIMEOUT = 5 * 60 * 1000;
+
+          if (lastLeftGroup === lastActiveGroup.id.toString() && timeSinceLeft < REJOIN_TIMEOUT) {
+            logDebug('Skipping last active group due to recent leave', {
+              lastLeftGroup,
+              timeSinceLeft
+            });
+            return;
+          }
+
+          logDebug('Restoring last active group', { groupId: lastActiveGroup.id });
+          setCurrentGroup(lastActiveGroup);
+          setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+          localStorage.setItem(`activeGroup-${videoId}`, lastActiveGroup.id.toString());
+        }
+      } catch (error) {
+        logDebug('Error during group restoration', { error });
+      } finally {
+        setRestorationAttempted(true);
+      }
+    };
+
+    restoreGroup();
+  }, [user, videoId, initialGroupId, group, lastActiveGroup, setLocation, restorationAttempted]);
+
+  // State persistence effect
+  useEffect(() => {
+    const persistGroupState = () => {
+      if (currentGroup) {
+        logDebug('Persisting group state', {
+          videoId,
+          groupId: currentGroup.id,
+          timestamp: Date.now()
+        });
+        localStorage.setItem(`activeGroup-${videoId}`, currentGroup.id.toString());
+      }
+    };
+
+    // Handle page unload
+    window.addEventListener('beforeunload', persistGroupState);
+
+    // Handle SPA navigation
+    const handleRouteChange = () => {
+      logDebug('Route change detected', { currentPath: window.location.pathname });
+      persistGroupState();
+    };
+
+    window.addEventListener('popstate', handleRouteChange);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('beforeunload', persistGroupState);
+      window.removeEventListener('popstate', handleRouteChange);
+      persistGroupState();
+    };
+  }, [currentGroup, videoId]);
+
+  // Message handler
   useEffect(() => {
     if (!user || !currentGroup) return;
 
-    const handleWebSocketMessage = (data: any) => {
-      if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
-        queryClient.invalidateQueries({
-          queryKey: [`/api/groups/${currentGroup.id}/messages`]
-        });
+    const handleNewMessages = async (newMessages: Message[]) => {
+      logDebug('New messages received', {
+        count: newMessages.length,
+        groupId: currentGroup.id
+      });
 
-        if (document.hidden) {
-          setUnreadCount(prev => prev + 1);
+      // Update messages in cache
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup.id}/messages`]
+      });
+
+      // Only increment unread count if the window is not focused
+      if (document.hidden) {
+        setUnreadCount(prev => prev + newMessages.length);
+      } else {
+        // If window is focused, mark messages as read
+        try {
+          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          setUnreadCount(0);
+        } catch (error) {
+          console.error('Failed to mark messages as read:', error);
         }
       }
     };
 
-    const cleanup = addMessageHandler(handleWebSocketMessage);
+    const cleanup = addMessageHandler(handleNewMessages);
 
-    // Handle visibility change
+    // Add visibility change handler
     const handleVisibilityChange = async () => {
       if (!document.hidden && unreadCount > 0) {
         try {
@@ -119,123 +262,50 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     };
   }, [user, currentGroup, queryClient, addMessageHandler, unreadCount]);
 
-  // Handle message submission
+  // Event handlers
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim() || !currentGroup) return;
 
-    const success = sendMessage({
-      type: 'group_message',
-      groupId: currentGroup.id,
-      content: messageInput.trim()
-    });
+    try {
+      logDebug('Sending message', { groupId: currentGroup.id });
+      const response = await fetch(`/api/groups/${currentGroup.id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          content: messageInput.trim()
+        })
+      });
 
-    if (success) {
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
+
+      const newMessage = await response.json();
+      logDebug('Message sent successfully', { messageId: newMessage.id });
+
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup.id}/messages`]
+      });
+
       setMessageInput('');
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } catch (error) {
+      logDebug('Error sending message', { error });
+      toast({
+        title: "Error",
+        description: "Failed to send message",
+        variant: "destructive",
+      });
     }
   };
-
-  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<Group>({
-    queryKey: [`/api/videos/${videoId}/last-active-group`],
-    enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
-    select: (data) => validateApiResponse(groupSchema, data),
-    retry: 3,
-    staleTime: 30000,
-  });
-
-  const { data: videoData } = useQuery<VideoData>({
-    queryKey: [`/api/videos/${videoId}`],
-    enabled: !!videoId,
-  });
-
-
-  useEffect(() => {
-    if (!user || restorationAttempted) return;
-
-    const restoreGroup = async () => {
-      try {
-        // If we have an initialGroupId from URL, use that
-        if (initialGroupId && group) {
-          setCurrentGroup(prevGroup => {
-            if (prevGroup?.id === group.id) return prevGroup;
-            return group;
-          });
-          localStorage.setItem(`activeGroup-${videoId}`, group.id.toString());
-          return;
-        }
-
-        // Check localStorage for previously active group
-        const storedGroupId = localStorage.getItem(`activeGroup-${videoId}`);
-
-        if (storedGroupId) {
-          const groupId = parseInt(storedGroupId);
-          if (!isNaN(groupId)) {
-            try {
-              const response = await fetch(`/api/groups/${groupId}`);
-              if (!response.ok) throw new Error('Failed to fetch stored group');
-
-              const storedGroup = await response.json();
-              setCurrentGroup(storedGroup);
-              setLocation(`/video/${videoId}/group/${storedGroup.id}`);
-              return;
-            } catch (error) {
-              localStorage.removeItem(`activeGroup-${videoId}`);
-            }
-          }
-        }
-
-        // Fall back to last active group if available
-        if (lastActiveGroup) {
-          const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
-          const lastLeftTime = sessionStorage.getItem('lastLeftTime');
-          const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
-          const REJOIN_TIMEOUT = 5 * 60 * 1000;
-
-          if (lastLeftGroup === lastActiveGroup.id.toString() && timeSinceLeft < REJOIN_TIMEOUT) {
-            return;
-          }
-
-          setCurrentGroup(lastActiveGroup);
-          setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
-          localStorage.setItem(`activeGroup-${videoId}`, lastActiveGroup.id.toString());
-        }
-      } finally {
-        setRestorationAttempted(true);
-      }
-    };
-
-    restoreGroup();
-  }, [user, videoId, initialGroupId, group, lastActiveGroup, setLocation, restorationAttempted]);
-
-  useEffect(() => {
-    const persistGroupState = () => {
-      if (currentGroup) {
-        localStorage.setItem(`activeGroup-${videoId}`, currentGroup.id.toString());
-      }
-    };
-
-    // Handle page unload
-    window.addEventListener('beforeunload', persistGroupState);
-
-    // Handle SPA navigation
-    const handleRouteChange = () => {
-      persistGroupState();
-    };
-
-    window.addEventListener('popstate', handleRouteChange);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener('beforeunload', persistGroupState);
-      window.removeEventListener('popstate', handleRouteChange);
-      persistGroupState();
-    };
-  }, [currentGroup, videoId]);
 
   const handleCreateGroup = async () => {
     const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
     try {
+      logDebug('Creating group', { groupName, videoId });
       const response = await fetch('/api/groups', {
         method: 'POST',
         headers: {
@@ -253,6 +323,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       }
 
       const newGroup = await response.json();
+      logDebug('Group created successfully', { groupId: newGroup.id });
 
       localStorage.setItem(`activeGroup-${videoId}`, newGroup.id.toString());
       setCurrentGroup(newGroup);
@@ -264,6 +335,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
       });
     } catch (error) {
+      logDebug('Error creating group', { error });
       toast({
         title: "Error",
         description: "Failed to create group",
@@ -276,6 +348,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     if (!currentGroup) return;
 
     try {
+      logDebug('Leaving group', { groupId: currentGroup.id });
       const response = await fetch(`/api/groups/${currentGroup.id}/leave`, {
         method: 'POST',
         headers: {
@@ -287,23 +360,28 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error('Failed to leave group');
       }
 
+      // Mark this group as recently left to prevent auto-rejoin
       sessionStorage.setItem('lastLeftGroup', currentGroup.id.toString());
       sessionStorage.setItem('lastLeftTime', Date.now().toString());
 
+      // Clear group from localStorage and state
       localStorage.removeItem(`activeGroup-${videoId}`);
       setCurrentGroup(null);
-      setRestorationAttempted(false); 
+      setRestorationAttempted(false); // Allow restoration on next mount
 
+      // Update URL and invalidate queries
       setLocation(`/video/${videoId}`);
       queryClient.invalidateQueries({
         queryKey: [`/api/videos/${videoId}/last-active-group`]
       });
 
+      logDebug('Group left successfully', { groupId: currentGroup.id });
       toast({
         title: "Success",
         description: "Successfully left the group",
       });
     } catch (error) {
+      logDebug('Error leaving group', { error });
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to leave group",
@@ -344,7 +422,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     );
   }
 
-  if (!wsState.connected && wsState.error) {
+  if (pollingState.error) {
     return (
       <Card>
         <CardHeader>
@@ -353,7 +431,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         <CardContent>
           <div className="flex flex-col items-center justify-center gap-4 p-8">
             <p className="text-sm text-muted-foreground">
-              Connection error: {wsState.error?.message}. Retrying...
+              Connection error. Retrying...
             </p>
           </div>
         </CardContent>
@@ -370,11 +448,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
               <>
                 <Users className="h-5 w-5" />
                 {currentGroup.groupName || currentGroup.name}
-                {!wsState.connected && (
-                  <span className="text-xs text-muted-foreground">
-                    (Reconnecting...)
-                  </span>
-                )}
                 {unreadCount > 0 && (
                   <span className="bg-primary text-primary-foreground rounded-full px-2 py-1 text-xs">
                     {unreadCount}
@@ -465,9 +538,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold">
-                      {message.user?.username || "Unknown User"}
-                    </p>
+                    <p className="text-sm font-semibold">{message.user.username}</p>
                     <p className="text-xs text-muted-foreground">
                       {new Date(message.createdAt).toLocaleTimeString()}
                     </p>

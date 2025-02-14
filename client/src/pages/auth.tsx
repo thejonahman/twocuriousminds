@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -78,6 +78,7 @@ export default function Auth() {
   });
 
   const onSubmit = async (values: LoginValues | RegisterValues) => {
+    console.log('Form submitted:', { isLogin, values });
     try {
       if (isLogin) {
         await loginMutation.mutateAsync(values as LoginValues);
@@ -86,14 +87,13 @@ export default function Auth() {
       }
     } catch (error) {
       console.error('Auth error:', error);
+      // Error is handled by the mutation callbacks
     }
   };
 
   if (user) {
     return null;
   }
-
-  const { errors } = form.formState;
 
   return (
     <div className="grid lg:grid-cols-2 gap-8 items-center max-w-5xl mx-auto">
@@ -115,9 +115,9 @@ export default function Auth() {
                 type="text"
                 {...form.register("username")}
               />
-              {errors.username && (
+              {form.formState.errors.username && (
                 <p className="text-sm text-destructive">
-                  {errors.username.message}
+                  {form.formState.errors.username.message}
                 </p>
               )}
             </div>
@@ -129,9 +129,9 @@ export default function Auth() {
                   type="email"
                   {...form.register("email")}
                 />
-                {'email' in errors && errors.email && (
+                {form.formState.errors.email && (
                   <p className="text-sm text-destructive">
-                    {errors.email.message}
+                    {form.formState.errors.email.message}
                   </p>
                 )}
               </div>
@@ -143,9 +143,9 @@ export default function Auth() {
                 type="password"
                 {...form.register("password")}
               />
-              {errors.password && (
+              {form.formState.errors.password && (
                 <p className="text-sm text-destructive">
-                  {errors.password.message}
+                  {form.formState.errors.password.message}
                 </p>
               )}
             </div>
