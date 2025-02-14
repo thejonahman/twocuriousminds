@@ -62,44 +62,9 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
-// Create default SVG thumbnail
-const createDefaultThumbnail = (title: string) => {
-  const escapedTitle = title.replace(/[<>&"']/g, c => ({
-    '<': '&lt;',
-    '>': '&gt;',
-    '&': '&amp;',
-    '"': '&quot;',
-    "'": '&apos;'
-  }[c] || c));
-
-  const svgContent = `
-    <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" style="stop-color:#2563eb;stop-opacity:1" />
-          <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
-        </linearGradient>
-      </defs>
-      <rect width="100%" height="100%" fill="url(#grad)"/>
-      <text 
-        x="640" 
-        y="360" 
-        font-family="Arial" 
-        font-size="48" 
-        fill="white" 
-        text-anchor="middle" 
-        dominant-baseline="middle"
-        style="filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.3))">
-        ${escapedTitle}
-      </text>
-    </svg>
-  `;
-  return `data:image/svg+xml;base64,${btoa(svgContent.trim())}`;
-};
-
 export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormProps) {
   const queryClient = useQueryClient();
-  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl);
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -131,21 +96,22 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
 
     setIsUploadingThumbnail(true);
-    const formData = new FormData();
-    formData.append('thumbnail', file);
 
     try {
+      const formData = new FormData();
+      formData.append('thumbnail', file);
+
       const response = await fetch(`/api/thumbnails/${video.id}/thumbnail`, {
         method: 'PATCH',
         body: formData,
       });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Upload failed');
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Upload failed');
       }
 
-      const data = await response.json();
       setThumbnailUrl(data.thumbnailUrl);
       queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
         if (!oldData) return oldData;
@@ -187,16 +153,15 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      // Generate default thumbnail if none exists
       if (!thumbnailUrl) {
-        setThumbnailUrl(createDefaultThumbnail(data.title));
+        throw new Error("Please upload a thumbnail image");
       }
 
       const payload = {
         ...data,
         categoryId: parseInt(data.categoryId),
         subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
-        thumbnailUrl: thumbnailUrl || createDefaultThumbnail(data.title),
+        thumbnailUrl
       };
 
       const response = await apiRequest("PATCH", `/api/videos/${video.id}`, payload);
@@ -212,20 +177,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         queryKey: ["/api/videos"],
         refetchType: "active"
       });
-
-      if (form.formState.dirtyFields.categoryId || form.formState.dirtyFields.subcategoryId) {
-        queryClient.invalidateQueries({
-          queryKey: ["/api/categories"],
-          refetchType: "active"
-        });
-
-        if (form.formState.dirtyFields.categoryId) {
-          queryClient.invalidateQueries({
-            queryKey: [`/api/categories/${form.getValues("categoryId")}/subcategories`],
-            refetchType: "active"
-          });
-        }
-      }
 
       toast({
         title: "Success",
@@ -280,7 +231,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         />
 
         <FormItem>
-          <FormLabel>Thumbnail</FormLabel>
+          <FormLabel>Thumbnail (Required)</FormLabel>
           <div className="flex flex-col gap-4">
             {thumbnailUrl ? (
               <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
@@ -304,7 +255,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
                 className="flex-1"
               >
                 <Upload className="mr-2 h-4 w-4" />
-                {isUploadingThumbnail ? 'Uploading...' : 'Upload Custom'}
+                {isUploadingThumbnail ? 'Uploading...' : 'Upload New Thumbnail'}
               </Button>
               <input
                 type="file"
@@ -446,7 +397,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         <Button
           type="submit"
           className="w-full"
-          disabled={updateVideoMutation.isPending}
+          disabled={updateVideoMutation.isPending || !thumbnailUrl}
         >
           {updateVideoMutation.isPending ? "Updating..." : "Update Video"}
         </Button>

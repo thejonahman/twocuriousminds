@@ -9,67 +9,62 @@ const app = express();
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
-// Setup authentication BEFORE registering routes
-setupAuth(app);
-
-// Force JSON responses for all /api routes
-app.use('/api', (req, res, next) => {
+// Force JSON content type for all responses as early as possible
+app.use((req, res, next) => {
   res.setHeader('Content-Type', 'application/json');
   next();
 });
 
-// Request logger for debugging
+// Setup authentication
+setupAuth(app);
+
+// Request logger
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
-  if (req.originalUrl.includes('/thumbnail')) {
+  if (req.originalUrl.includes('thumbnail')) {
     console.log('Thumbnail request details:', {
       method: req.method,
       path: req.originalUrl,
       contentType: req.headers['content-type'],
-      hasFile: req.file !== undefined,
+      hasBody: req.body !== undefined,
+      hasFile: req.file !== undefined
     });
   }
   next();
 });
 
-// Handle multer errors before routes
+// Global error handler for multer and other errors
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // Ensure JSON response
+  res.setHeader('Content-Type', 'application/json');
+
   if (err instanceof multer.MulterError) {
     console.error('Multer error:', err);
     return res.status(400).json({
-      error: err.message 
+      success: false,
+      error: err.message
     });
   }
-  next(err);
-});
 
-// Register thumbnail routes
-app.use('/api/thumbnails', thumbnailRoutes);
-
-// Catch-all error handler for unhandled errors
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Global error handler:', err);
-
-  // Always set JSON content type
-  res.setHeader('Content-Type', 'application/json');
-
-  // Handle other errors
+  // For any other error
+  console.error('Server error:', err);
   const status = err.status || 500;
   const message = err.message || 'An unexpected error occurred';
 
-  res.status(status).json({
+  return res.status(status).json({
+    success: false,
     error: status === 500 ? 'Server error' : message,
     details: status === 500 ? message : undefined
   });
 });
 
-// Catch unhandled rejections and exceptions
-process.on('unhandledRejection', (reason: any) => {
-  console.error('Unhandled Promise Rejection:', reason);
-});
+// Register routes after error handlers
+app.use('/api/thumbnails', thumbnailRoutes);
 
-process.on('uncaughtException', (error: Error) => {
-  console.error('Uncaught Exception:', error);
+// Start server on 0.0.0.0 to make it accessible
+const port = parseInt(process.env.PORT || '5000', 10);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Server started on port ${port}`);
 });
 
 export default app;

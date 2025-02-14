@@ -16,42 +16,37 @@ const upload = multer({
   }
 }).single('thumbnail');
 
+// Handle thumbnail uploads
 router.patch('/:videoId/thumbnail', (req, res) => {
-  upload(req, res, (err) => {
-    // Set content type before any response
-    res.setHeader('Content-Type', 'application/json');
-
-    if (err instanceof multer.MulterError) {
-      console.error('Multer error:', err);
-      return res.status(400).json({
-        success: false,
-        error: 'File too large (max 5MB)'
-      });
-    }
-
-    if (err) {
-      console.error('Upload error:', err);
-      return res.status(400).json({
-        success: false,
-        error: err.message
-      });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({
-        success: false,
-        error: 'No file uploaded'
-      });
-    }
-
+  // Handle file upload
+  upload(req, res, async (err) => {
     try {
-      // Create data URL from the uploaded file
-      const thumbnailUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+      // Log request details
+      console.log('Processing thumbnail request:', {
+        videoId: req.params.videoId,
+        contentType: req.headers['content-type']
+      });
 
+      // Handle multer errors
+      if (err) {
+        console.error('Upload error:', err);
+        throw err;
+      }
+
+      // Check for file presence
+      if (!req.file) {
+        throw new Error('No file uploaded');
+      }
+
+      // Convert file to base64
+      const base64Data = req.file.buffer.toString('base64');
+      const thumbnailUrl = `data:${req.file.mimetype};base64,${base64Data}`;
+
+      // Log success
       console.log('Thumbnail processed successfully:', {
         videoId: req.params.videoId,
-        mimeType: req.file.mimetype,
-        size: req.file.size
+        size: req.file.size,
+        mimeType: req.file.mimetype
       });
 
       return res.json({
@@ -59,10 +54,10 @@ router.patch('/:videoId/thumbnail', (req, res) => {
         thumbnailUrl
       });
     } catch (error) {
-      console.error('Thumbnail processing error:', error);
-      return res.status(500).json({
+      console.error('Error in thumbnail upload:', error);
+      return res.status(error instanceof multer.MulterError ? 400 : 500).json({
         success: false,
-        error: 'Failed to process thumbnail'
+        error: error instanceof Error ? error.message : 'Failed to process thumbnail'
       });
     }
   });
