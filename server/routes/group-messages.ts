@@ -2,14 +2,14 @@ import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@db";
 import { groupMessages, users, groupMembers, discussionGroups, videos } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
-import { Router, Response } from "express";
-import { AuthenticatedRequest, asyncHandler } from "../auth";
+import { Router } from "express";
+import { AuthenticatedRequest } from "../routes";
 import { sendUnreadMessagesNotification } from "../lib/email";
 
 const router = Router();
 
 // Get messages for a group
-router.get("/api/groups/:groupId/messages", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.get("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, res) => {
   try {
     const { groupId } = req.params;
     const parsedGroupId = parseInt(groupId);
@@ -18,25 +18,12 @@ router.get("/api/groups/:groupId/messages", asyncHandler(async (req: Authenticat
       return res.status(400).json({ error: "Invalid group ID" });
     }
 
-    // Check if group exists and is not deleted
-    const group = await db.query.discussionGroups.findFirst({
-      where: and(
-        eq(discussionGroups.id, parsedGroupId),
-        eq(discussionGroups.isDeleted, false)
-      )
-    });
-
-    if (!group) {
-      return res.status(404).json({ error: "Group not found" });
-    }
-
-    // Check if user is member of group and membership is not deleted
+    // Check if user is member of group
     if (req.user) {
       const memberCheck = await db.query.groupMembers.findFirst({
         where: and(
           eq(groupMembers.groupId, parsedGroupId),
-          eq(groupMembers.userId, req.user.id),
-          eq(groupMembers.isDeleted, false)
+          eq(groupMembers.userId, req.user.id)
         )
       });
 
@@ -45,12 +32,8 @@ router.get("/api/groups/:groupId/messages", asyncHandler(async (req: Authenticat
       }
     }
 
-    // Get only non-deleted messages
     const messages = await db.query.groupMessages.findMany({
-      where: and(
-        eq(groupMessages.groupId, parsedGroupId),
-        eq(groupMessages.isDeleted, false)
-      ),
+      where: eq(groupMessages.groupId, parsedGroupId),
       with: {
         user: {
           columns: {
@@ -63,7 +46,7 @@ router.get("/api/groups/:groupId/messages", asyncHandler(async (req: Authenticat
       limit: 100
     });
 
-    // Update last read timestamp for the current user if their membership is active
+    // Update last read timestamp for the current user
     if (req.user) {
       await db
         .update(groupMembers)
@@ -73,8 +56,7 @@ router.get("/api/groups/:groupId/messages", asyncHandler(async (req: Authenticat
         })
         .where(and(
           eq(groupMembers.groupId, parsedGroupId),
-          eq(groupMembers.userId, req.user.id),
-          eq(groupMembers.isDeleted, false)
+          eq(groupMembers.userId, req.user.id)
         ));
     }
 
@@ -83,10 +65,10 @@ router.get("/api/groups/:groupId/messages", asyncHandler(async (req: Authenticat
     console.error('Error in group messages:', error);
     res.status(500).json({ error: "Internal server error" });
   }
-}));
+});
 
 // Post a new message to a group
-router.post("/api/groups/:groupId/messages", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+router.post("/api/groups/:groupId/messages", async (req: AuthenticatedRequest, res) => {
   if (!req.user) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -309,6 +291,6 @@ router.post("/api/groups/:groupId/messages", asyncHandler(async (req: Authentica
     console.error('[Group Messages] Error posting message:', error);
     res.status(500).json({ error: "Internal server error" });
   }
-}));
+});
 
 export default router;

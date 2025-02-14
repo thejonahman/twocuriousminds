@@ -79,7 +79,6 @@ export const discussionGroups = pgTable("discussion_groups", {
   inviteCode: text("invite_code").notNull().unique(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  isDeleted: boolean("is_deleted").default(false).notNull(),
 }, (table) => ({
   videoIdIdx: index("discussion_group_video_id_idx").on(table.videoId),
   creatorIdIdx: index("discussion_group_creator_id_idx").on(table.creatorId),
@@ -97,7 +96,6 @@ export const groupMembers = pgTable("group_members", {
   unreadCount: integer("unread_count").default(0),
   joinedAt: timestamp("joined_at").defaultNow(),
   reminderCount: integer("reminder_count").default(0),
-  isDeleted: boolean("is_deleted").default(false).notNull(),
 }, (table) => ({
   groupIdIdx: index("group_members_group_id_idx").on(table.groupId),
   userIdIdx: index("group_members_user_id_idx").on(table.userId)
@@ -110,7 +108,6 @@ export const groupMessages = pgTable("group_messages", {
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  isDeleted: boolean("is_deleted").default(false).notNull(),
 }, (table) => ({
   groupIdIdx: index("group_messages_group_id_idx").on(table.groupId),
   userIdIdx: index("group_messages_user_id_idx").on(table.userId),
