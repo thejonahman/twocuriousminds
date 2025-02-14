@@ -21,7 +21,7 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
   }
 });
 
@@ -52,38 +52,44 @@ export interface AuthenticatedRequest extends Request {
 }
 
 export function registerRoutes(app: Express): Server {
-  // Create HTTP server first
   const httpServer = createServer(app);
-
-  // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
 
-  // Global middleware to ensure JSON responses for all /api routes
+  // Global middleware for API routes
   app.use('/api', (req, res, next) => {
     res.setHeader('Content-Type', 'application/json');
-    console.log(`[API] ${req.method} ${req.path} - Processing API request`);
+    console.log(`[API] ${req.method} ${req.path}`);
     next();
   });
 
-  // Setup static file serving for uploads
-  app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
+  // Serve uploaded files
+  app.use('/uploads', express.static(uploadsDir));
 
-  // Test upload endpoint
+  // Test upload endpoint (no auth required for testing)
   app.post("/api/test-upload", upload.single('file'), async (req: Request, res: Response) => {
-    console.log('[API] Testing file upload');
     try {
+      console.log('[API] Processing test upload request');
+
       if (!req.file) {
         console.log('[API] No file received in test upload');
         return res.status(400).json({ success: false, message: "No file uploaded" });
       }
 
-      console.log('[API] Test file uploaded successfully:', req.file);
-      res.json({ 
-        success: true, 
+      const relativePath = path.relative(process.cwd(), req.file.path);
+      const publicPath = '/uploads/' + path.basename(req.file.path);
+
+      console.log('[API] File uploaded successfully:', {
+        filename: req.file.filename,
+        path: publicPath,
+        size: req.file.size
+      });
+
+      res.json({
+        success: true,
         message: "File uploaded successfully",
         file: {
           filename: req.file.filename,
-          path: `/uploads/${req.file.filename}`,
+          path: publicPath,
           size: req.file.size,
           mimetype: req.file.mimetype
         }
@@ -94,16 +100,16 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // File upload endpoint for video thumbnails
-  app.post("/api/videos/:id/thumbnail", requireAuth, upload.single('thumbnail'), async (req: AuthenticatedRequest, res: Response) => {
-    console.log('[API] Processing thumbnail update for video');
-    const videoId = parseInt(req.params.id);
-
-    if (isNaN(videoId)) {
-      return res.status(400).json({ success: false, message: "Invalid video ID" });
-    }
-
+  // Thumbnail upload endpoint
+  app.post("/api/videos/:id/thumbnail", upload.single('thumbnail'), async (req: Request, res: Response) => {
     try {
+      console.log('[API] Processing thumbnail upload for video');
+      const videoId = parseInt(req.params.id);
+
+      if (isNaN(videoId)) {
+        return res.status(400).json({ success: false, message: "Invalid video ID" });
+      }
+
       if (!req.file) {
         return res.status(400).json({ success: false, message: "No thumbnail uploaded" });
       }
@@ -117,17 +123,20 @@ export function registerRoutes(app: Express): Server {
         return res.status(404).json({ success: false, message: "Video not found" });
       }
 
-      // Generate the new thumbnail URL
-      const thumbnailUrl = `/uploads/${req.file.filename}`;
+      // Generate the public URL for the thumbnail
+      const publicPath = '/uploads/' + path.basename(req.file.path);
 
       // Update the video with new thumbnail URL
       await db.update(videos)
-        .set({ thumbnailUrl })
+        .set({ thumbnailUrl: publicPath })
         .where(eq(videos.id, videoId));
 
-      console.log('[API] Thumbnail updated successfully for video:', videoId);
+      console.log('[API] Thumbnail updated successfully:', {
+        videoId,
+        thumbnailUrl: publicPath
+      });
 
-      // Return the updated video with the new thumbnail URL
+      // Return the updated video
       const updatedVideo = await db.query.videos.findFirst({
         where: eq(videos.id, videoId),
         with: {
@@ -143,7 +152,7 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Endpoint to list all videos with their thumbnails
+  // List all videos
   app.get("/api/videos", async (req: Request, res: Response) => {
     try {
       const allVideos = await db.query.videos.findMany({

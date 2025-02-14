@@ -31,8 +31,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// Setup static file serving for uploads
-app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Setup static file serving for uploads with proper CORS and caching headers
+app.use('/uploads', (req, res, next) => {
+  res.set({
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'public, max-age=3600',
+  });
+  console.log(`[STATIC] Serving file: ${req.path}`);
+  next();
+}, express.static(uploadsDir));
 
 // Setup authentication
 setupAuth(app);
@@ -86,20 +98,30 @@ let server: ReturnType<typeof httpServer.listen>;
 
 function startServer() {
   return new Promise((resolve, reject) => {
-    console.log(`[SERVER] Starting on port ${port}...`);
+    console.log(`[SERVER] Starting server on port ${port}...`);
+    console.log(`[SERVER] Environment: ${process.env.NODE_ENV}`);
+    console.log(`[SERVER] Upload directory: ${uploadsDir}`);
 
     server = httpServer.listen({ 
       port, 
-      host: '0.0.0.0',
-      ipv6Only: false
+      host: '0.0.0.0'
     }, () => {
-      console.log(`[SERVER] Upload directory: ${uploadsDir}`);
-      console.log(`[SERVER] Server is now accepting connections`);
+      const address = server.address();
+      if (address && typeof address !== 'string') {
+        console.log(`[SERVER] Server is running on http://${address.address}:${address.port}`);
+      }
+      console.log('[SERVER] Ready to accept connections');
+
+      // Emit ready event for workflow port waiting
+      process.emit('ready');
       resolve(server);
     });
 
-    server.on('error', (err: Error) => {
+    server.on('error', (err: Error & { code?: string }) => {
       console.error('[SERVER] Failed to start:', err);
+      if (err.code === 'EADDRINUSE') {
+        console.error(`[SERVER] Port ${port} is already in use`);
+      }
       reject(err);
     });
   });
