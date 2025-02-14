@@ -31,6 +31,8 @@ export function PreferencesDialog() {
   const [localPreferences, setLocalPreferences] = useState<PreferencesData>(DEFAULT_PREFERENCES);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const dialogId = 'preferences-dialog';
+  const descriptionId = `${dialogId}-description`;
 
   const { data: categories } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -144,15 +146,24 @@ export function PreferencesDialog() {
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-8 w-8"
+          aria-label="Open preferences"
+        >
           <Settings className="h-4 w-4" />
           <span className="sr-only">Preferences</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent 
+        className="max-w-2xl"
+        aria-labelledby={dialogId}
+        aria-describedby={descriptionId}
+      >
         <DialogHeader>
-          <DialogTitle>Content Preferences</DialogTitle>
-          <DialogDescription>
+          <DialogTitle id={dialogId}>Content Preferences</DialogTitle>
+          <DialogDescription id={descriptionId}>
             Customize your learning experience by selecting topics you're interested in and platforms you prefer.
           </DialogDescription>
         </DialogHeader>
@@ -192,6 +203,7 @@ export function PreferencesDialog() {
                               : ''
                           }`}
                           onClick={() => toggleCategory(category.id, "preferred")}
+                          aria-label={`${localPreferences.preferredCategories.includes(category.id) ? 'Remove' : 'Add'} ${category.name} from preferred categories`}
                         >
                           {localPreferences.preferredCategories.includes(category.id) ? "Selected" : "Select"}
                         </Button>
@@ -204,6 +216,7 @@ export function PreferencesDialog() {
                               : ''
                           }`}
                           onClick={() => toggleCategory(category.id, "excluded")}
+                          aria-label={`${localPreferences.excludedCategories.includes(category.id) ? 'Remove' : 'Add'} ${category.name} from excluded categories`}
                         >
                           <ThumbsDown className="h-4 w-4" />
                           {localPreferences.excludedCategories.includes(category.id) ? "Excluded" : "Exclude"}
@@ -227,6 +240,7 @@ export function PreferencesDialog() {
                   variant={localPreferences.preferredPlatforms.includes(platform.id) ? "default" : "outline"}
                   className="gap-2"
                   onClick={() => togglePlatform(platform.id)}
+                  aria-label={`${localPreferences.preferredPlatforms.includes(platform.id) ? 'Remove' : 'Add'} ${platform.name} from preferred platforms`}
                 >
                   {platform.icon}
                   {platform.name}
@@ -241,12 +255,14 @@ export function PreferencesDialog() {
               variant="outline"
               onClick={() => handleClose(false)}
               disabled={mutation.isPending}
+              aria-label="Cancel changes and close preferences"
             >
               Cancel
             </Button>
             <Button
               onClick={handleSave}
               disabled={!hasChanges || mutation.isPending}
+              aria-label="Save preference changes"
             >
               {mutation.isPending ? "Saving..." : "Save Changes"}
             </Button>

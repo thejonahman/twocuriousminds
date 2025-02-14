@@ -106,11 +106,12 @@ const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 
 // Start server with explicit host binding
-server.listen(PORT, HOST, () => {
-  log(`Server listening on http://${HOST}:${PORT}`);
+server.listen(Number(PORT), HOST, () => {
+  log(`Server started and ready on http://${HOST}:${PORT}`); 
   console.log('=== Server Configuration ===');
   console.log(`Environment: ${app.get("env")}`);
   console.log(`Port: ${PORT}`);
   console.log(`Host: ${HOST}`);
   console.log('=========================');
+  console.log('Server is now ready to accept connections'); 
 });

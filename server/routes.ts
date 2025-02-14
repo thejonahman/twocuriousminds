@@ -369,7 +369,7 @@ export function registerRoutes(app: Express): Server {
       const [newGroup] = await tx
         .insert(discussionGroups)
         .values({
-          name,
+          name: name, // Changed from groupName to name to match schema
           description: description || `Discussion group for video ${videoId}`,
           videoId,
           creatorId: userId,
@@ -447,29 +447,43 @@ export function registerRoutes(app: Express): Server {
       return res.status(404).json({ message: "Group not found" });
     }
 
-    console.log('Found group with', group.messages?.length || 0, 'messages');
+    // Remove messages length check since messages are queried separately
+    console.log('Found group with', group.members?.length || 0, 'members');
 
     // Check if user is already a member
     const existingMember = group.members.find(member => member.userId === req.user!.id);
 
     if (!existingMember) {
-      // Add user as member
-      await db.insert(groupMembers)
-        .values({
-          groupId: group.id,
-          userId: req.user!.id,
-          role: 'member'
-        });
-
-      // Add the new member to the response
-      group.members.push({
+      const newMember = {
+        id: -1, // Temporary ID for UI purposes
         userId: req.user!.id,
         groupId: group.id,
         role: 'member',
+        joinedAt: new Date(),
+        lastReadAt: new Date(),
+        notificationsEnabled: true,
+        emailNotifications: false,
+        unreadCount: 0,
+        reminderCount: 0,
         user: {
           username: req.user!.username
         }
-      });
+      };
+
+      // Add user as member in database
+      await db.insert(groupMembers)
+        .values({
+          userId: req.user!.id,
+          groupId: group.id,
+          role: 'member',
+          joinedAt: new Date(),
+          lastReadAt: new Date(),
+          notificationsEnabled: true,
+          emailNotifications: false,
+          unreadCount: 0
+        });
+
+      group.members.push(newMember);
     }
 
     res.json(group);
@@ -531,9 +545,9 @@ export function registerRoutes(app: Express): Server {
       res.json({ message: "Video deleted successfully", video: updatedVideo });
     } catch (error) {
       console.error('Error soft deleting video:', error);
-      res.status(500).json({ 
-        message: "Error deleting video", 
-        error: error instanceof Error ? error.message : "Unknown error" 
+      res.status(500).json({
+        message: "Error deleting video",
+        error: error instanceof Error ? error.message : "Unknown error"
       });
     }
   }));
@@ -656,18 +670,22 @@ export function registerRoutes(app: Express): Server {
       }
 
       // Get domain status first
-      const domains = await resend.domains.list();
+      if (!resend) {
+        throw new Error('Email service not configured');
+      }
+      const emailClient = resend;
+      const domains = await emailClient.domains.list();
       console.log('Current domains:', domains);
 
-      const domainDetails = await resend.domains.get(domain);
+      const domainDetails = await emailClient.domains.get(domain);
       console.log('Domain details:', domainDetails);
 
       if (!domainDetails) {
         // If domain doesn't exist, create it
-        await resend.domains.create({ name: domain });
+        await emailClient.domains.create({ name: domain });
       }
 
-      const result = await resend.domains.verify(domain);
+      const result = await emailClient.domains.verify(domain);
       return res.json(result);
     } catch (error) {
       console.error('Domain verification error:', error);

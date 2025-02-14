@@ -5,6 +5,13 @@ import { eq } from "drizzle-orm";
 import { groupMessages, groupMembers } from "@db/schema";
 import cookie from 'cookie';
 
+// Define session type to include passport
+interface Session {
+  passport?: {
+    user?: number;
+  };
+}
+
 // Store active WebSocket connections
 const connectedClients = new Map<number, WebSocket>();
 
@@ -43,9 +50,9 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
         return;
       }
 
-      // Get session from store
-      const session = await new Promise((resolve, reject) => {
-        sessionMiddleware.store.get(sessionId, (err: any, session: any) => {
+      // Get session from store with proper typing
+      const session = await new Promise<Session | null>((resolve, reject) => {
+        sessionMiddleware.store.get(sessionId, (err: any, session: Session | null) => {
           if (err) {
             console.error('[WebSocket] Session store error:', err);
             reject(err);
@@ -55,22 +62,16 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
         });
       });
 
-      if (!session) {
-        console.log('[WebSocket] No session found');
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
-        return;
-      }
-
-      const userId = session.passport?.user;
-      if (!userId) {
+      if (!session?.passport?.user) {
         console.log('[WebSocket] No user ID in session');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
 
+      const userId = session.passport.user;
       console.log('[WebSocket] Upgrading connection for user:', userId);
+
       wss.handleUpgrade(request, socket, head, (ws) => {
         wss.emit('connection', ws, userId);
       });

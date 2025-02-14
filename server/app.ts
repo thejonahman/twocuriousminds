@@ -37,7 +37,9 @@ app.use((req, res) => {
 const port = parseInt(process.env.PORT || '5000', 10);
 
 const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`Server started on port ${port}`);
+  console.log(`[Server] Starting up on port ${port}`);
+  console.log(`[Server] Server is ready at http://0.0.0.0:${port}`);
+  console.log('[Server] Ready for connections');
 }).on('error', (err: Error) => {
   console.error('Failed to start server:', err);
   process.exit(1);
