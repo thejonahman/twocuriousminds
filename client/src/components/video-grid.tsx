@@ -12,6 +12,7 @@ import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { Video } from "@/lib/types";
+import { apiRequest } from "@/lib/queryClient";
 
 interface VideoGridProps {
   videos: Video[];
@@ -24,10 +25,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  console.log('VideoGrid received videos:', videos);
-
   if (!videos || videos.length === 0) {
-    console.log('No videos available:', { videos });
     return (
       <div className="text-center py-8">
         <p className="text-muted-foreground">No videos found</p>
@@ -41,19 +39,11 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
 
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
-      const response = await fetch(`/api/videos/${videoId}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
-
+      const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to delete video");
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.message || errorData?.error || "Failed to delete video");
       }
-
       return response.json();
     },
     onSuccess: () => {
@@ -99,11 +89,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   };
 
   const handleThumbnailLoading = (videoId: number) => {
-    setLoadingThumbnails(prev => {
-      const newSet = new Set(prev);
-      newSet.add(videoId);
-      return newSet;
-    });
+    setLoadingThumbnails(prev => new Set(prev).add(videoId));
   };
 
   const handleThumbnailLoaded = (videoId: number) => {
@@ -115,11 +101,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   };
 
   const handleThumbnailError = (videoId: number) => {
-    setFailedThumbnails(prev => {
-      const newSet = new Set(prev);
-      newSet.add(videoId);
-      return newSet;
-    });
+    setFailedThumbnails(prev => new Set(prev).add(videoId));
     setLoadingThumbnails(prev => {
       const newSet = new Set(prev);
       newSet.delete(videoId);
@@ -128,7 +110,6 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   };
 
   const handleDelete = useCallback((videoId: number) => {
-    console.log('Delete handler called for video:', videoId);
     deleteMutation.mutate(videoId);
   }, [deleteMutation]);
 
@@ -139,11 +120,9 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
           <Link href={`/video/${video.id}`}>
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted/50 relative group">
-                <div
-                  className={`absolute inset-0 flex items-center justify-center ${
-                    video.thumbnailUrl && !failedThumbnails.has(video.id) && !loadingThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
-                  } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
-                >
+                <div className={`absolute inset-0 flex items-center justify-center ${
+                  video.thumbnailUrl && !failedThumbnails.has(video.id) && !loadingThumbnails.has(video.id) ? 'opacity-0' : 'opacity-100'
+                } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}>
                   {loadingThumbnails.has(video.id) ? (
                     <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                   ) : (
@@ -214,15 +193,11 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         variant="ghost"
                         size="icon"
                         className="text-destructive hover:text-destructive/90"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </AlertDialogTrigger>
-                    <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                    <AlertDialogContent>
                       <AlertDialogHeader>
                         <AlertDialogTitle>Delete Video</AlertDialogTitle>
                         <AlertDialogDescription>
@@ -230,14 +205,9 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
                         <AlertDialogAction
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            console.log('Delete button clicked for video:', video.id);
-                            handleDelete(video.id);
-                          }}
+                          onClick={() => handleDelete(video.id)}
                           className="bg-destructive hover:bg-destructive/90"
                         >
                           Delete

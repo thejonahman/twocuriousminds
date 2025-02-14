@@ -722,5 +722,41 @@ export function registerRoutes(app: Express): Server {
     }));
   }
 
+  // Add the delete video endpoint near other video-related endpoints
+  app.delete("/api/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    console.log('[DELETE] Attempting to delete video:', req.params.id);
+    const videoId = parseInt(req.params.id);
+
+    if (isNaN(videoId)) {
+      console.error('[DELETE] Invalid video ID:', req.params.id);
+      return res.status(400).json({ message: "Invalid video ID" });
+    }
+
+    try {
+      // Verify the video exists
+      const video = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId)
+      });
+
+      if (!video) {
+        console.error('[DELETE] Video not found:', videoId);
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      console.log('[DELETE] Found video:', video.id, 'title:', video.title);
+
+      // Delete the video
+      await db.delete(videos)
+        .where(eq(videos.id, videoId));
+
+      console.log('[DELETE] Successfully deleted video:', videoId);
+      res.json({ message: "Video deleted successfully" });
+    } catch (error) {
+      console.error('[DELETE] Error deleting video:', error);
+      throw error;
+    }
+  }));
+
+  console.log('[Routes] Registered DELETE /api/videos/:id endpoint');
   return httpServer;
 }

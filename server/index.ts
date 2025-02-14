@@ -1,8 +1,11 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { setupAuth } from './auth';
 
 const app = express();
+
+// Basic middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -41,25 +44,16 @@ app.use((req, res, next) => {
       isApiRoute: path.startsWith("/api"),
       responseType: capturedJsonResponse ? 'json' : 'non-json'
     });
-
-    if (path.startsWith("/api")) {
-      let logLine = `${method} ${path} ${status} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      if (logLine.length > 80) {
-        logLine = logLine.slice(0, 79) + "…";
-      }
-
-      log(logLine);
-    }
   });
 
   next();
 });
 
-// Ensure all API routes are registered before Vite middleware
+// Setup authentication
+const sessionMiddleware = setupAuth(app);
+
+// Register all API routes - this must come before any catch-all handlers
+console.log('[SERVER] Registering API routes...');
 const server = registerRoutes(app);
 
 // Add API-specific error handler for /api routes
@@ -74,7 +68,6 @@ app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
   const status = err.status || err.statusCode || 500;
   const message = err.message || "Internal Server Error";
 
-  // Ensure we always return JSON for API routes
   res.status(status)
      .set('Content-Type', 'application/json')
      .json({
@@ -83,25 +76,32 @@ app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
      });
 });
 
-// Add catch-all handler for /api routes to prevent falling through to Vite
+// Setup Vite for development or serve static files for production
+if (app.get("env") === "development") {
+  console.log('[SERVER] Setting up Vite for development...');
+  setupVite(app, server);
+} else {
+  console.log('[SERVER] Setting up static file serving for production...');
+  serveStatic(app);
+}
+
+// Add catch-all handler for /api routes after all other middleware
 app.use('/api/*', (req: Request, res: Response) => {
   console.log(`[404] No API route found for ${req.method} ${req.path}`);
   res.status(404)
      .set('Content-Type', 'application/json')
      .json({
        error: 'API endpoint not found',
-       success: false
+       success: false,
+       path: req.path,
+       method: req.method
      });
 });
 
-// Setup Vite only after API routes are registered
-if (app.get("env") === "development") {
-  setupVite(app, server);
-} else {
-  serveStatic(app);
-}
-
 const PORT = 5000;
 server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[SERVER] Server started on port ${PORT}`);
   log(`serving on port ${PORT} (0.0.0.0)`);
 });
+
+export default server;
