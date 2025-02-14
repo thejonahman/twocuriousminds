@@ -18,14 +18,18 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+// Request logger for debugging
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+  next();
+});
+
 // Handle multer errors before routes
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (err instanceof multer.MulterError) {
     console.error('Multer error:', err);
     return res.status(400).json({
-      success: false,
-      error: 'File upload error',
-      details: err.message
+      error: err.message 
     });
   }
   next(err);
@@ -46,7 +50,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   const message = err.message || 'An unexpected error occurred';
 
   res.status(status).json({
-    success: false,
     error: status === 500 ? 'Server error' : message,
     details: status === 500 ? message : undefined
   });

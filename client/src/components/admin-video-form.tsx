@@ -14,6 +14,17 @@ import { apiRequest } from "@/lib/queryClient";
 import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 
+// Type definitions
+interface Category {
+  id: number;
+  name: string;
+}
+
+interface Subcategory {
+  id: number;
+  name: string;
+}
+
 const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
@@ -28,15 +39,10 @@ const videoSchema = z.object({
     }, "Must be a YouTube, TikTok, or Instagram URL"),
   categoryId: z.string().min(1, "Category is required"),
   subcategoryId: z.string().optional(),
-  platform: z.enum(["youtube", "tiktok", "instagram"]),
+  platform: z.enum(["youtube", "tiktok", "instagram"])
 });
 
 type VideoFormData = z.infer<typeof videoSchema>;
-
-interface NewTopicFormData {
-  name: string;
-  parentCategoryId?: string;
-}
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
@@ -60,72 +66,42 @@ export function AdminVideoForm() {
     },
   });
 
-  const { data: categories, isLoading: isCategoriesLoading } = useQuery<Array<{ id: number; name: string }>>({
+  const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     staleTime: 30000,
   });
 
   const selectedCategoryId = form.watch("categoryId");
 
-  const { data: subcategories, isLoading: isSubcategoriesLoading, error: subcategoriesError } = useQuery<Array<{ id: number; name: string }>>({
+  const { data: subcategories = [], isLoading: isSubcategoriesLoading } = useQuery<Subcategory[]>({
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
     staleTime: 30000,
-    retry: 1,
-    onError: (error) => {
-      console.error('Error loading subcategories:', error);
-      console.error('Selected category ID when error occurred:', selectedCategoryId);
-      if (error instanceof Error) {
-        console.error('Error details:', error.message);
-      }
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to load subcategories. Please try again.",
-        variant: "destructive"
-      });
-    },
-    onSuccess: (data) => {
-      console.log('Loaded subcategories for category:', selectedCategoryId);
-      console.log('Subcategories data:', data);
-      if (!data || data.length === 0) {
-        console.log('No subcategories found for category:', selectedCategoryId);
-      }
-    }
+    retry: false,
   });
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
-      try {
-        const payload = {
-          ...data,
-          categoryId: parseInt(data.categoryId),
-          subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
-          thumbnailUrl
-        };
+      const payload = {
+        ...data,
+        categoryId: parseInt(data.categoryId),
+        subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
+        thumbnailUrl
+      };
 
-        console.log('Preparing video submission payload:', payload);
-        console.log('Selected category ID:', data.categoryId);
-        console.log('Selected subcategory ID:', data.subcategoryId);
 
-        const response = await apiRequest("POST", "/api/videos", payload);
+      const response = await apiRequest("POST", "/api/videos", payload);
 
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('Video submission failed:', errorData);
-          throw new Error(errorData.message || "Failed to add video");
-        }
-
-        const videoData = await response.json();
-        console.log('Video submission successful:', videoData);
-        setCurrentVideoId(videoData.id);
-        return videoData;
-      } catch (error) {
-        console.error('Error during video submission:', error);
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to add video");
       }
+
+      const videoData = await response.json();
+      setCurrentVideoId(videoData.id);
+      return videoData;
     },
-    onSuccess: (data) => {
-      console.log('Video added successfully:', data);
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
 
@@ -153,26 +129,19 @@ export function AdminVideoForm() {
       const response = await apiRequest("POST", "/api/thumbnails/generate", {
         title,
         description,
-        videoId: currentVideoId,
         url: form.getValues("url"),
         platform: form.getValues("platform")
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to generate thumbnail");
+        const error = await response.json();
+        throw new Error(error.error || "Failed to generate thumbnail");
       }
 
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: (data: { thumbnailUrl: string }) => {
       setThumbnailUrl(data.thumbnailUrl);
-      setIsGeneratingThumbnail(false);
-
-      if (currentVideoId) {
-        queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-      }
-
       toast({
         title: "Success",
         description: "Thumbnail generated successfully",
@@ -180,16 +149,68 @@ export function AdminVideoForm() {
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to generate thumbnail",
+        title: "Error",
         description: error.message,
         variant: "destructive",
       });
-      setIsGeneratingThumbnail(false);
     },
+    onSettled: () => {
+      setIsGeneratingThumbnail(false);
+    }
   });
 
-  const onSubmit = (data: VideoFormData) => {
-    addVideoMutation.mutate(data);
+  const uploadThumbnailMutation = useMutation({
+    mutationFn: async (file: File) => {
+      if (!currentVideoId) {
+        throw new Error("Please save the video first before uploading a custom thumbnail");
+      }
+
+      const formData = new FormData();
+      formData.append('thumbnail', file);
+
+      const response = await apiRequest(
+        "PATCH",
+        `/api/thumbnails/${currentVideoId}/thumbnail`,
+        formData,
+        { isFormData: true }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to upload thumbnail");
+      }
+
+      return response.json();
+    },
+    onSuccess: (data: { thumbnailUrl: string }) => {
+      setThumbnailUrl(data.thumbnailUrl);
+      toast({
+        title: "Success",
+        description: "Custom thumbnail uploaded successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "Error",
+          description: "File size must be less than 5MB",
+          variant: "destructive",
+        });
+        return;
+      }
+      uploadThumbnailMutation.mutate(file);
+    }
   };
 
   const handleGenerateThumbnail = async () => {
@@ -207,6 +228,10 @@ export function AdminVideoForm() {
 
     setIsGeneratingThumbnail(true);
     generateThumbnailMutation.mutate({ title, description });
+  };
+
+  const onSubmit = (data: VideoFormData) => {
+    addVideoMutation.mutate(data);
   };
 
   const handleAddTopic = async () => {
@@ -238,7 +263,6 @@ export function AdminVideoForm() {
         description: "Topic added successfully"
       });
 
-      // Select the newly created category
       form.setValue("categoryId", String(newCategory.id));
     } catch (error) {
       toast({
@@ -278,6 +302,7 @@ export function AdminVideoForm() {
     }
   };
 
+
   const handleAddSubtopic = async () => {
     if (!newSubtopicName.trim() || !selectedCategoryId) {
       toast({
@@ -309,7 +334,6 @@ export function AdminVideoForm() {
         description: "Subtopic added successfully"
       });
 
-      // Select the newly created subcategory
       form.setValue("subcategoryId", String(newSubcategory.id));
     } catch (error) {
       toast({
@@ -410,6 +434,12 @@ export function AdminVideoForm() {
                 >
                   {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
                 </Button>
+                <input
+                  type="file"
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="max-w-xs"
+                />
               </div>
             </div>
 
@@ -427,215 +457,33 @@ export function AdminVideoForm() {
               )}
             />
 
-            <div className="flex items-end gap-2">
-              <FormField
-                control={form.control}
-                name="categoryId"
-                render={({ field }) => (
-                  <FormItem className="flex-1">
-                    <FormLabel>Topic</FormLabel>
-                    <div className="flex gap-2">
-                      <Select
-                        onValueChange={(value) => {
-                          field.onChange(value);
-                          form.setValue("subcategoryId", "");
-                        }}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select topic" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {categories?.map((category) => (
-                            <SelectItem key={category.id} value={String(category.id)}>
-                              {category.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <Dialog open={newTopicDialogOpen} onOpenChange={setNewTopicDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button type="button" variant="outline" size="icon">
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-[425px]">
-                          <DialogHeader>
-                            <DialogTitle>Add New Topic</DialogTitle>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-4">
-                            <FormItem>
-                              <FormLabel>Topic Name</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder="Enter topic name"
-                                  value={newTopicName}
-                                  onChange={(e) => setNewTopicName(e.target.value)}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          </div>
-                          <DialogFooter>
-                            <Button type="button" onClick={handleAddTopic}>
-                              Add Topic
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-
-                      <AlertDialog open={deleteTopicDialogOpen} onOpenChange={setDeleteTopicDialogOpen}>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            className="text-destructive hover:text-destructive/90"
-                            disabled={!field.value}
-                            onClick={() => setSelectedTopicToDelete(field.value)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Topic</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete this topic? This will also delete all subtopics and associated videos.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={handleDeleteTopic}
-                              className="bg-destructive hover:bg-destructive/90"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="flex items-end gap-2">
-              <FormField
-                control={form.control}
-                name="subcategoryId"
-                render={({ field }) => (
-                  <FormItem className="flex-1">
-                    <FormLabel>Subtopic (Optional)</FormLabel>
-                    <div className="flex gap-2">
-                      <Select
-                        onValueChange={(value) => {
-                          console.log('Selected subcategory:', value);
-                          field.onChange(value);
-                        }}
-                        value={field.value}
-                        disabled={!selectedCategoryId || isSubcategoriesLoading}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={
-                              isSubcategoriesLoading
-                                ? "Loading..."
-                                : selectedCategoryId
-                                  ? "Select subtopic"
-                                  : "Select a topic first"
-                            } />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {subcategoriesError ? (
-                            <div className="p-2 text-sm text-destructive">
-                              Failed to load subtopics. Please try again.
-                            </div>
-                          ) : subcategories?.map((subcategory) => (
-                            <SelectItem key={subcategory.id} value={String(subcategory.id)}>
-                              {subcategory.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <Dialog open={newSubtopicDialogOpen} onOpenChange={setNewSubtopicDialogOpen}>
-                        <DialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            disabled={!selectedCategoryId}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-[425px]">
-                          <DialogHeader>
-                            <DialogTitle>Add New Subtopic</DialogTitle>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-4">
-                            <FormItem>
-                              <FormLabel>Subtopic Name</FormLabel>
-                              <FormControl>
-                                <Input
-                                  placeholder="Enter subtopic name"
-                                  value={newSubtopicName}
-                                  onChange={(e) => setNewSubtopicName(e.target.value)}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          </div>
-                          <DialogFooter>
-                            <Button type="button" onClick={handleAddSubtopic}>
-                              Add Subtopic
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-
-                      <AlertDialog open={deleteSubtopicDialogOpen} onOpenChange={setDeleteSubtopicDialogOpen}>
-                        <AlertDialogTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            className="text-destructive hover:bg-destructive/90"
-                            disabled={!field.value}
-                            onClick={() => setSelectedSubtopicToDelete(field.value)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Delete Subtopic</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Are you sure you want to delete this subtopic? This will also delete all associated videos.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={handleDeleteSubtopic}
-                              className="bg-destructive hover:bg-destructive/90"
-                            >
-                              Delete
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="categoryId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Topic</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select topic" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {categories.map((category) => (
+                        <SelectItem key={category.id} value={String(category.id)}>
+                          {category.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
             <FormField
               control={form.control}
