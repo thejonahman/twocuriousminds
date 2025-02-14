@@ -24,10 +24,10 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  console.log('VideoGrid rendering with videos:', videos?.length || 0);
+  console.log('VideoGrid received videos:', videos);
 
   if (!videos || videos.length === 0) {
-    console.log('No videos available');
+    console.log('No videos available:', { videos });
     return (
       <div className="text-center py-8">
         <p className="text-muted-foreground">No videos found</p>
@@ -107,7 +107,6 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   };
 
   const handleThumbnailLoading = (videoId: number) => {
-    console.log(`[Thumbnail] Loading started for video ${videoId}`);
     setLoadingThumbnails(prev => {
       const newSet = new Set(prev);
       newSet.add(videoId);
@@ -116,7 +115,6 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
   };
 
   const handleThumbnailLoaded = (videoId: number) => {
-    console.log(`[Thumbnail] Successfully loaded for video ${videoId}`);
     setLoadingThumbnails(prev => {
       const newSet = new Set(prev);
       newSet.delete(videoId);
@@ -124,8 +122,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
     });
   };
 
-  const handleThumbnailError = (videoId: number, error?: any) => {
-    console.error(`[Thumbnail] Failed to load for video ${videoId}:`, error);
+  const handleThumbnailError = (videoId: number) => {
     setFailedThumbnails(prev => {
       const newSet = new Set(prev);
       newSet.add(videoId);
@@ -169,7 +166,7 @@ export function VideoGrid({ videos, showEditButton = false }: VideoGridProps) {
                     loading="lazy"
                     onLoadStart={() => handleThumbnailLoading(video.id)}
                     onLoad={() => handleThumbnailLoaded(video.id)}
-                    onError={(e) => handleThumbnailError(video.id, e)}
+                    onError={() => handleThumbnailError(video.id)}
                   />
                 )}
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent h-1/2 transition-opacity opacity-0 group-hover:opacity-100" />
