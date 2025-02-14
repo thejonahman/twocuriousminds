@@ -15,6 +15,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { z } from "zod";
+import { useUser } from "@/hooks/use-user";
+
 
 // Define type for last active group
 const lastActiveGroupSchema = z.object({
@@ -30,6 +32,8 @@ export default function Video() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const { user } = useUser();
+  const [restorationAttempted, setRestorationAttempted] = useState(false);
 
   // Query for video details
   const { data: video, isLoading } = useQuery<{
@@ -66,59 +70,35 @@ export default function Video() {
     }
   });
 
-  // If there's a last active group and no current groupId, check persistence
+  // Update the useEffect for group restoration
   useEffect(() => {
+    if (!user || restorationAttempted) return;
+
+    const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
+
+    const shouldRejoinGroup = (lastLeftGroupId: string | null, lastLeftTime: string | null) => {
+      if (!lastLeftGroupId || !lastLeftTime) return true;
+      const timeSinceLeft = Date.now() - parseInt(lastLeftTime);
+      return timeSinceLeft >= REJOIN_TIMEOUT;
+    };
+
     if (lastActiveGroup && !groupId) {
-      // Check if user explicitly left this group recently
       const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
       const lastLeftTime = sessionStorage.getItem('lastLeftTime');
 
-      if (lastLeftGroup === String(lastActiveGroup.id)) {
-        const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
-        const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
-        if (timeSinceLeft < REJOIN_TIMEOUT) {
-          console.log('Skipping rejoin due to recent leave:', lastLeftGroup);
-          return;
+      if (lastLeftGroup !== String(lastActiveGroup.id) || shouldRejoinGroup(lastLeftGroup, lastLeftTime)) {
+        const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
+
+        if (!storedGroupId || storedGroupId === String(lastActiveGroup.id)) {
+          setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
+          localStorage.setItem(`activeGroup-${id}`, String(lastActiveGroup.id));
         }
       }
-
-      // Check if this group is stored in localStorage for persistence
-      const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
-      console.log('Found stored group:', storedGroupId, 'vs lastActive:', lastActiveGroup.id);
-
-      if (!storedGroupId || storedGroupId === String(lastActiveGroup.id)) {
-        console.log('Reconnecting to stored group:', lastActiveGroup.id);
-        setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
-        localStorage.setItem(`activeGroup-${id}`, String(lastActiveGroup.id));
-      }
     }
-  }, [lastActiveGroup, id, groupId, setLocation]);
 
-  // Check localStorage for persistent group membership
-  useEffect(() => {
-    if (!groupId && !lastActiveGroup) {
-      const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
-      console.log('Checking stored group ID:', storedGroupId);
+    setRestorationAttempted(true);
+  }, [user, id, groupId, lastActiveGroup, setLocation, restorationAttempted]);
 
-      if (!storedGroupId) return;
-
-      const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
-      const lastLeftTime = sessionStorage.getItem('lastLeftTime');
-
-      // If we recently left the stored group, don't rejoin
-      if (lastLeftGroup === storedGroupId) {
-        const timeSinceLeft = lastLeftTime ? Date.now() - parseInt(lastLeftTime) : Infinity;
-        const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
-        if (timeSinceLeft < REJOIN_TIMEOUT) {
-          console.log('Skipping rejoin due to recent leave:', lastLeftGroup);
-          return;
-        }
-      }
-
-      console.log('Reconnecting to stored group:', storedGroupId);
-      setLocation(`/video/${id}/group/${storedGroupId}`);
-    }
-  }, [id, groupId, lastActiveGroup, setLocation]);
 
   // Scroll to top whenever the video ID changes
   useEffect(() => {

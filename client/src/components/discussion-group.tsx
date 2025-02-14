@@ -108,7 +108,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         // If we have an initialGroupId from URL, use that
         if (initialGroupId && group) {
           logDebug('Restoring from URL group ID', { groupId: initialGroupId });
-          setCurrentGroup(group);
+          setCurrentGroup(prevGroup => {
+            if (prevGroup?.id === group.id) return prevGroup;
+            return group;
+          });
           localStorage.setItem(`activeGroup-${videoId}`, group.id.toString());
           return;
         }
@@ -202,24 +205,62 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   useEffect(() => {
     if (!user || !currentGroup) return;
 
-    const handleNewMessages = (newMessages: Message[]) => {
+    const handleNewMessages = async (newMessages: Message[]) => {
       logDebug('New messages received', {
         count: newMessages.length,
         groupId: currentGroup.id
       });
 
+      // Update messages in cache
       queryClient.invalidateQueries({
         queryKey: [`/api/groups/${currentGroup.id}/messages`]
       });
 
+      // Only increment unread count if the window is not focused
       if (document.hidden) {
         setUnreadCount(prev => prev + newMessages.length);
+      } else {
+        // If window is focused, mark messages as read
+        try {
+          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          setUnreadCount(0);
+        } catch (error) {
+          console.error('Failed to mark messages as read:', error);
+        }
       }
     };
 
     const cleanup = addMessageHandler(handleNewMessages);
-    return cleanup;
-  }, [user, currentGroup, queryClient, addMessageHandler]);
+
+    // Add visibility change handler
+    const handleVisibilityChange = async () => {
+      if (!document.hidden && unreadCount > 0) {
+        try {
+          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          setUnreadCount(0);
+        } catch (error) {
+          console.error('Failed to mark messages as read:', error);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cleanup();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user, currentGroup, queryClient, addMessageHandler, unreadCount]);
 
   // Event handlers
   const handleSubmit = async (e: React.FormEvent) => {
@@ -406,7 +447,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
             {currentGroup ? (
               <>
                 <Users className="h-5 w-5" />
-                {currentGroup.name}
+                {currentGroup.groupName || currentGroup.name}
                 {unreadCount > 0 && (
                   <span className="bg-primary text-primary-foreground rounded-full px-2 py-1 text-xs">
                     {unreadCount}
@@ -423,44 +464,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           {currentGroup && (
             <div className="flex items-center gap-2">
               <ShareGroupDialog
-                url={`${window.location.origin}/video/${videoId}/group/${currentGroup.id}`}
-                groupName={currentGroup.name}
+                url={`${window.location.origin}/join-group/${currentGroup.inviteCode}?videoId=${videoId}`}
+                groupName={currentGroup.groupName || currentGroup.name}
                 videoTitle={videoData?.title}
                 memberCount={currentGroup.members?.length ?? 0}
                 messageCount={messages?.length || 0}
               />
-              {env.MODE === 'development' && currentGroup && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    try {
-                      console.log('Sending test email for group:', currentGroup.id);
-                      const response = await fetch(`/api/test/email-notification?groupId=${currentGroup.id}`, {
-                        method: 'POST',
-                      });
-
-                      if (!response.ok) {
-                        throw new Error('Failed to send test email');
-                      }
-
-                      toast({
-                        title: "Test email sent",
-                        description: "Check your email inbox and the server console for details.",
-                      });
-                    } catch (error) {
-                      console.error('Error sending test email:', error);
-                      toast({
-                        title: "Error",
-                        description: "Failed to send test email. Check server logs for details.",
-                        variant: "destructive",
-                      });
-                    }
-                  }}
-                >
-                  Test Email
-                </Button>
-              )}
               <Button variant="outline" size="sm" onClick={handleLeaveGroup}>
                 Leave Group
               </Button>

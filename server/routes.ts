@@ -369,7 +369,7 @@ export function registerRoutes(app: Express): Server {
       const [newGroup] = await tx
         .insert(discussionGroups)
         .values({
-          name: name, // Changed from groupName to name to match schema
+          groupName: name, // Changed from name to groupName to match schema
           description: description || `Discussion group for video ${videoId}`,
           videoId,
           creatorId: userId,
@@ -398,7 +398,7 @@ export function registerRoutes(app: Express): Server {
       return [newGroup];
     });
 
-    // Return the created group with member details
+    // Update the group response to include username
     const groupWithDetails = await db.query.discussionGroups.findFirst({
       where: eq(discussionGroups.id, group.id),
       with: {
@@ -406,7 +406,8 @@ export function registerRoutes(app: Express): Server {
           with: {
             user: {
               columns: {
-                username: true
+                username: true,
+                id: true
               }
             }
           }
@@ -414,7 +415,20 @@ export function registerRoutes(app: Express): Server {
       }
     });
 
-    res.status(201).json(groupWithDetails);
+    if (!groupWithDetails) {
+      throw new Error('Failed to create group');
+    }
+
+    // Transform the response to match the expected schema
+    const response = {
+      ...groupWithDetails,
+      members: groupWithDetails.members.map(member => ({
+        ...member,
+        username: member.user.username
+      }))
+    };
+
+    res.status(201).json(response);
   }));
 
 
