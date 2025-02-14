@@ -11,6 +11,7 @@ import Video from "@/pages/video";
 import ProfileWizard from "@/pages/profile-wizard";
 import Auth from "@/pages/auth";
 import { AdminPage } from "@/pages/admin";
+import { ManageVideos } from "@/pages/admin/manage"; 
 import JoinGroup from "@/pages/join-group";
 import Navbar from "@/components/navbar";
 
@@ -30,6 +31,11 @@ function Router() {
               <ProtectedRoute 
                 path="/admin" 
                 component={AdminPage}
+                adminRequired={true}
+              />
+              <ProtectedRoute 
+                path="/admin/manage" 
+                component={ManageVideos}
                 adminRequired={true}
               />
               <ProtectedRoute path="/profile/wizard" component={ProfileWizard} />

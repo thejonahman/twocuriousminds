@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardHeader, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useLocation } from "wouter";
 
 // Type definitions
 interface Category {
@@ -56,6 +57,7 @@ function getVideoThumbnail(url: string, platform: string): string | null {
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -114,13 +116,15 @@ export function AdminVideoForm() {
         throw error;
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       form.reset();
       toast({
         title: "Success",
         description: "Video added successfully",
       });
+      // Navigate to admin manage page
+      setLocation("/admin/manage");
     },
     onError: (error: Error) => {
       toast({
@@ -249,14 +253,14 @@ export function AdminVideoForm() {
                       >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue 
+                            <SelectValue
                               placeholder={
-                                !selectedCategoryId 
-                                  ? "Select a topic first" 
-                                  : sortedSubcategories.length === 0 
-                                    ? "No subtopics available" 
+                                !selectedCategoryId
+                                  ? "Select a topic first"
+                                  : sortedSubcategories.length === 0
+                                    ? "No subtopics available"
                                     : "Select subtopic"
-                              } 
+                              }
                             />
                           </SelectTrigger>
                         </FormControl>
