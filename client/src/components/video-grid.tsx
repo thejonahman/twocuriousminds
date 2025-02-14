@@ -238,14 +238,24 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
     },
     onMutate: (videoId) => {
       setDeletingVideoId(videoId);
+      // Cancel any outgoing refetches
       queryClient.cancelQueries({ queryKey: ["/api/videos"] });
+
+      // Get the current videos from cache
       const previousVideos = queryClient.getQueryData<Video[]>(["/api/videos"]);
-      queryClient.setQueryData<Video[]>(["/api/videos"],
-        old => old?.filter(video => video.id !== videoId) || []
-      );
+
+      // Optimistically remove the video from the UI
+      if (previousVideos) {
+        queryClient.setQueryData<Video[]>(
+          ["/api/videos"],
+          previousVideos.filter(video => video.id !== videoId)
+        );
+      }
+
       return { previousVideos };
     },
     onError: (err: Error, _, context) => {
+      // If the mutation fails, roll back to the previous state
       if (context?.previousVideos) {
         queryClient.setQueryData(["/api/videos"], context.previousVideos);
       }
@@ -255,7 +265,8 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
         variant: "destructive",
       });
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Invalidate and refetch
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",

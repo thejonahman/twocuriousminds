@@ -86,7 +86,7 @@ export function registerRoutes(app: Express): Server {
 
   app.get("/api/videos", asyncHandler(async (req: Request, res: Response) => {
     const allVideos = await db.query.videos.findMany({
-      where: eq(videos.isDeleted, false),
+      where: eq(videos.isDeleted, false), // Only get non-deleted videos
       with: {
         category: true,
         subcategory: true
@@ -576,17 +576,16 @@ export function registerRoutes(app: Express): Server {
       console.log(`Found video to delete:`, video);
 
       // Implement soft delete by updating isDeleted flag
-      const [updatedVideo] = await db
+      await db
         .update(videos)
         .set({
           isDeleted: true,
           updatedAt: new Date()
         })
-        .where(eq(videos.id, videoId))
-        .returning();
+        .where(eq(videos.id, videoId));
 
-      console.log(`Video ${videoId} soft deleted successfully:`, updatedVideo);
-      res.json({ message: "Video deleted successfully", video: updatedVideo });
+      console.log(`Video ${videoId} soft deleted successfully`);
+      res.json({ message: "Video deleted successfully" });
     } catch (error) {
       console.error('Error soft deleting video:', error);
       res.status(500).json({
