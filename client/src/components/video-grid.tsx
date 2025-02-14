@@ -15,12 +15,13 @@ import { apiRequest } from "@/lib/queryClient";
 import { Video } from "@/lib/types";
 import { ErrorBoundary } from "./error-boundary";
 
-interface ThumbnailState {
-  loading: Set<number>;
-  failed: Set<number>;
+interface VideoGridProps {
+  videos: Video[];
+  showEditButton?: boolean;
+  highlightVideoId?: number;
 }
 
-// Memoized platform icon component
+// Platform icon component
 const PlatformIcon = memo(({ platform }: { platform: string }) => {
   switch (platform.toLowerCase()) {
     case 'youtube':
@@ -34,210 +35,33 @@ const PlatformIcon = memo(({ platform }: { platform: string }) => {
   }
 });
 
-// Memoized thumbnail component with performance monitoring and retry mechanism
-const VideoThumbnail = memo(({ video, thumbnailState, onThumbnailStateChange }: {
-  video: Video;
-  thumbnailState: ThumbnailState;
-  onThumbnailStateChange: (videoId: number, type: 'loading' | 'failed', value: boolean) => void;
-}) => {
-  const startTime = useRef(performance.now());
-  const retryCount = useRef(0);
-  const maxRetries = 3;
-
-  useEffect(() => {
-    const loadTime = performance.now() - startTime.current;
-    console.log(`Thumbnail component mounted for video ${video.id}:`, {
-      loadTime: `${loadTime.toFixed(2)}ms`,
-      thumbnailUrl: video.thumbnailUrl,
-      platform: video.platform,
-      retryCount: retryCount.current
-    });
-
-    return () => {
-      console.log(`Thumbnail component unmounted for video ${video.id}`);
-    };
-  }, [video.id, video.thumbnailUrl, video.platform]);
-
-  const handleThumbnailLoading = useCallback(() => {
-    console.log(`Starting to load thumbnail for video ${video.id}:`, {
-      url: video.thumbnailUrl,
-      attempt: retryCount.current + 1
-    });
-    onThumbnailStateChange(video.id, 'loading', true);
-  }, [video.id, video.thumbnailUrl, onThumbnailStateChange]);
-
-  const handleThumbnailLoaded = useCallback(() => {
-    const loadTime = performance.now() - startTime.current;
-    console.log(`Thumbnail loaded for video ${video.id}:`, {
-      loadTime: `${loadTime.toFixed(2)}ms`,
-      retryCount: retryCount.current
-    });
-    onThumbnailStateChange(video.id, 'loading', false);
-    onThumbnailStateChange(video.id, 'failed', false); // Reset failed state on successful load
-  }, [video.id, onThumbnailStateChange]);
-
-  const handleThumbnailError = useCallback(() => {
-    retryCount.current += 1;
-    console.error(`Failed to load thumbnail for video ${video.id}:`, {
-      url: video.thumbnailUrl,
-      platform: video.platform,
-      attempt: retryCount.current,
-      timestamp: new Date().toISOString(),
-      performance: {
-        totalTime: performance.now() - startTime.current,
-        retryDelay: retryCount.current * 1000
-      }
-    });
-
-    if (retryCount.current < maxRetries) {
-      console.log(`Retrying thumbnail load for video ${video.id}... (Attempt ${retryCount.current + 1}/${maxRetries})`);
-      const img = document.querySelector(`[data-thumbnail-id="${video.id}"]`) as HTMLImageElement;
-      if (img && video.thumbnailUrl) {
-        setTimeout(() => {
-          const cacheBuster = `?retry=${retryCount.current}&t=${Date.now()}`;
-          img.src = video.thumbnailUrl + cacheBuster;
-        }, retryCount.current * 1000); // Exponential backoff
-      }
-    } else {
-      console.error(`Max retries reached for video ${video.id}, marking as failed`, {
-        totalAttempts: retryCount.current,
-        totalTime: performance.now() - startTime.current
-      });
-      onThumbnailStateChange(video.id, 'failed', true);
-      onThumbnailStateChange(video.id, 'loading', false);
-      toast({
-        title: "Thumbnail Load Failed",
-        description: `Could not load thumbnail for "${video.title}" after ${maxRetries} attempts. Using fallback display.`,
-        variant: "destructive",
-      });
-    }
-  }, [video.id, video.thumbnailUrl, video.platform, video.title, onThumbnailStateChange]);
-
-  return (
-    <AspectRatio ratio={16 / 9}>
-      <div className="w-full h-full bg-muted/50 relative group">
-        <div
-          className={`absolute inset-0 flex items-center justify-center ${
-            video.thumbnailUrl && !thumbnailState.failed.has(video.id) && !thumbnailState.loading.has(video.id)
-              ? 'opacity-0'
-              : 'opacity-100'
-          } transition-opacity duration-200 bg-muted/10 backdrop-blur-sm`}
-        >
-          {thumbnailState.loading.has(video.id) ? (
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              {retryCount.current > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  Retry {retryCount.current}/{maxRetries}
-                </span>
-              )}
-            </div>
-          ) : thumbnailState.failed.has(video.id) ? (
-            <div className="flex flex-col items-center gap-2">
-              <PlatformIcon platform={video.platform} />
-              <span className="text-xs text-muted-foreground">Failed to load thumbnail</span>
-            </div>
-          ) : (
-            <PlatformIcon platform={video.platform} />
-          )}
-        </div>
-        {video.thumbnailUrl && !thumbnailState.failed.has(video.id) && (
-          <img
-            data-thumbnail-id={video.id}
-            src={video.thumbnailUrl}
-            alt={video.title}
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-            onLoadStart={handleThumbnailLoading}
-            onLoad={handleThumbnailLoaded}
-            onError={handleThumbnailError}
-          />
-        )}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent h-1/2 transition-opacity opacity-0 group-hover:opacity-100" />
-      </div>
-    </AspectRatio>
-  );
-});
-
-export interface VideoGridProps {
-  videos: Video[];
-  showEditButton?: boolean;
-  highlightVideoId?: number;
-}
-
-
 export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: VideoGridProps) {
-  const startTime = useRef(performance.now());
-  const [thumbnailState, setThumbnailState] = useState<ThumbnailState>({
-    loading: new Set(),
-    failed: new Set()
-  });
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deletingVideoId, setDeletingVideoId] = useState<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
   const scrollPositionRef = useRef(0);
   const queryClient = useQueryClient();
-  const gridRef = useRef<HTMLDivElement>(null);
-
-  // Effect to scroll to highlighted video
-  useEffect(() => {
-    if (highlightVideoId && gridRef.current) {
-      const videoElement = gridRef.current.querySelector(`[data-video-id="${highlightVideoId}"]`);
-      if (videoElement) {
-        requestAnimationFrame(() => {
-          videoElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          videoElement.classList.add('highlight-animation');
-          setTimeout(() => {
-            videoElement.classList.remove('highlight-animation');
-          }, 2000);
-        });
-      }
-    }
-  }, [highlightVideoId]);
-
-  // Performance monitoring
-  useEffect(() => {
-    const renderTime = performance.now() - startTime.current;
-    console.log('VideoGrid rendered with:', {
-      totalVideos: videos.length,
-      thumbnailStates: {
-        loading: Array.from(thumbnailState.loading),
-        failed: Array.from(thumbnailState.failed)
-      },
-      highlightVideoId,
-      renderTime: `${renderTime.toFixed(2)}ms`
-    });
-  }, [videos.length, thumbnailState, highlightVideoId]);
-
-  const handleThumbnailStateChange = useCallback((videoId: number, type: 'loading' | 'failed', value: boolean) => {
-    console.log('Thumbnail state change:', { videoId, type, value });
-    setThumbnailState(prev => {
-      const newState = { ...prev };
-      const set = new Set(prev[type]);
-      if (value) {
-        set.add(videoId);
-      } else {
-        set.delete(videoId);
-      }
-      newState[type] = set;
-      return newState;
-    });
-  }, []);
 
   const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
       setIsDeleting(true);
+      console.log('Attempting to delete video:', videoId);
       const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || 'Failed to delete video');
       }
-      return response.json();
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to delete video');
+      }
+      return result;
     },
     onMutate: (videoId) => {
+      console.log('Starting optimistic update for video deletion:', videoId);
       setDeletingVideoId(videoId);
+
       // Cancel any outgoing refetches
       queryClient.cancelQueries({ queryKey: ["/api/videos"] });
 
@@ -254,7 +78,8 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
 
       return { previousVideos };
     },
-    onError: (err: Error, _, context) => {
+    onError: (err: Error, videoId, context) => {
+      console.error('Error deleting video:', videoId, err);
       // If the mutation fails, roll back to the previous state
       if (context?.previousVideos) {
         queryClient.setQueryData(["/api/videos"], context.previousVideos);
@@ -265,7 +90,8 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
         variant: "destructive",
       });
     },
-    onSuccess: (data) => {
+    onSuccess: (data, videoId) => {
+      console.log('Successfully deleted video:', videoId);
       // Invalidate and refetch
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
@@ -279,60 +105,43 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
     }
   });
 
-  const handleDialogClose = useCallback(() => {
-    setDialogOpen(false);
-    setTimeout(() => setSelectedVideo(null), 300);
-  }, []);
-
-  const handleDialogOpen = useCallback((video: Video) => {
-    scrollPositionRef.current = window.scrollY;
-    setSelectedVideo(video);
-    setDialogOpen(true);
-  }, []);
-
   const handleDelete = useCallback(async (videoId: number) => {
     if (isDeleting) return;
     try {
+      console.log('Handling delete for video:', videoId);
       await deleteMutation.mutateAsync(videoId);
     } catch (error) {
       console.error('Error in handleDelete:', error);
     }
   }, [deleteMutation, isDeleting]);
 
+  // Save scroll position when opening the edit dialog
+  const handleDialogOpen = useCallback((video: Video) => {
+    scrollPositionRef.current = window.scrollY;
+    setSelectedVideo(video);
+    setDialogOpen(true);
+  }, []);
+
   return (
     <ErrorBoundary>
       <>
-        <style>{`
-          .highlight-animation {
-            animation: highlight 2s ease-in-out;
-          }
-          @keyframes highlight {
-            0%, 100% {
-              transform: scale(1);
-              box-shadow: 0 0 0 0 rgba(var(--primary) / 0.1);
-            }
-            50% {
-              transform: scale(1.02);
-              box-shadow: 0 0 0 8px rgba(var(--primary) / 0.1);
-            }
-          }
-        `}</style>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" ref={gridRef}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {videos.map((video) => (
             <Card
               key={video.id}
               data-video-id={video.id}
-              className={`overflow-hidden bg-card hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] hover:-translate-y-1 border-accent/20 ${
+              className={`overflow-hidden bg-card hover:shadow-xl transition-all duration-300 ${
                 video.id === highlightVideoId ? 'ring-2 ring-primary ring-offset-2' : ''
               }`}
             >
               <Link href={`/video/${video.id}`}>
-                <VideoThumbnail
-                  video={video}
-                  thumbnailState={thumbnailState}
-                  onThumbnailStateChange={handleThumbnailStateChange}
-                />
+                <AspectRatio ratio={16 / 9}>
+                  <div className="w-full h-full bg-muted/50 relative">
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <PlatformIcon platform={video.platform} />
+                    </div>
+                  </div>
+                </AspectRatio>
               </Link>
 
               <CardContent className="p-4 space-y-3">
@@ -355,7 +164,6 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
                         size="icon"
                         onClick={(e) => {
                           e.preventDefault();
-                          e.stopPropagation();
                           handleDialogOpen(video);
                         }}
                         className="text-muted-foreground hover:text-foreground"
@@ -384,7 +192,6 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
                         </AlertDialogTrigger>
                         <AlertDialogContent
                           onClick={(e) => e.stopPropagation()}
-                          onOpenAutoFocus={(e) => e.preventDefault()}
                           className="sm:max-w-[425px]"
                         >
                           <AlertDialogHeader>
@@ -394,10 +201,7 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel
-                              onClick={(e) => e.stopPropagation()}
-                              disabled={isDeleting}
-                            >
+                            <AlertDialogCancel onClick={(e) => e.stopPropagation()}>
                               Cancel
                             </AlertDialogCancel>
                             <AlertDialogAction
@@ -407,7 +211,7 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
                                 handleDelete(video.id);
                               }}
                               className="bg-destructive hover:bg-destructive/90"
-                              disabled={isDeleting}
+                              disabled={isDeleting && deletingVideoId === video.id}
                             >
                               {isDeleting && deletingVideoId === video.id ? (
                                 <div className="flex items-center">
@@ -433,28 +237,23 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Edit Video</DialogTitle>
             </DialogHeader>
             {selectedVideo && (
               <EditVideoForm
                 video={selectedVideo}
-                onClose={handleDialogClose}
+                onClose={() => {
+                  setDialogOpen(false);
+                  setSelectedVideo(null);
+                }}
                 scrollPosition={scrollPositionRef.current}
               />
             )}
           </DialogContent>
         </Dialog>
       </>
-    </ErrorBoundary>
-  );
-}
-
-export default function SafeVideoGrid(props: VideoGridProps) {
-  return (
-    <ErrorBoundary>
-      <VideoGrid {...props} />
     </ErrorBoundary>
   );
 }

@@ -108,7 +108,7 @@ if (app.get("env") === "development") {
 }
 
 // Configure the port and host for better accessibility
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
 // Function to check if port is in use using ESM
@@ -123,21 +123,55 @@ function isPortInUse(port: number): Promise<boolean> {
   });
 }
 
+// Function to find an available port
+async function findAvailablePort(startPort: number): Promise<number> {
+  let port = startPort;
+  while (await isPortInUse(port)) {
+    port++;
+    if (port > startPort + 100) { // Don't search indefinitely
+      throw new Error('No available ports found in range');
+    }
+  }
+  return port;
+}
+
 // Start server with port availability check and explicit host binding
 async function startServer() {
   try {
-    const portInUse = await isPortInUse(Number(PORT));
-    if (portInUse) {
-      console.error(`Port ${PORT} is already in use. Please choose a different port.`);
-      process.exit(1);
+    const port = await findAvailablePort(PORT);
+    if (port !== PORT) {
+      console.log(`Port ${PORT} was in use, using port ${port} instead`);
     }
 
-    server.listen(Number(PORT), HOST, () => {
-      const startupMessage = `Server started and ready on http://${HOST}:${PORT}`;
+    // Setup server shutdown handling
+    let shutdownInProgress = false;
+
+    function handleShutdown() {
+      if (shutdownInProgress) return;
+      shutdownInProgress = true;
+
+      console.log('Shutting down server...');
+      server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+      });
+
+      // Force exit if graceful shutdown takes too long
+      setTimeout(() => {
+        console.error('Forcing server shutdown');
+        process.exit(1);
+      }, 5000);
+    }
+
+    process.on('SIGTERM', handleShutdown);
+    process.on('SIGINT', handleShutdown);
+
+    server.listen(port, HOST, () => {
+      const startupMessage = `Server started and ready on http://${HOST}:${port}`;
       log(startupMessage);
       console.log('=== Server Configuration ===');
       console.log(`Environment: ${app.get("env")}`);
-      console.log(`Port: ${PORT}`);
+      console.log(`Port: ${port}`);
       console.log(`Host: ${HOST}`);
       console.log(`Timestamp: ${new Date().toISOString()}`);
       console.log('=========================');
