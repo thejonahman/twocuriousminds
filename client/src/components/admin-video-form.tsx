@@ -6,6 +6,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardHeader, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -19,6 +20,7 @@ interface Category {
 interface Subcategory {
   id: number;
   name: string;
+  displayOrder?: number;
 }
 
 const videoSchema = z.object({
@@ -63,24 +65,35 @@ export function AdminVideoForm() {
     },
   });
 
-  const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
+  // Fetch categories
+  const { data: categories = [], isLoading: isCategoriesLoading, error: categoriesError } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     staleTime: 30000,
+    retry: 3,
   });
 
+  // Watch selected category to fetch subcategories
   const selectedCategoryId = form.watch("categoryId");
 
-  const { data: subcategories = [], isLoading: isSubcategoriesLoading } = useQuery<Subcategory[]>({
+  // Fetch subcategories based on selected category
+  const { data: subcategories = [], isLoading: isSubcategoriesLoading, error: subcategoriesError } = useQuery<Subcategory[]>({
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
     staleTime: 30000,
+    retry: 3,
+  });
+
+  // Sort subcategories by displayOrder if available, then by name
+  const sortedSubcategories = [...subcategories].sort((a, b) => {
+    if (a.displayOrder !== undefined && b.displayOrder !== undefined) {
+      return a.displayOrder - b.displayOrder;
+    }
+    return a.name.localeCompare(b.name);
   });
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
       try {
-        console.log('Form data before submission:', data);
-
         const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
         const payload = {
           ...data,
@@ -89,12 +102,9 @@ export function AdminVideoForm() {
           thumbnailUrl
         };
 
-        console.log('Sending video creation request:', payload);
-
         const response = await apiRequest("POST", "/api/videos", payload);
         if (!response.ok) {
           const errorData = await response.json().catch(() => null);
-          console.error('Video creation failed:', errorData);
           throw new Error(errorData?.message || errorData?.error || "Failed to add video");
         }
 
@@ -113,7 +123,6 @@ export function AdminVideoForm() {
       });
     },
     onError: (error: Error) => {
-      console.error('Video mutation error handler:', error);
       toast({
         title: "Error",
         description: error.message || "Failed to add video",
@@ -123,7 +132,6 @@ export function AdminVideoForm() {
   });
 
   const onSubmit = (data: VideoFormData) => {
-    console.log('Form submitted with data:', data);
     addVideoMutation.mutate(data);
   };
 
@@ -135,6 +143,7 @@ export function AdminVideoForm() {
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <CardContent className="space-y-4">
+            {/* Title field */}
             <FormField
               control={form.control}
               name="title"
@@ -149,6 +158,7 @@ export function AdminVideoForm() {
               )}
             />
 
+            {/* Description field */}
             <FormField
               control={form.control}
               name="description"
@@ -163,6 +173,7 @@ export function AdminVideoForm() {
               )}
             />
 
+            {/* URL field */}
             <FormField
               control={form.control}
               name="url"
@@ -177,34 +188,94 @@ export function AdminVideoForm() {
               )}
             />
 
+            {/* Category selection */}
             <FormField
               control={form.control}
               name="categoryId"
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Topic</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select topic" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category.id} value={String(category.id)}>
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex gap-2">
+                    {isCategoriesLoading ? (
+                      <Skeleton className="h-10 w-full" />
+                    ) : categoriesError ? (
+                      <div className="text-sm text-destructive">Failed to load topics. Please try again.</div>
+                    ) : (
+                      <Select
+                        onValueChange={(value) => {
+                          field.onChange(value);
+                          // Reset subcategory when category changes
+                          form.setValue("subcategoryId", "");
+                        }}
+                        value={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select topic" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {categories.map((category) => (
+                            <SelectItem key={category.id} value={String(category.id)}>
+                              {category.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
                   <FormMessage />
                 </FormItem>
               )}
             />
 
+            {/* Subcategory selection */}
+            <FormField
+              control={form.control}
+              name="subcategoryId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Subtopic (Optional)</FormLabel>
+                  <div className="flex gap-2">
+                    {isSubcategoriesLoading && selectedCategoryId ? (
+                      <Skeleton className="h-10 w-full" />
+                    ) : subcategoriesError ? (
+                      <div className="text-sm text-destructive">Failed to load subtopics. Please try again.</div>
+                    ) : (
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={!selectedCategoryId || sortedSubcategories.length === 0}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue 
+                              placeholder={
+                                !selectedCategoryId 
+                                  ? "Select a topic first" 
+                                  : sortedSubcategories.length === 0 
+                                    ? "No subtopics available" 
+                                    : "Select subtopic"
+                              } 
+                            />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {sortedSubcategories.map((subcategory) => (
+                            <SelectItem key={subcategory.id} value={String(subcategory.id)}>
+                              {subcategory.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {/* Platform selection */}
             <FormField
               control={form.control}
               name="platform"

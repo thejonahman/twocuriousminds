@@ -6,6 +6,12 @@ const baseEntitySchema = z.object({
   createdAt: z.string().datetime(),
 });
 
+// User schema for group members
+const groupMemberSchema = z.object({
+  id: z.number(),
+  username: z.string(),
+});
+
 // Message schemas
 export const messageSchema = baseEntitySchema.extend({
   content: z.string(),
@@ -32,6 +38,7 @@ export const groupSchema = baseEntitySchema.extend({
   isPrivate: z.boolean(),
   inviteCode: z.string(),
   messages: z.array(groupMessageSchema).optional(),
+  members: z.array(groupMemberSchema).optional(),
 });
 
 // Input message schemas (for sending to WebSocket)

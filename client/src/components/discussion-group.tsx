@@ -350,7 +350,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                 url={`${window.location.origin}/video/${videoId}/group/${currentGroup.id}`}
                 groupName={currentGroup.name}
                 videoTitle={videoData?.title}
-                memberCount={currentGroup.members?.length || 0}
+                memberCount={currentGroup.members?.length ?? 0}
                 messageCount={messages?.length || 0}
               />
               {env.MODE === 'development' && currentGroup && (
