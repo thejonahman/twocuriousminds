@@ -9,9 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Upload, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Upload } from 'lucide-react';
 
+// Type definitions remain the same
 interface Category {
   id: number;
   name: string;
@@ -61,10 +62,44 @@ const videoSchema = z.object({
 
 type VideoFormData = z.infer<typeof videoSchema>;
 
+// Create default SVG thumbnail
+const createDefaultThumbnail = (title: string) => {
+  const escapedTitle = title.replace(/[<>&"']/g, c => ({
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    '"': '&quot;',
+    "'": '&apos;'
+  }[c] || c));
+
+  const svgContent = `
+    <svg width="1280" height="720" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" style="stop-color:#2563eb;stop-opacity:1" />
+          <stop offset="100%" style="stop-color:#1d4ed8;stop-opacity:1" />
+        </linearGradient>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#grad)"/>
+      <text 
+        x="640" 
+        y="360" 
+        font-family="Arial" 
+        font-size="48" 
+        fill="white" 
+        text-anchor="middle" 
+        dominant-baseline="middle"
+        style="filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.3))">
+        ${escapedTitle}
+      </text>
+    </svg>
+  `;
+  return `data:image/svg+xml;base64,${btoa(svgContent.trim())}`;
+};
+
 export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormProps) {
   const queryClient = useQueryClient();
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(video.thumbnailUrl || null);
-  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
   const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -82,107 +117,54 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
-  const generateThumbnailMutation = useMutation({
-    mutationFn: async () => {
-      setIsGeneratingThumbnail(true);
-      const payload = {
-        url: form.getValues("url"),
-        platform: form.getValues("platform"),
-        title: form.getValues("title"),
-        description: form.getValues("description") || "",
-        videoId: video.id
-      };
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-      const response = await apiRequest("POST", '/api/thumbnails/generate', payload);
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || "Failed to generate thumbnail");
-      }
-
-      return data;
-    },
-    onSuccess: (data: { thumbnailUrl: string }) => {
-      setThumbnailUrl(data.thumbnailUrl);
-      queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
-        if (!oldData) return oldData;
-        return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl: data.thumbnailUrl } : v);
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-      toast({
-        title: "Success",
-        description: "Thumbnail generated successfully",
-      });
-    },
-    onError: (error: Error) => {
+    if (file.size > 5 * 1024 * 1024) {
       toast({
         title: "Error",
-        description: error.message,
+        description: "File size must be less than 5MB",
         variant: "destructive",
       });
-    },
-    onSettled: () => {
-      setIsGeneratingThumbnail(false);
+      return;
     }
-  });
 
-  const uploadThumbnailMutation = useMutation({
-    mutationFn: async (file: File) => {
-      setIsUploadingThumbnail(true);
-      const formData = new FormData();
-      formData.append('thumbnail', file);
+    setIsUploadingThumbnail(true);
+    const formData = new FormData();
+    formData.append('thumbnail', file);
 
-      const response = await apiRequest(
-        "PATCH",
-        `/api/thumbnails/${video.id}/thumbnail`,
-        formData,
-        { isFormData: true }
-      );
+    try {
+      const response = await fetch(`/api/thumbnails/${video.id}/thumbnail`, {
+        method: 'PATCH',
+        body: formData,
+      });
 
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || "Failed to upload thumbnail");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed');
       }
 
-      return data;
-    },
-    onSuccess: (data: { thumbnailUrl: string }) => {
+      const data = await response.json();
       setThumbnailUrl(data.thumbnailUrl);
       queryClient.setQueryData(["/api/videos"], (oldData: Video[] | undefined) => {
         if (!oldData) return oldData;
         return oldData.map(v => v.id === video.id ? { ...v, thumbnailUrl: data.thumbnailUrl } : v);
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
+
       toast({
         title: "Success",
         description: "Thumbnail uploaded successfully",
       });
-    },
-    onError: (error: Error) => {
+    } catch (error) {
+      console.error('Thumbnail upload error:', error);
       toast({
         title: "Error",
-        description: error.message,
+        description: error instanceof Error ? error.message : 'Upload failed',
         variant: "destructive",
       });
-    },
-    onSettled: () => {
+    } finally {
       setIsUploadingThumbnail(false);
-    }
-  });
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Error",
-          description: "File size must be less than 5MB",
-          variant: "destructive",
-        });
-        return;
-      }
-      uploadThumbnailMutation.mutate(file);
     }
   };
 
@@ -205,14 +187,19 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   const updateVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
+      // Generate default thumbnail if none exists
+      if (!thumbnailUrl) {
+        setThumbnailUrl(createDefaultThumbnail(data.title));
+      }
+
       const payload = {
         ...data,
         categoryId: parseInt(data.categoryId),
         subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
+        thumbnailUrl: thumbnailUrl || createDefaultThumbnail(data.title),
       };
 
       const response = await apiRequest("PATCH", `/api/videos/${video.id}`, payload);
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || "Failed to update video");
@@ -255,9 +242,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
-  const onSubmit = useCallback(async (data: VideoFormData) => {
-    await updateVideoMutation.mutateAsync(data);
-  }, [updateVideoMutation]);
+  const onSubmit = (data: VideoFormData) => {
+    updateVideoMutation.mutate(data);
+  };
 
   useEffect(() => {
     if (hasSubmitted.current && !updateVideoMutation.isPending) {
@@ -309,16 +296,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
               </div>
             )}
             <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => generateThumbnailMutation.mutate()}
-                disabled={isGeneratingThumbnail}
-                className="flex-1"
-              >
-                <RefreshCw className={`mr-2 h-4 w-4 ${isGeneratingThumbnail ? 'animate-spin' : ''}`} />
-                {isGeneratingThumbnail ? 'Generating...' : 'Generate Thumbnail'}
-              </Button>
               <Button
                 type="button"
                 variant="outline"

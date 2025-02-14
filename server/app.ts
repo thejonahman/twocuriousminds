@@ -21,6 +21,14 @@ app.use('/api', (req, res, next) => {
 // Request logger for debugging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.originalUrl}`);
+  if (req.originalUrl.includes('/thumbnail')) {
+    console.log('Thumbnail request details:', {
+      method: req.method,
+      path: req.originalUrl,
+      contentType: req.headers['content-type'],
+      hasFile: req.file !== undefined,
+    });
+  }
   next();
 });
 

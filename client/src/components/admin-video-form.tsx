@@ -7,12 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardHeader, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Upload } from 'lucide-react';
 
 // Type definitions
 interface Category {
@@ -46,17 +44,9 @@ type VideoFormData = z.infer<typeof videoSchema>;
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
-  const [newTopicDialogOpen, setNewTopicDialogOpen] = useState(false);
-  const [newSubtopicDialogOpen, setNewSubtopicDialogOpen] = useState(false);
-  const [deleteTopicDialogOpen, setDeleteTopicDialogOpen] = useState(false);
-  const [deleteSubtopicDialogOpen, setDeleteSubtopicDialogOpen] = useState(false);
-  const [selectedTopicToDelete, setSelectedTopicToDelete] = useState<string | null>(null);
-  const [selectedSubtopicToDelete, setSelectedSubtopicToDelete] = useState<string | null>(null);
-  const [newTopicName, setNewTopicName] = useState("");
-  const [newSubtopicName, setNewSubtopicName] = useState("");
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
-  const [isGeneratingThumbnail, setIsGeneratingThumbnail] = useState(false);
-  const [currentVideoId, setCurrentVideoId] = useState<number | null>(null);
+  const [isUploadingThumbnail, setIsUploadingThumbnail] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
@@ -65,6 +55,57 @@ export function AdminVideoForm() {
       description: "",
     },
   });
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Error",
+        description: "File size must be less than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingThumbnail(true);
+
+    try {
+      const formData = new FormData();
+      formData.append('thumbnail', file);
+
+      const response = await fetch('/api/thumbnails/default/thumbnail', {
+        method: 'PATCH',
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setThumbnailUrl(data.thumbnailUrl);
+      toast({
+        title: "Success",
+        description: "Thumbnail uploaded successfully",
+      });
+    } catch (error) {
+      console.error('Thumbnail upload error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : 'Upload failed',
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingThumbnail(false);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -77,11 +118,14 @@ export function AdminVideoForm() {
     queryKey: [`/api/categories/${selectedCategoryId}/subcategories`],
     enabled: !!selectedCategoryId,
     staleTime: 30000,
-    retry: false,
   });
 
   const addVideoMutation = useMutation({
     mutationFn: async (data: VideoFormData) => {
+      if (!thumbnailUrl) {
+        throw new Error("Please upload a thumbnail image");
+      }
+
       const payload = {
         ...data,
         categoryId: parseInt(data.categoryId),
@@ -89,107 +133,23 @@ export function AdminVideoForm() {
         thumbnailUrl
       };
 
-
       const response = await apiRequest("POST", "/api/videos", payload);
-
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to add video");
+        throw new Error("Failed to add video");
       }
 
-      const videoData = await response.json();
-      setCurrentVideoId(videoData.id);
-      return videoData;
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
-
       form.reset();
       setThumbnailUrl(null);
-      setCurrentVideoId(null);
-
       toast({
         title: "Success",
         description: "Video added successfully",
       });
     },
     onError: (error: Error) => {
-      console.error('Video submission error:', error);
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const generateThumbnailMutation = useMutation({
-    mutationFn: async ({ title, description }: { title: string; description?: string }) => {
-      const response = await apiRequest("POST", "/api/thumbnails/generate", {
-        title,
-        description,
-        url: form.getValues("url"),
-        platform: form.getValues("platform")
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to generate thumbnail");
-      }
-
-      return response.json();
-    },
-    onSuccess: (data: { thumbnailUrl: string }) => {
-      setThumbnailUrl(data.thumbnailUrl);
-      toast({
-        title: "Success",
-        description: "Thumbnail generated successfully",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-    onSettled: () => {
-      setIsGeneratingThumbnail(false);
-    }
-  });
-
-  const uploadThumbnailMutation = useMutation({
-    mutationFn: async (file: File) => {
-      if (!currentVideoId) {
-        throw new Error("Please save the video first before uploading a custom thumbnail");
-      }
-
-      const formData = new FormData();
-      formData.append('thumbnail', file);
-
-      const response = await apiRequest(
-        "PATCH",
-        `/api/thumbnails/${currentVideoId}/thumbnail`,
-        formData,
-        { isFormData: true }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to upload thumbnail");
-      }
-
-      return response.json();
-    },
-    onSuccess: (data: { thumbnailUrl: string }) => {
-      setThumbnailUrl(data.thumbnailUrl);
-      toast({
-        title: "Success",
-        description: "Custom thumbnail uploaded successfully",
-      });
-    },
-    onError: (error: Error) => {
       toast({
         title: "Error",
         description: error.message,
@@ -197,184 +157,9 @@ export function AdminVideoForm() {
       });
     }
   });
-
-  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({
-          title: "Error",
-          description: "File size must be less than 5MB",
-          variant: "destructive",
-        });
-        return;
-      }
-      uploadThumbnailMutation.mutate(file);
-    }
-  };
-
-  const handleGenerateThumbnail = async () => {
-    const title = form.getValues("title");
-    const description = form.getValues("description");
-
-    if (!title) {
-      toast({
-        title: "Error",
-        description: "Please enter a title before generating a thumbnail",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsGeneratingThumbnail(true);
-    generateThumbnailMutation.mutate({ title, description });
-  };
 
   const onSubmit = (data: VideoFormData) => {
     addVideoMutation.mutate(data);
-  };
-
-  const handleAddTopic = async () => {
-    if (!newTopicName.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a topic name",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    try {
-      const response = await apiRequest("POST", "/api/categories", {
-        name: newTopicName.trim()
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to add topic");
-      }
-
-      const newCategory = await response.json();
-      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
-      setNewTopicDialogOpen(false);
-      setNewTopicName("");
-
-      toast({
-        title: "Success",
-        description: "Topic added successfully"
-      });
-
-      form.setValue("categoryId", String(newCategory.id));
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add topic",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleDeleteTopic = async () => {
-    if (!selectedTopicToDelete) return;
-
-    try {
-      const response = await apiRequest("DELETE", `/api/categories/${selectedTopicToDelete}`);
-
-      if (!response.ok) {
-        throw new Error("Failed to delete topic");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
-      setDeleteTopicDialogOpen(false);
-      setSelectedTopicToDelete(null);
-      form.setValue("categoryId", "");
-      form.setValue("subcategoryId", "");
-
-      toast({
-        title: "Success",
-        description: "Topic deleted successfully"
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete topic",
-        variant: "destructive"
-      });
-    }
-  };
-
-
-  const handleAddSubtopic = async () => {
-    if (!newSubtopicName.trim() || !selectedCategoryId) {
-      toast({
-        title: "Error",
-        description: "Please enter a subtopic name and select a topic",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    try {
-      const response = await apiRequest("POST", `/api/categories/${selectedCategoryId}/subcategories`, {
-        name: newSubtopicName.trim()
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to add subtopic");
-      }
-
-      const newSubcategory = await response.json();
-      queryClient.invalidateQueries({
-        queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
-      });
-      setNewSubtopicDialogOpen(false);
-      setNewSubtopicName("");
-
-      toast({
-        title: "Success",
-        description: "Subtopic added successfully"
-      });
-
-      form.setValue("subcategoryId", String(newSubcategory.id));
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add subtopic",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const handleDeleteSubtopic = async () => {
-    if (!selectedSubtopicToDelete || !selectedCategoryId) return;
-
-    try {
-      const response = await apiRequest(
-        "DELETE",
-        `/api/categories/${selectedCategoryId}/subcategories/${selectedSubtopicToDelete}`
-      );
-
-      if (!response.ok) {
-        throw new Error("Failed to delete subtopic");
-      }
-
-      queryClient.invalidateQueries({
-        queryKey: [`/api/categories/${selectedCategoryId}/subcategories`]
-      });
-      setDeleteSubtopicDialogOpen(false);
-      setSelectedSubtopicToDelete(null);
-      form.setValue("subcategoryId", "");
-
-      toast({
-        title: "Success",
-        description: "Subtopic deleted successfully"
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete subtopic",
-        variant: "destructive"
-      });
-    }
   };
 
   return (
@@ -383,7 +168,7 @@ export function AdminVideoForm() {
         <CardTitle>Add New Video</CardTitle>
       </CardHeader>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <CardContent className="space-y-4">
             <FormField
               control={form.control}
@@ -399,6 +184,41 @@ export function AdminVideoForm() {
               )}
             />
 
+            <div className="space-y-2">
+              <FormLabel>Thumbnail (Required)</FormLabel>
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                {thumbnailUrl ? (
+                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
+                    <img
+                      src={thumbnailUrl}
+                      alt="Video thumbnail"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-40 h-24 bg-muted rounded-lg flex items-center justify-center">
+                    <span className="text-sm text-muted-foreground">No thumbnail</span>
+                  </div>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleUploadClick}
+                  disabled={isUploadingThumbnail}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {isUploadingThumbnail ? "Uploading..." : "Upload Thumbnail"}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  onChange={handleFileChange}
+                  accept="image/*"
+                  className="hidden"
+                />
+              </div>
+            </div>
+
             <FormField
               control={form.control}
               name="description"
@@ -412,36 +232,6 @@ export function AdminVideoForm() {
                 </FormItem>
               )}
             />
-
-            <div className="space-y-2">
-              <FormLabel>Thumbnail</FormLabel>
-              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                {thumbnailUrl && (
-                  <div className="relative w-40 h-24 bg-muted rounded-lg overflow-hidden shrink-0">
-                    <img
-                      src={thumbnailUrl}
-                      alt="Generated thumbnail"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                )}
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={handleGenerateThumbnail}
-                  disabled={isGeneratingThumbnail}
-                  className="w-full sm:w-auto"
-                >
-                  {isGeneratingThumbnail ? "Generating..." : "Generate Thumbnail"}
-                </Button>
-                <input
-                  type="file"
-                  onChange={handleFileChange}
-                  accept="image/*"
-                  className="max-w-xs"
-                />
-              </div>
-            </div>
 
             <FormField
               control={form.control}
@@ -515,7 +305,7 @@ export function AdminVideoForm() {
             <Button
               type="submit"
               className="w-full"
-              disabled={addVideoMutation.isPending}
+              disabled={addVideoMutation.isPending || !thumbnailUrl}
             >
               {addVideoMutation.isPending ? "Adding..." : "Add Video"}
             </Button>
