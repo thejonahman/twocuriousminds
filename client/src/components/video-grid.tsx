@@ -120,22 +120,25 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
               video.id === highlightVideoId ? 'ring-2 ring-primary ring-offset-2' : ''
             }`}
           >
-            <AspectRatio ratio={16 / 9}>
-              <div className="w-full h-full bg-muted/50 relative">
-                {video.thumbnailUrl && (
-                  <img
-                    src={video.thumbnailUrl}
-                    alt={video.title}
-                    className="w-full h-full object-cover absolute inset-0 transition-opacity duration-200"
-                    onError={handleImageError}
-                    loading="lazy"
-                  />
-                )}
-                <div className={`fallback-icon absolute inset-0 flex items-center justify-center bg-muted/20 ${video.thumbnailUrl ? 'hidden' : ''}`}>
-                  <PlatformIcon platform={video.platform} />
+            <Link href={`/video/${video.id}`} className="block group">
+              <AspectRatio ratio={16 / 9}>
+                <div className="w-full h-full bg-muted/50 relative">
+                  {video.thumbnailUrl && (
+                    <img
+                      src={video.thumbnailUrl}
+                      alt={video.title}
+                      className="w-full h-full object-cover absolute inset-0 transition-opacity duration-200"
+                      onError={handleImageError}
+                      loading="lazy"
+                    />
+                  )}
+                  <div className={`fallback-icon absolute inset-0 flex items-center justify-center bg-muted/20 ${video.thumbnailUrl ? 'hidden' : ''}`}>
+                    <PlatformIcon platform={video.platform} />
+                  </div>
+                  <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 </div>
-              </div>
-            </AspectRatio>
+              </AspectRatio>
+            </Link>
 
             <CardContent className="p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -208,7 +211,7 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
               </div>
 
               <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
-                <Link href={`/video/${video.id}`}>
+                <Link href={`/video/${video.id}`} className="hover:text-primary transition-colors duration-200">
                   {video.title}
                 </Link>
               </h3>
