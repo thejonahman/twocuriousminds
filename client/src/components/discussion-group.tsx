@@ -3,10 +3,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { usePolling } from "@/hooks/use-polling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, MessageSquare, Plus, Users } from "lucide-react";
+import { Send, MessageSquare, Plus, Users, Loader2 } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -29,7 +28,10 @@ import {
   validateApiResponse,
   messageSchema,
   discussionGroupSchema,
-  GroupMessage, // Assuming this is defined elsewhere
+  GroupMessage,
+  WSInputMessage,
+  validateWSOutput,
+  groupMessageSchema
 } from "@/lib/api-types";
 import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
@@ -48,6 +50,7 @@ interface VideoData {
 
 const MESSAGES_PER_PAGE = 50;
 const MESSAGE_UPDATE_DEBOUNCE = 300;
+const RECONNECT_DELAY = 2000;
 
 export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   // Hooks
@@ -56,6 +59,8 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
 
   // State
   const [messageInput, setMessageInput] = useState("");
@@ -64,11 +69,81 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [restorationAttempted, setRestorationAttempted] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Debug logging with memoization
   const logDebug = useCallback((action: string, data: unknown) => {
     console.log(`[DiscussionGroupComponent ${new Date().toISOString()}] ${action}:`, data);
   }, []);
+
+  // WebSocket connection management
+  const connectWebSocket = useCallback(() => {
+    if (!user || !currentGroup) return;
+
+    try {
+      setIsConnecting(true);
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+      const ws = new WebSocket(wsUrl);
+      socketRef.current = ws;
+
+      ws.onopen = () => {
+        logDebug('WebSocket connected', { groupId: currentGroup.id });
+        setIsConnecting(false);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = validateWSOutput(JSON.parse(event.data));
+          if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
+            handleNewMessages([data.data]);
+          }
+        } catch (error) {
+          console.error('WebSocket message parsing error:', error);
+        }
+      };
+
+      ws.onclose = () => {
+        logDebug('WebSocket disconnected', { groupId: currentGroup.id });
+        setIsConnecting(true);
+
+        // Clear any existing reconnection timeout
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+
+        // Attempt to reconnect after delay
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectWebSocket();
+        }, RECONNECT_DELAY);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        ws.close();
+      };
+
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+      setIsConnecting(false);
+    }
+  }, [user, currentGroup, logDebug]);
+
+  // Cleanup WebSocket on unmount or group change
+  useEffect(() => {
+    connectWebSocket();
+
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.close();
+        socketRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+    };
+  }, [connectWebSocket]);
 
   // Optimized queries with proper caching and error handling
   const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroupType, Error>({
@@ -88,20 +163,24 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       return failureCount < 3 && !error.message.includes('Invalid group data');
     },
     staleTime: 30000,
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 5 * 60 * 1000,
   });
 
   // Optimistic updates mutation
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
-      if (!currentGroup) throw new Error('No active group');
-      const response = await fetch(`/api/groups/${currentGroup.id}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
-      });
-      if (!response.ok) throw new Error('Failed to send message');
-      return response.json();
+      if (!currentGroup || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+        throw new Error('No active connection');
+      }
+
+      const message: WSInputMessage = {
+        type: 'group_message',
+        groupId: currentGroup.id,
+        content
+      };
+
+      socketRef.current.send(JSON.stringify(message));
+      return { success: true };
     },
     onMutate: async (content) => {
       if (!currentGroup || !user) return;
@@ -110,10 +189,10 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       await queryClient.cancelQueries({ queryKey: [`/api/groups/${currentGroup.id}/messages`] });
 
       // Get current messages
-      const previousMessages = queryClient.getQueryData<Message[]>([`/api/groups/${currentGroup.id}/messages`]);
+      const previousMessages = queryClient.getQueryData<GroupMessage[]>([`/api/groups/${currentGroup.id}/messages`]);
 
       // Optimistically add new message
-      const optimisticMessage: GroupMessage = { // Type corrected here
+      const optimisticMessage: GroupMessage = {
         id: Date.now(),
         content,
         userId: user.id,
@@ -125,7 +204,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
         }
       };
 
-      queryClient.setQueryData<GroupMessage[]>( // Type corrected here
+      queryClient.setQueryData<GroupMessage[]>(
         [`/api/groups/${currentGroup.id}/messages`],
         old => [...(old || []), optimisticMessage]
       );
@@ -154,14 +233,8 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     }
   });
 
-  // Debounced message input handler
-  const debouncedMessageUpdate = useMemo(
-    () => debounce((value: string) => setMessageInput(value), MESSAGE_UPDATE_DEBOUNCE),
-    []
-  );
-
   // Memoized message handler
-  const handleNewMessages = useCallback(async (newMessages: Message[]) => {
+  const handleNewMessages = useCallback(async (newMessages: GroupMessage[]) => {
     if (!currentGroup) return;
 
     logDebug('New messages received', {
@@ -169,7 +242,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       groupId: currentGroup.id
     });
 
-    queryClient.setQueryData<Message[]>(
+    queryClient.setQueryData<GroupMessage[]>(
       [`/api/groups/${currentGroup.id}/messages`],
       old => {
         const oldMessages = old || [];
@@ -193,6 +266,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     }
   }, [currentGroup, queryClient, logDebug]);
 
+
   const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroupType, Error>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
@@ -215,12 +289,13 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     enabled: !!videoId,
   });
 
-  const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[], Error>({
+  // Fix query type for messages
+  const { data: messages = [], isLoading: isMessagesLoading } = useQuery<GroupMessage[]>({
     queryKey: [`/api/groups/${currentGroup?.id}/messages`],
     enabled: !!currentGroup?.id && !!user,
     select: useCallback((data: unknown) => {
       try {
-        return validateApiResponse(z.array(messageSchema), data);
+        return validateApiResponse(z.array(groupMessageSchema), data);
       } catch (error) {
         console.error('Message validation error:', error);
         return [];
@@ -330,37 +405,17 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     };
   }, [currentGroup, videoId]);
 
-  // Message handler
+  // Message handler -  Removed the useEffect that used addMessageHandler and usePolling.
   useEffect(() => {
-    if (!user || !currentGroup) return;
+    //This effect is now empty because message handling is done via websockets.
 
-    const cleanup = addMessageHandler(handleNewMessages);
+  }, []);
 
-    // Add visibility change handler
-    const handleVisibilityChange = async () => {
-      if (!document.hidden && unreadCount > 0) {
-        try {
-          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          setUnreadCount(0);
-        } catch (error) {
-          console.error('Failed to mark messages as read:', error);
-        }
-      }
-    };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      cleanup();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [user, currentGroup, handleNewMessages, unreadCount]);
-
-  // Polling setup
-  const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
+  const debouncedMessageUpdate = useMemo(
+    () => debounce((value: string) => setMessageInput(value), MESSAGE_UPDATE_DEBOUNCE),
+    []
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -495,22 +550,17 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     );
   }
 
-  if (pollingState.error) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Discussion</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center gap-4 p-8">
-            <p className="text-sm text-muted-foreground">
-              Connection error. Retrying...
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const renderConnectionStatus = () => {
+    if (isConnecting) {
+      return (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Connecting...
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <Card>
@@ -536,6 +586,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
           </div>
           {currentGroup && (
             <div className="flex items-center gap-2">
+              {renderConnectionStatus()}
               <ShareGroupDialog
                 url={`${window.location.origin}/join-group/${currentGroup.inviteCode}?videoId=${videoId}`}
                 groupName={currentGroup.name}
