@@ -17,7 +17,7 @@ export interface AuthenticatedRequest extends Request {
     id: number;
     username: string;
     email: string;
-    is_admin?: boolean;
+    isAdmin?: boolean;
   };
 }
 
@@ -200,7 +200,7 @@ export function registerRoutes(app: Express): Server {
 
   // Add new category
   app.post("/api/categories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    if (!req.user?.is_admin) {
+    if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -224,7 +224,7 @@ export function registerRoutes(app: Express): Server {
 
   // Add new subcategory
   app.post("/api/categories/:categoryId/subcategories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    if (!req.user?.is_admin) {
+    if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -265,7 +265,7 @@ export function registerRoutes(app: Express): Server {
 
   // Soft delete category
   app.delete("/api/categories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    if (!req.user?.is_admin) {
+    if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -304,7 +304,7 @@ export function registerRoutes(app: Express): Server {
 
   // Soft delete subcategory
   app.delete("/api/subcategories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    if (!req.user?.is_admin) {
+    if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
@@ -988,7 +988,7 @@ export function registerRoutes(app: Express): Server {
 
   // Domain verification endpoint. Moved this before the httpServer creation.
   app.get("/api/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    if (!req.user?.is_admin) {
+    if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
