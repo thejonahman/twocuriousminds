@@ -22,10 +22,31 @@ const registerSchema = loginSchema.extend({
 type LoginValues = z.infer<typeof loginSchema>;
 type RegisterValues = z.infer<typeof registerSchema>;
 
+type FormValues = LoginValues | RegisterValues;
+
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [, navigate] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
+
+  // Reset form when switching between login and register
+  const form = useForm<FormValues>({
+    resolver: zodResolver(isLogin ? loginSchema : registerSchema),
+    defaultValues: {
+      username: "",
+      password: "",
+      ...(isLogin ? {} : { email: "" }),
+    },
+  });
+
+  useEffect(() => {
+    // Reset form when switching modes
+    form.reset({
+      username: "",
+      password: "",
+      ...(isLogin ? {} : { email: "" }),
+    });
+  }, [isLogin, form]);
 
   useEffect(() => {
     if (user) {
@@ -68,16 +89,7 @@ export default function Auth() {
     }
   }, [user, navigate]);
 
-  const form = useForm<LoginValues | RegisterValues>({
-    resolver: zodResolver(isLogin ? loginSchema : registerSchema),
-    defaultValues: {
-      username: "",
-      password: "",
-      ...(isLogin ? {} : { email: "" }),
-    },
-  });
-
-  const onSubmit = async (values: LoginValues | RegisterValues) => {
+  const onSubmit = async (values: FormValues) => {
     console.log('Form submitted:', { isLogin, values });
     try {
       if (isLogin) {
@@ -129,9 +141,9 @@ export default function Auth() {
                   type="email"
                   {...form.register("email")}
                 />
-                {form.formState.errors.email && (
+                {!isLogin && form.formState.errors.email && (
                   <p className="text-sm text-destructive">
-                    {form.formState.errors.email.message}
+                    {form.formState.errors.email?.message}
                   </p>
                 )}
               </div>

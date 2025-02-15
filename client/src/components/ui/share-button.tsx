@@ -59,8 +59,12 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
     }
   };
 
+  // Check if the Web Share API is available and is a function
+  const canShare = typeof navigator !== 'undefined' && 
+                  navigator.share instanceof Function;
+
   // If native sharing is available, show both options in a dropdown
-  if (navigator.share) {
+  if (canShare) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

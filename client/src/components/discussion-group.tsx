@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Message,
-  DiscussionGroup,
+  DiscussionGroup as DiscussionGroupType,
   validateApiResponse,
   messageSchema,
   discussionGroupSchema,
@@ -44,7 +44,7 @@ interface VideoData {
   description?: string;
 }
 
-export function DiscussionGroup({ videoId, initialGroupId }: Props) {
+export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   // Hooks
   const { user } = useAuth();
   const { toast } = useToast();
@@ -55,21 +55,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   // State
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
-  const [currentGroup, setCurrentGroup] = useState<DiscussionGroup | null>(null);
+  const [currentGroup, setCurrentGroup] = useState<DiscussionGroupType | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [restorationAttempted, setRestorationAttempted] = useState(false);
 
   // Debug logging function with timestamp
   const logDebug = (action: string, data: unknown) => {
-    console.log(`[DiscussionGroup ${new Date().toISOString()}] ${action}:`, data);
+    console.log(`[DiscussionGroupComponent ${new Date().toISOString()}] ${action}:`, data);
   };
 
   // Polling setup
   const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
 
   // Queries with proper type safety
-  const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroup, Error>({
+  const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroupType, Error>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data: unknown) => {
@@ -86,7 +86,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     staleTime: 30000,
   });
 
-  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroup, Error>({
+  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroupType, Error>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
     select: (data: unknown) => {
@@ -133,7 +133,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         // If we have an initialGroupId from URL, use that
         if (initialGroupId && group) {
           logDebug('Restoring from URL group ID', { groupId: initialGroupId });
-          setCurrentGroup((prevGroup: DiscussionGroup | null) => {
+          setCurrentGroup((prevGroup: DiscussionGroupType | null) => {
             if (prevGroup?.id === group.id) return prevGroup;
             return group;
           });
@@ -593,3 +593,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     </Card>
   );
 }
+
+// Default export with the new name
+export default DiscussionGroupComponent;

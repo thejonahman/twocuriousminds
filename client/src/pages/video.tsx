@@ -3,7 +3,7 @@ import { useParams, useLocation } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { DiscussionGroup } from "@/components/discussion-group";
+import DiscussionGroupComponent from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
 import { Share2, Copy, Check, Mail, AlertTriangle } from "lucide-react";
 import {
@@ -263,7 +263,7 @@ function VideoPage() {
 
           <div className="rounded-xl border bg-card shadow-sm">
             <ErrorBoundary>
-              <DiscussionGroup
+              <DiscussionGroupComponent
                 videoId={video.id}
                 initialGroupId={groupId ? parseInt(groupId) : undefined}
               />
