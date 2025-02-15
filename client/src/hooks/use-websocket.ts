@@ -12,11 +12,19 @@ interface WebSocketState {
   connecting: boolean;
 }
 
-export function useWebSocket() {
+type MessageHandler = (data: any) => void;
+
+interface UseWebSocketReturn {
+  state: WebSocketState;
+  sendMessage: (message: WebSocketMessage) => boolean;
+  addMessageHandler: (handler: MessageHandler) => () => void;
+}
+
+export function useWebSocket(): UseWebSocketReturn {
   const { user } = useAuth();
   const { toast } = useToast();
   const ws = useRef<WebSocket | null>(null);
-  const messageHandlers = useRef<Set<(data: any) => void>>(new Set());
+  const messageHandlers = useRef<Set<MessageHandler>>(new Set());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const reconnectAttemptsRef = useRef(0);
   const [state, setState] = useState<WebSocketState>({
@@ -29,7 +37,6 @@ export function useWebSocket() {
       return;
     }
 
-    // Clear existing reconnection timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
     }
@@ -37,7 +44,6 @@ export function useWebSocket() {
     setState(prev => ({ ...prev, connecting: true }));
 
     try {
-      // Close existing connection if any
       if (ws.current) {
         ws.current.close();
         ws.current = null;
@@ -48,7 +54,6 @@ export function useWebSocket() {
       ws.current = socket;
 
       socket.onopen = () => {
-        console.log('[WebSocket] Connected successfully');
         reconnectAttemptsRef.current = 0;
         setState({
           connected: true,
@@ -57,18 +62,11 @@ export function useWebSocket() {
       };
 
       socket.onclose = (event) => {
-        console.log('[WebSocket] Connection closed:', {
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean
-        });
-
         setState({
           connected: false,
           connecting: false
         });
 
-        // Only attempt to reconnect if not a clean closure and we have a user
         if (event.code !== 1000 && event.code !== 1001 && user) {
           const baseDelay = 1000;
           const maxDelay = 30000;
@@ -80,8 +78,6 @@ export function useWebSocket() {
       };
 
       socket.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', error);
-
         if (reconnectAttemptsRef.current === 0) {
           toast({
             title: "Connection Error",
@@ -101,7 +97,6 @@ export function useWebSocket() {
       };
 
     } catch (error) {
-      console.error('[WebSocket] Setup error:', error);
       setState({
         connected: false,
         connecting: false
@@ -115,7 +110,31 @@ export function useWebSocket() {
     }
   }, [user, state.connecting, toast]);
 
-  // Reconnect when tab becomes visible
+  const sendMessage = useCallback((message: WebSocketMessage): boolean => {
+    if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    try {
+      ws.current.send(JSON.stringify(message));
+      return true;
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to send message",
+        variant: "destructive",
+      });
+      return false;
+    }
+  }, [toast]);
+
+  const addMessageHandler = useCallback((handler: MessageHandler) => {
+    messageHandlers.current.add(handler);
+    return () => {
+      messageHandlers.current.delete(handler);
+    };
+  }, []);
+
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && user) {
@@ -129,33 +148,6 @@ export function useWebSocket() {
     };
   }, [connect, user]);
 
-  const sendMessage = useCallback((message: WebSocketMessage): boolean => {
-    if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
-      return false;
-    }
-
-    try {
-      ws.current.send(JSON.stringify(message));
-      return true;
-    } catch (error) {
-      console.error('[WebSocket] Send error:', error);
-      toast({
-        title: "Error",
-        description: "Failed to send message",
-        variant: "destructive",
-      });
-      return false;
-    }
-  }, [toast]);
-
-  const addMessageHandler = useCallback((handler: (data: any) => void) => {
-    messageHandlers.current.add(handler);
-    return () => {
-      messageHandlers.current.delete(handler);
-    };
-  }, []);
-
-  // Connect when user is available
   useEffect(() => {
     if (user) {
       connect();

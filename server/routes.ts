@@ -344,7 +344,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
       where: and(
         eq(discussionGroups.videoId, videoId),
         sql`exists (
-          select 1 from ${groupMembers}
+          select 1 
+          from ${groupMembers} 
           where ${groupMembers.groupId} = ${discussionGroups.id}
           and ${groupMembers.userId} = ${req.user!.id}
         )`
@@ -359,13 +360,15 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
               }
             }
           }
-        }
+        },
+        video: true
       },
       orderBy: [desc(discussionGroups.updatedAt)]
     });
 
     if (!lastActiveGroup) {
-      return res.json({
+      console.log('No active group found for video:', videoId);
+      return res.status(404).json({
         data: null,
         message: "No active group found",
         statusCode: 404
@@ -373,18 +376,33 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     }
 
     // Transform the response to match the expected schema
+    const transformedGroup = {
+      id: lastActiveGroup.id,
+      name: lastActiveGroup.name,
+      description: lastActiveGroup.description,
+      videoId: lastActiveGroup.videoId,
+      inviteCode: lastActiveGroup.inviteCode,
+      creatorId: lastActiveGroup.creatorId,
+      isPrivate: lastActiveGroup.isPrivate,
+      createdAt: lastActiveGroup.createdAt,
+      updatedAt: lastActiveGroup.updatedAt,
+      members: lastActiveGroup.members.map(member => ({
+        id: member.id,
+        userId: member.user.id,
+        username: member.user.username
+      }))
+    };
+
     const response = {
-      data: {
-        ...lastActiveGroup,
-        members: lastActiveGroup.members.map(member => ({
-          id: member.id,
-          userId: member.userId,
-          username: member.user.username
-        }))
-      },
+      data: transformedGroup,
       message: "Last active group retrieved successfully",
       statusCode: 200
     };
+
+    console.log('Successfully found and transformed group:', {
+      groupId: transformedGroup.id,
+      memberCount: transformedGroup.members.length
+    });
 
     res.json(response);
   }));
@@ -1003,12 +1021,10 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
         }
 
         console.log('Fetching test group:', groupId);
-        const testGroup = await db.query.discussionGroups.findFirst({
-          where: eq(discussionGroups.id, groupId),
+        const testGroup = await db.query.discussionGroups.findFirst({          where: eq(discussionGroups.id, groupId),
           with: {
             messages: {
-              limit: 5,
-              orderBy: [desc(groupMessages.createdAt)],
+              limit: 5,              orderBy: [desc(groupMessages.createdAt)],
               with: {
                 user: {
                   columns: {

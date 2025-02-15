@@ -39,13 +39,7 @@ import debounce from 'lodash/debounce';
 import { VirtualizedMessageList } from "@/components/ui/virtualized-message-list";
 import { VideoData } from "@/types/video";
 import { useWebSocket } from '@/hooks/use-websocket';
-import { addMessageHandler } from '@/hooks/use-websocket';
-
-
-interface Props {
-  videoId: number;
-  initialGroupId?: number;
-}
+import type { WebSocketMessage } from '@/hooks/use-websocket';
 
 const INITIAL_RECONNECT_DELAY = 2000;
 const MAX_RECONNECT_DELAY = 30000;
@@ -54,17 +48,19 @@ const RECONNECT_BACKOFF_FACTOR = 1.5;
 const MESSAGES_PER_PAGE = 50;
 const MESSAGE_UPDATE_DEBOUNCE = 300;
 
+interface Props {
+  videoId: number;
+  initialGroupId?: number;
+}
 
 export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
-  // Hooks
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { state: wsState, sendMessage } = useWebSocket();
+  const { state: wsState, sendMessage, addMessageHandler } = useWebSocket();
 
-  // State
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [currentGroup, setCurrentGroup] = useState<DiscussionGroupType | null>(null);
@@ -75,12 +71,10 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [reconnectDelay, setReconnectDelay] = useState(INITIAL_RECONNECT_DELAY);
 
-  // Debug logging with memoization
   const logDebug = useCallback((action: string, data: unknown) => {
     console.log(`[DiscussionGroupComponent ${new Date().toISOString()}] ${action}:`, data);
   }, []);
 
-  // Move handleNewMessages definition before connectWebSocket
   const handleNewMessages = useCallback(async (newMessages: GroupMessage[]) => {
     if (!currentGroup) return;
 
@@ -113,14 +107,12 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     }
   }, [currentGroup, queryClient, logDebug]);
 
-  // Reset reconnection state when connection is successful
   const resetReconnectionState = useCallback(() => {
     setReconnectAttempts(0);
     setReconnectDelay(INITIAL_RECONNECT_DELAY);
-    setIsConnecting(false);
+    //setIsConnecting(false); // This line is causing error, removed.
   }, []);
 
-  // Calculate next reconnection delay with exponential backoff
   const getNextReconnectDelay = useCallback(() => {
     const delay = Math.min(
       INITIAL_RECONNECT_DELAY * Math.pow(RECONNECT_BACKOFF_FACTOR, reconnectAttempts),
@@ -151,13 +143,10 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     onMutate: async (content) => {
       if (!currentGroup || !user) return;
 
-      // Cancel outgoing fetches
       await queryClient.cancelQueries({ queryKey: [`/api/groups/${currentGroup.id}/messages`] });
 
-      // Get current messages
       const previousMessages = queryClient.getQueryData<GroupMessage[]>([`/api/groups/${currentGroup.id}/messages`]);
 
-      // Optimistically add new message
       const optimisticMessage: GroupMessage = {
         id: Date.now(),
         content,
@@ -254,7 +243,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     }, []),
   });
 
-  // Fix query type for messages
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery<GroupMessage[]>({
     queryKey: [`/api/groups/${currentGroup?.id}/messages`],
     enabled: !!currentGroup?.id && !!user,
@@ -269,7 +257,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     staleTime: 1000,
   });
 
-  // Group restoration effect
   useEffect(() => {
     if (!user || restorationAttempted) return;
 
@@ -277,7 +264,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       try {
         logDebug('Starting group restoration', { videoId, initialGroupId });
 
-        // If we have an initialGroupId from URL, use that
         if (initialGroupId && group) {
           logDebug('Restoring from URL group ID', { groupId: initialGroupId });
           setCurrentGroup(group);
@@ -285,7 +271,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
           return;
         }
 
-        // Check localStorage for previously active group
         const storedGroupId = localStorage.getItem(`activeGroup-${videoId}`);
         logDebug('Checking stored group', { storedGroupId });
 
@@ -308,7 +293,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
           }
         }
 
-        // Fall back to last active group if available
         if (lastActiveGroup) {
           const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
           const lastLeftTime = sessionStorage.getItem('lastLeftTime');
@@ -338,7 +322,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     restoreGroup();
   }, [user, videoId, initialGroupId, group, lastActiveGroup, setLocation, restorationAttempted]);
 
-  // State persistence effect
   useEffect(() => {
     const persistGroupState = () => {
       if (currentGroup) {
@@ -351,10 +334,8 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       }
     };
 
-    // Handle page unload
     window.addEventListener('beforeunload', persistGroupState);
 
-    // Handle SPA navigation
     const handleRouteChange = () => {
       logDebug('Route change detected', { currentPath: window.location.pathname });
       persistGroupState();
@@ -362,7 +343,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
 
     window.addEventListener('popstate', handleRouteChange);
 
-    // Cleanup
     return () => {
       window.removeEventListener('beforeunload', persistGroupState);
       window.removeEventListener('popstate', handleRouteChange);
@@ -370,17 +350,16 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     };
   }, [currentGroup, videoId]);
 
-  // Add message handler for WebSocket messages
   useEffect(() => {
     if (!currentGroup) return;
 
-    const cleanup = addMessageHandler((data) => {
+    const cleanupHandler = addMessageHandler((data: WebSocketMessage) => {
       if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
         handleNewMessages([data.data]);
       }
     });
 
-    return cleanup;
+    return cleanupHandler;
   }, [currentGroup, addMessageHandler, handleNewMessages]);
 
 
@@ -460,16 +439,13 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
         throw new Error('Failed to leave group');
       }
 
-      // Mark this group as recently left to prevent auto-rejoin
       sessionStorage.setItem('lastLeftGroup', currentGroup.id.toString());
       sessionStorage.setItem('lastLeftTime', Date.now().toString());
 
-      // Clear group from localStorage and state
       localStorage.removeItem(`activeGroup-${videoId}`);
       setCurrentGroup(null);
-      setRestorationAttempted(false); // Allow restoration on next mount
+      setRestorationAttempted(false);
 
-      // Update URL and invalidate queries
       setLocation(`/video/${videoId}`);
       queryClient.invalidateQueries({
         queryKey: [`/api/videos/${videoId}/last-active-group`]
@@ -490,7 +466,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     }
   };
 
-  // Render loading states
   if (!user) {
     return (
       <Card>
