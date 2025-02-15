@@ -18,7 +18,8 @@ export const videoSchema = z.object({
     displayOrder: z.number().optional()
   }).nullable(),
   categoryId: z.number(),
-  subcategoryId: z.number().optional()
+  subcategoryId: z.number().optional(),
+  customThumbnail: z.boolean()
 });
 
 export type Video = z.infer<typeof videoSchema>;

@@ -30,8 +30,12 @@ export function registerRoutes(app: Express): Server {
 
   // Configure multer for file uploads
   const uploadDir = path.join(process.cwd(), 'uploads');
+
+  // Ensure uploads directory exists with proper permissions
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
+    // Ensure directory has proper permissions (readable/writable)
+    fs.chmodSync(uploadDir, 0o755);
   }
 
   const storage = multer.diskStorage({
@@ -40,7 +44,8 @@ export function registerRoutes(app: Express): Server {
     },
     filename: function (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      cb(null, uniqueSuffix + path.extname(file.originalname));
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, 'thumbnail-' + uniqueSuffix + ext);
     }
   });
 
@@ -61,10 +66,31 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
-  // Serve uploaded files statically
-  app.use('/uploads', express.static(uploadDir));
+  // Serve uploaded files statically with proper MIME types
+  app.use('/uploads', express.static(uploadDir, {
+    index: false,
+    extensions: ['jpg', 'jpeg', 'png', 'webp'],
+    setHeaders: (res, filePath) => {
+      console.log('[Static] Setting headers for file:', filePath);
+      // Set proper cache control and content type
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      const ext = path.extname(filePath).toLowerCase();
+      switch (ext) {
+        case '.jpg':
+        case '.jpeg':
+          res.setHeader('Content-Type', 'image/jpeg');
+          break;
+        case '.png':
+          res.setHeader('Content-Type', 'image/png');
+          break;
+        case '.webp':
+          res.setHeader('Content-Type', 'image/webp');
+          break;
+      }
+    }
+  }));
 
-  // Add thumbnail upload endpoint
+  // Add thumbnail upload endpoint with improved error handling
   app.post('/api/upload/thumbnail', upload.single('thumbnail'), (req: Request, res: Response) => {
     console.log('[Upload] Processing thumbnail upload request');
 
@@ -77,14 +103,27 @@ export function registerRoutes(app: Express): Server {
     }
 
     try {
-      // Return the URL of the uploaded file
-      const fileUrl = `/uploads/${req.file.filename}`;
-      console.log('[Upload] Successfully uploaded thumbnail:', fileUrl);
+      const filename = req.file.filename;
+      // Ensure the URL starts with a forward slash
+      const fileUrl = `/uploads/${filename}`;
+
+      console.log('[Upload] Successfully uploaded thumbnail:', {
+        url: fileUrl,
+        filename: filename,
+        path: req.file.path,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+
+      // Test file existence
+      if (!fs.existsSync(req.file.path)) {
+        throw new Error('File was not saved properly');
+      }
 
       res.json({ 
         url: fileUrl,
         success: true,
-        filename: req.file.filename,
+        filename: filename,
         originalName: req.file.originalname,
         size: req.file.size,
         mimetype: req.file.mimetype
@@ -93,7 +132,8 @@ export function registerRoutes(app: Express): Server {
       console.error('[Upload] Error processing uploaded file:', error);
       res.status(500).json({ 
         error: 'Error processing uploaded file',
-        success: false
+        success: false,
+        details: error instanceof Error ? error.message : 'Unknown error'
       });
     }
   });

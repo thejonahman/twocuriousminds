@@ -14,6 +14,23 @@ import { Loader2 } from 'lucide-react';
 import { VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory } from "@/types/video";
 import { ThumbnailUpload } from "./thumbnail-upload";
 
+async function uploadThumbnail(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('thumbnail', file);
+
+  const response = await fetch('/api/upload/thumbnail', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to upload thumbnail');
+  }
+
+  const data = await response.json();
+  return data.url;
+}
+
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -81,7 +98,7 @@ export function AdminVideoForm() {
         console.log('Starting video submission:', data);
 
         // Handle thumbnail upload if provided
-        const thumbnailUrl = data.thumbnailFile
+        const thumbnailUrl = data.thumbnailFile 
           ? await uploadThumbnail(data.thumbnailFile)
           : getVideoThumbnail(data.url, data.platform);
 
@@ -101,13 +118,12 @@ export function AdminVideoForm() {
         console.log('Sending POST request to /api/videos with payload:', payload);
 
         const response = await apiRequest("POST", '/api/videos', payload);
-
         if (!response.ok) {
           const errorData = await response.json();
           throw new Error(errorData.message || "Failed to add video");
         }
 
-        console.log('API success response:', response);
+        console.log('Response status:', response.status);
         return response.json();
       } catch (error) {
         console.error('Video submission error:', error);
@@ -364,21 +380,4 @@ export function AdminVideoForm() {
       </Form>
     </Card>
   );
-}
-
-async function uploadThumbnail(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append('thumbnail', file);
-
-  const response = await fetch('/api/upload/thumbnail', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to upload thumbnail');
-  }
-
-  const data = await response.json();
-  return data.url;
 }

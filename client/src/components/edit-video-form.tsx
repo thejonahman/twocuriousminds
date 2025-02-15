@@ -81,7 +81,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         };
 
         // Remove the file from the payload as it's already uploaded
-        delete payload.thumbnailFile;
+        delete (payload as any).thumbnailFile;
 
         const response = await apiRequest("PATCH", `/api/videos/${video.id}`, payload);
         if (!response.ok) {

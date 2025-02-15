@@ -17,15 +17,16 @@ import { ErrorBoundary } from "./error-boundary";
 
 // Platform icon component
 const PlatformIcon = memo(({ platform }: { platform: string }) => {
+  const size = "h-12 w-12"; // Increased size for better visibility
   switch (platform.toLowerCase()) {
     case 'youtube':
-      return <Youtube className="h-3 w-3 text-red-500" />;
+      return <Youtube className={`${size} text-red-500`} />;
     case 'tiktok':
-      return <SiTiktok className="h-3 w-3 text-black dark:text-white" />;
+      return <SiTiktok className={`${size} text-black dark:text-white`} />;
     case 'instagram':
-      return <Instagram className="h-3 w-3 text-pink-500" />;
+      return <Instagram className={`${size} text-pink-500`} />;
     default:
-      return <Image className="h-3 w-3 text-muted-foreground" />;
+      return <Image className={`${size} text-muted-foreground`} />;
   }
 });
 
@@ -59,13 +60,7 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
     },
     onSuccess: (data, videoId) => {
       console.log('[Delete] Successfully deleted video:', videoId);
-      // Update the cache optimistically
-      const previousVideos = queryClient.getQueryData<Video[]>(["/api/videos"]);
-      if (previousVideos) {
-        const updatedVideos = previousVideos.filter(video => video.id !== videoId);
-        queryClient.setQueryData(["/api/videos"], updatedVideos);
-      }
-
+      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
         title: "Success",
         description: "Video deleted successfully",
@@ -82,7 +77,6 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
     onSettled: () => {
       console.log('[Delete] Mutation settled, clearing state');
       setDeletingVideoId(null);
-      queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
     },
   });
 
@@ -97,6 +91,25 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
     setDialogOpen(true);
   }, []);
 
+  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    const img = e.currentTarget;
+    console.log('[VideoGrid] Image failed to load:', {
+      src: img.src,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+      error: e
+    });
+
+    img.style.display = 'none';
+    const container = img.parentElement;
+    if (container) {
+      const fallback = container.querySelector('.fallback-icon');
+      if (fallback) {
+        fallback.classList.remove('hidden');
+      }
+    }
+  }, []);
+
   return (
     <ErrorBoundary>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -109,7 +122,16 @@ export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: 
           >
             <AspectRatio ratio={16 / 9}>
               <div className="w-full h-full bg-muted/50 relative">
-                <div className="absolute inset-0 flex items-center justify-center">
+                {video.thumbnailUrl && (
+                  <img
+                    src={video.thumbnailUrl}
+                    alt={video.title}
+                    className="w-full h-full object-cover absolute inset-0 transition-opacity duration-200"
+                    onError={handleImageError}
+                    loading="lazy"
+                  />
+                )}
+                <div className={`fallback-icon absolute inset-0 flex items-center justify-center bg-muted/20 ${video.thumbnailUrl ? 'hidden' : ''}`}>
                   <PlatformIcon platform={video.platform} />
                 </div>
               </div>
