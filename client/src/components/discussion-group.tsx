@@ -38,6 +38,9 @@ import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
 import debounce from 'lodash/debounce';
 import { VirtualizedMessageList } from "@/components/ui/virtualized-message-list";
 import { VideoData } from "@/types/video";
+import { useWebSocket } from '@/hooks/use-websocket';
+import { addMessageHandler } from '@/hooks/use-websocket';
+
 
 interface Props {
   videoId: number;
@@ -59,8 +62,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const socketRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const { state: wsState, sendMessage } = useWebSocket();
 
   // State
   const [messageInput, setMessageInput] = useState("");
@@ -69,7 +71,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [restorationAttempted, setRestorationAttempted] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
+  const isConnecting = wsState.connecting;
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [reconnectDelay, setReconnectDelay] = useState(INITIAL_RECONNECT_DELAY);
 
@@ -127,170 +129,23 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     return Math.floor(delay);
   }, [reconnectAttempts]);
 
-  // Enhanced WebSocket connection handling
-  const connectWebSocket = useCallback(() => {
-    if (!user || !currentGroup) {
-      console.log('[WebSocket] Connection attempted without user or group:', { 
-        hasUser: !!user, 
-        hasGroup: !!currentGroup,
-        timestamp: new Date().toISOString()
-      });
-      return;
-    }
 
-    try {
-      // Close existing connection if any
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        console.log('[WebSocket] Closing existing connection');
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-
-      setIsConnecting(true);
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-
-      console.log('[WebSocket] Initiating connection:', {
-        url: wsUrl,
-        userId: user.id,
-        groupId: currentGroup.id,
-        timestamp: new Date().toISOString()
-      });
-
-      const ws = new WebSocket(wsUrl);
-      socketRef.current = ws;
-
-      // Connection timeout handler
-      const connectionTimeout = setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) {
-          console.log('[WebSocket] Connection timeout - closing socket');
-          ws.close();
-        }
-      }, 10000); // 10 second timeout
-
-      ws.onopen = () => {
-        clearTimeout(connectionTimeout);
-        console.log('[WebSocket] Connection established:', {
-          readyState: ws.readyState,
-          timestamp: new Date().toISOString()
-        });
-        resetReconnectionState();
-      };
-
-      ws.onclose = (event) => {
-        clearTimeout(connectionTimeout);
-        console.log('[WebSocket] Connection closed:', {
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean,
-          timestamp: new Date().toISOString()
-        });
-
-        setIsConnecting(true);
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-
-        // Only attempt reconnection if we still have a current group
-        if (currentGroup) {
-          const nextDelay = getNextReconnectDelay();
-          console.log('[WebSocket] Scheduling reconnection:', {
-            attempt: reconnectAttempts + 1,
-            delay: nextDelay,
-            timestamp: new Date().toISOString()
-          });
-
-          setReconnectAttempts(prev => prev + 1);
-          reconnectTimeoutRef.current = setTimeout(connectWebSocket, nextDelay);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', {
-          error,
-          readyState: ws.readyState,
-          timestamp: new Date().toISOString()
-        });
-        // Don't set isConnecting to false here, let onclose handle it
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log('[WebSocket] Received message:', {
-            type: data.type,
-            timestamp: new Date().toISOString()
-          });
-
-          if (data.type === 'connected') {
-            console.log('[WebSocket] Connection confirmed by server');
-          } else if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
-            handleNewMessages([data.data]);
-          }
-        } catch (error) {
-          console.error('[WebSocket] Message parsing error:', error);
-        }
-      };
-
-    } catch (error) {
-      console.error('[WebSocket] Setup error:', {
-        error,
-        timestamp: new Date().toISOString()
-      });
-      setIsConnecting(false);
-    }
-  }, [user, currentGroup, reconnectAttempts, getNextReconnectDelay, resetReconnectionState, handleNewMessages]);
-
-  // Cleanup WebSocket on unmount or group change
-  useEffect(() => {
-    connectWebSocket();
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.close();
-        socketRef.current = null;
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-    };
-  }, [connectWebSocket]);
-
-  // Optimized queries with proper caching and error handling
-  const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroupType, Error>({
-    queryKey: [`/api/groups/${initialGroupId}`],
-    enabled: !!initialGroupId && !!user,
-    select: useCallback((data: unknown) => {
-      try {
-        const validated = validateApiResponse(discussionGroupSchema, data);
-        if (!validated) throw new Error('Invalid group data');
-        return validated;
-      } catch (error) {
-        console.error('Group validation error:', error);
-        throw error;
-      }
-    }, []),
-    retry: (failureCount, error) => {
-      return failureCount < 3 && !error.message.includes('Invalid group data');
-    },
-    staleTime: 30000,
-    gcTime: 5 * 60 * 1000,
-  });
-
-  // Optimistic updates mutation
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
-      if (!currentGroup || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-        throw new Error('No active connection');
+      if (!currentGroup) {
+        throw new Error('No active group');
       }
 
-      const message: WSInputMessage = {
+      const success = sendMessage({
         type: 'group_message',
         groupId: currentGroup.id,
         content
-      };
+      });
 
-      socketRef.current.send(JSON.stringify(message));
+      if (!success) {
+        throw new Error('Failed to send message');
+      }
+
       return { success: true };
     },
     onMutate: async (content) => {
@@ -342,6 +197,26 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
         });
       }
     }
+  });
+
+  const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroupType, Error>({
+    queryKey: [`/api/groups/${initialGroupId}`],
+    enabled: !!initialGroupId && !!user,
+    select: useCallback((data: unknown) => {
+      try {
+        const validated = validateApiResponse(discussionGroupSchema, data);
+        if (!validated) throw new Error('Invalid group data');
+        return validated;
+      } catch (error) {
+        console.error('Group validation error:', error);
+        throw error;
+      }
+    }, []),
+    retry: (failureCount, error) => {
+      return failureCount < 3 && !error.message.includes('Invalid group data');
+    },
+    staleTime: 30000,
+    gcTime: 5 * 60 * 1000,
   });
 
   const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroupType, Error>({
@@ -495,11 +370,18 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     };
   }, [currentGroup, videoId]);
 
-  // Message handler -  Removed the useEffect that used addMessageHandler and usePolling.
+  // Add message handler for WebSocket messages
   useEffect(() => {
-    //This effect is now empty because message handling is done via websockets.
+    if (!currentGroup) return;
 
-  }, []);
+    const cleanup = addMessageHandler((data) => {
+      if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
+        handleNewMessages([data.data]);
+      }
+    });
+
+    return cleanup;
+  }, [currentGroup, addMessageHandler, handleNewMessages]);
 
 
   const debouncedMessageUpdate = useMemo(

@@ -5,7 +5,6 @@ import { eq } from "drizzle-orm";
 import { groupMessages, groupMembers } from "@db/schema";
 import cookie from 'cookie';
 
-// Define session type to include passport
 interface Session {
   passport?: {
     user?: number;
@@ -20,39 +19,26 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
 
   const wss = new WebSocketServer({ 
     noServer: true,
-    path: '/ws'
+    path: '/ws/chat'
   });
 
   // Handle upgrade requests
   httpServer.on('upgrade', async (request: any, socket, head) => {
     try {
-      console.log('[WebSocket] Received upgrade request:', {
-        path: request.url,
-        headers: request.headers,
-        cookies: request.headers.cookie,
-        protocol: request.headers['sec-websocket-protocol'],
-        timestamp: new Date().toISOString()
-      });
-
-      // Ignore vite-hmr websocket connections
-      if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
-        console.log('[WebSocket] Ignoring vite-hmr connection');
-        socket.destroy();
-        return;
+      // Special handling for Vite HMR connections
+      if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
+        return; // Let Vite handle its own upgrade
       }
 
-      // Verify path is /ws
-      const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
-      if (pathname !== '/ws') {
-        console.log('[WebSocket] Invalid path:', pathname);
+      const url = new URL(request.url, `http://${request.headers.host}`);
+      if (url.pathname !== '/ws/chat') {
         socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      // Parse cookies and extract session ID
+      // Authorization check
       if (!request.headers.cookie) {
-        console.log('[WebSocket] No cookies present in request');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -62,62 +48,41 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
       const sessionId = cookies['connect.sid'];
 
       if (!sessionId) {
-        console.log('[WebSocket] No session ID found in cookies');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      console.log('[WebSocket] Found session ID:', sessionId);
-
-      // Extract the raw session ID
       const rawSessionId = sessionId.split('.')[0].replace('s:', '');
-      console.log('[WebSocket] Extracted raw session ID:', rawSessionId);
 
       try {
-        // Get session from store
         const session = await new Promise<Session | null>((resolve, reject) => {
           sessionMiddleware.store.get(rawSessionId, (err: any, session: Session | null) => {
-            if (err) {
-              console.error('[WebSocket] Session retrieval error:', err);
-              reject(err);
-            } else {
-              console.log('[WebSocket] Retrieved session:', {
-                hasSession: !!session,
-                hasPassport: !!session?.passport,
-                hasUser: !!session?.passport?.user,
-                timestamp: new Date().toISOString()
-              });
-              resolve(session);
-            }
+            if (err) reject(err);
+            else resolve(session);
           });
         });
 
         if (!session?.passport?.user) {
-          console.log('[WebSocket] No user ID in session');
           socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
           socket.destroy();
           return;
         }
 
         const userId = session.passport.user;
-        console.log('[WebSocket] Authenticated user:', userId);
 
         // Close existing connection if any
         const existingConnection = connectedClients.get(userId);
-        if (existingConnection) {
-          if (existingConnection.readyState === WebSocket.OPEN) {
-            console.log('[WebSocket] Closing existing connection for user:', userId);
-            existingConnection.close(1000, 'New connection received');
-          }
+        if (existingConnection?.readyState === WebSocket.OPEN) {
+          existingConnection.close(1000, 'New connection received');
           connectedClients.delete(userId);
         }
 
         // Handle the upgrade
         wss.handleUpgrade(request, socket, head, (ws) => {
-          console.log('[WebSocket] Connection upgraded successfully for user:', userId);
+          console.log('[WebSocket] Connection upgraded for user:', userId);
 
-          // Set a ping interval to keep the connection alive
+          // Ping interval for keep-alive
           const pingInterval = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.ping();
@@ -126,19 +91,26 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
             }
           }, 30000);
 
-          // Handle pong responses
           ws.on('pong', () => {
-            console.log('[WebSocket] Received pong from user:', userId);
+            // Keep-alive response received
           });
 
-          // Send initial connection success message
+          ws.on('close', () => {
+            clearInterval(pingInterval);
+            if (connectedClients.get(userId) === ws) {
+              connectedClients.delete(userId);
+            }
+          });
+
+          // Send connection confirmation
           ws.send(JSON.stringify({
             type: 'connected',
             message: 'Connected to chat server',
-            userId: userId,
+            userId,
             timestamp: new Date().toISOString()
           }));
 
+          // Store the connection
           connectedClients.set(userId, ws);
           wss.emit('connection', ws, userId);
         });
@@ -156,19 +128,11 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
     }
   });
 
-  // Handle connections
+  // Handle messages
   wss.on('connection', (ws: WebSocket, userId: number) => {
-    console.log('[WebSocket] New connection established for user:', userId);
-
-    // Handle messages
     ws.on('message', async (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString());
-        console.log('[WebSocket] Received message:', {
-          userId,
-          messageType: message.type,
-          timestamp: new Date().toISOString()
-        });
 
         if (!message.type || message.type !== 'group_message') {
           throw new Error('Invalid message type');
@@ -179,7 +143,7 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
           throw new Error('Invalid message format');
         }
 
-        // Save message to database
+        // Save and broadcast message
         const [savedMessage] = await db.insert(groupMessages)
           .values({
             groupId,
@@ -190,9 +154,7 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
           })
           .returning();
 
-        console.log('[WebSocket] Saved message:', savedMessage);
-
-        // Get group members for broadcasting
+        // Get group members
         const members = await db.query.groupMembers.findMany({
           where: eq(groupMembers.groupId, groupId),
           with: {
@@ -209,12 +171,6 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
           }
         };
 
-        console.log('[WebSocket] Broadcasting message to members:', {
-          messageId: savedMessage.id,
-          groupId,
-          recipientCount: members.length
-        });
-
         members.forEach(member => {
           const client = connectedClients.get(member.userId);
           if (client?.readyState === WebSocket.OPEN) {
@@ -227,37 +183,18 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
             type: 'error',
-            message: error instanceof Error ? error.message : 'Failed to process message',
-            timestamp: new Date().toISOString()
+            message: error instanceof Error ? error.message : 'Failed to process message'
           }));
         }
       }
     });
 
-    // Handle connection close
-    ws.on('close', (code: number, reason: string) => {
-      console.log('[WebSocket] Connection closed for user:', {
-        userId,
-        code,
-        reason: reason.toString(),
-        timestamp: new Date().toISOString()
-      });
-      if (connectedClients.get(userId) === ws) {
-        connectedClients.delete(userId);
-      }
-    });
-
-    // Handle errors
     ws.on('error', (error: Error) => {
-      console.error('[WebSocket] Connection error for user:', {
+      console.error('[WebSocket] Connection error:', {
         userId,
         error: error.message,
-        stack: error.stack,
-        timestamp: new Date().toISOString()
+        stack: error.stack
       });
-      if (connectedClients.get(userId) === ws) {
-        connectedClients.delete(userId);
-      }
     });
   });
 

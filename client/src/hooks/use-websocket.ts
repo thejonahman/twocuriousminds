@@ -29,13 +29,12 @@ export function useWebSocket() {
       return;
     }
 
-    // Clear any existing reconnection timeout
+    // Clear existing reconnection timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
     }
 
     setState(prev => ({ ...prev, connecting: true }));
-    console.log('[WebSocket] Attempting to connect...');
 
     try {
       // Close existing connection if any
@@ -44,10 +43,7 @@ export function useWebSocket() {
         ws.current = null;
       }
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-      console.log('[WebSocket] Connecting to:', wsUrl);
-
+      const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/chat`;
       const socket = new WebSocket(wsUrl);
       ws.current = socket;
 
@@ -61,27 +57,30 @@ export function useWebSocket() {
       };
 
       socket.onclose = (event) => {
-        console.log('[WebSocket] Connection closed:', event.code, event.reason);
+        console.log('[WebSocket] Connection closed:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean
+        });
+
         setState({
           connected: false,
           connecting: false
         });
 
-        // Only attempt to reconnect if not a clean closure
-        if (event.code !== 1000 && event.code !== 1001) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        // Only attempt to reconnect if not a clean closure and we have a user
+        if (event.code !== 1000 && event.code !== 1001 && user) {
+          const baseDelay = 1000;
+          const maxDelay = 30000;
+          const delay = Math.min(baseDelay * Math.pow(1.5, reconnectAttemptsRef.current), maxDelay);
           reconnectAttemptsRef.current++;
-          console.log(`[WebSocket] Attempting to reconnect in ${delay}ms...`);
+
           reconnectTimeoutRef.current = setTimeout(connect, delay);
         }
       };
 
       socket.onerror = (error) => {
         console.error('[WebSocket] Connection error:', error);
-        setState({
-          connected: false,
-          connecting: false
-        });
 
         if (reconnectAttemptsRef.current === 0) {
           toast({
@@ -95,12 +94,12 @@ export function useWebSocket() {
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('[WebSocket] Message received:', data);
           messageHandlers.current.forEach(handler => handler(data));
         } catch (error) {
           console.error('[WebSocket] Message parsing error:', error);
         }
       };
+
     } catch (error) {
       console.error('[WebSocket] Setup error:', error);
       setState({
@@ -116,7 +115,7 @@ export function useWebSocket() {
     }
   }, [user, state.connecting, toast]);
 
-  // Add visibility change handler to reconnect when tab becomes visible
+  // Reconnect when tab becomes visible
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && user) {
@@ -132,17 +131,10 @@ export function useWebSocket() {
 
   const sendMessage = useCallback((message: WebSocketMessage): boolean => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
-      console.log('[WebSocket] Cannot send message - not connected');
-      toast({
-        title: "Error",
-        description: "Not connected to chat server",
-        variant: "destructive",
-      });
       return false;
     }
 
     try {
-      console.log('[WebSocket] Sending message:', message);
       ws.current.send(JSON.stringify(message));
       return true;
     } catch (error) {
@@ -163,6 +155,7 @@ export function useWebSocket() {
     };
   }, []);
 
+  // Connect when user is available
   useEffect(() => {
     if (user) {
       connect();

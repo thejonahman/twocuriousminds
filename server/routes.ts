@@ -68,9 +68,19 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
   // Mount group messages router
   apiRouter.use(groupMessagesRouter);
 
-  // Wrap async handlers
+  // Wrap async handlers with enhanced error logging
   const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
-    return Promise.resolve(fn(req, res, next)).catch(next);
+    return Promise.resolve(fn(req, res, next))
+      .catch((error: any) => {
+        console.error('[Route Error]', {
+          path: req.path,
+          method: req.method,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          timestamp: new Date().toISOString()
+        });
+        next(error);
+      });
   };
 
   // Register all other routes on the apiRouter
@@ -531,6 +541,7 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     console.log('Successfully joined group:', group.id);
     res.json(group);
   }));
+
 
 
   apiRouter.post("/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
