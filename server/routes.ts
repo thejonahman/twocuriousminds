@@ -96,9 +96,9 @@ export function registerRoutes(app: Express): Server {
 
     if (!req.file) {
       console.error('[Upload] No file uploaded');
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'No file uploaded',
-        success: false 
+        success: false
       });
     }
 
@@ -120,7 +120,7 @@ export function registerRoutes(app: Express): Server {
         throw new Error('File was not saved properly');
       }
 
-      res.json({ 
+      res.json({
         url: fileUrl,
         success: true,
         filename: filename,
@@ -130,7 +130,7 @@ export function registerRoutes(app: Express): Server {
       });
     } catch (error) {
       console.error('[Upload] Error processing uploaded file:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Error processing uploaded file',
         success: false,
         details: error instanceof Error ? error.message : 'Unknown error'
@@ -287,8 +287,8 @@ export function registerRoutes(app: Express): Server {
       where: and(
         eq(discussionGroups.videoId, videoId),
         sql`exists (
-          select 1 from ${groupMembers} 
-          where ${groupMembers.groupId} = ${discussionGroups.id} 
+          select 1 from ${groupMembers}
+          where ${groupMembers.groupId} = ${discussionGroups.id}
           and ${groupMembers.userId} = ${req.user!.id}
         )`
       ),
@@ -375,10 +375,10 @@ export function registerRoutes(app: Express): Server {
     res.status(201).json(videoWithDetails);
   }));
 
-  // Update video endpoint
+  // Update video endpoint - ensure thumbnailUrl is properly handled
   app.patch("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
-    const { title, url, description, categoryId, subcategoryId, platform } = req.body;
+    const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
 
     if (isNaN(videoId)) {
       return res.status(400).json({ message: "Invalid video ID" });
@@ -393,8 +393,8 @@ export function registerRoutes(app: Express): Server {
       return res.status(404).json({ message: "Video not found" });
     }
 
-    // Update the video
-    await db.update(videos)
+    // Update the video with thumbnail information
+    const [updatedVideo] = await db.update(videos)
       .set({
         title,
         url,
@@ -402,12 +402,15 @@ export function registerRoutes(app: Express): Server {
         categoryId,
         subcategoryId,
         platform,
+        thumbnailUrl,
+        customThumbnail: customThumbnail || false,
         updatedAt: new Date()
       })
-      .where(eq(videos.id, videoId));
+      .where(eq(videos.id, videoId))
+      .returning();
 
-    // Fetch and return updated video
-    const updatedVideo = await db.query.videos.findFirst({
+    // Fetch and return updated video with related data
+    const videoWithDetails = await db.query.videos.findFirst({
       where: eq(videos.id, videoId),
       with: {
         category: true,
@@ -415,7 +418,7 @@ export function registerRoutes(app: Express): Server {
       }
     });
 
-    res.json(updatedVideo);
+    res.json(videoWithDetails);
   }));
 
   // Add REST endpoint for group invites

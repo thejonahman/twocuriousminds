@@ -15,7 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Video } from "@/lib/types";
 import { ErrorBoundary } from "./error-boundary";
 
-// Platform icon component
+// Platform icon component with increased size for better visibility
 const PlatformIcon = memo(({ platform }: { platform: string }) => {
   const size = "h-12 w-12"; // Increased size for better visibility
   switch (platform.toLowerCase()) {

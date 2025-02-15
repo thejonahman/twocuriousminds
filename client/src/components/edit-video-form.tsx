@@ -10,9 +10,8 @@ import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Video, VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory, getPlatformColor } from "@/types/video";
-import { Image as ImageIcon, X, Upload } from 'lucide-react';
-import { Label } from "@/components/ui/label";
+import { Video, VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory } from "@/types/video";
+import { ThumbnailUpload } from "./thumbnail-upload";
 
 interface EditVideoFormProps {
   video: Video;
@@ -40,14 +39,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       categoryId: String(video.categoryId),
       subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
       platform: video.platform as "youtube" | "tiktok" | "instagram",
+      thumbnailUrl: video.thumbnailUrl || null,
     }
   });
-
-  // Log form errors for debugging
-  const formErrors = form.formState.errors;
-  if (Object.keys(formErrors).length > 0) {
-    console.log('Form validation errors:', formErrors);
-  }
 
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -66,9 +60,11 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     mutationFn: async (data: VideoFormData) => {
       try {
         console.log('Making PATCH request to /api/videos', { videoId: video.id, data });
-        const thumbnailUrl = data.thumbnailFile 
+
+        // Handle thumbnail upload if provided
+        let thumbnailUrl = data.thumbnailFile 
           ? await uploadThumbnail(data.thumbnailFile)
-          : getVideoThumbnail(data.url, data.platform);
+          : data.thumbnailUrl || getVideoThumbnail(data.url, data.platform);
 
         console.log('Generated/Uploaded thumbnail URL:', thumbnailUrl);
 
@@ -77,7 +73,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           categoryId: parseInt(data.categoryId),
           subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
           thumbnailUrl,
-          customThumbnail: !!data.thumbnailFile
+          customThumbnail: !!data.thumbnailFile || video.customThumbnail
         };
 
         // Remove the file from the payload as it's already uploaded
@@ -131,12 +127,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     updateVideoMutation.mutate(data);
   };
 
-  // Watch URL and platform changes to preview the thumbnail
-  const url = form.watch("url");
-  const platform = form.watch("platform");
-  const thumbnailUrl = url && platform ? getVideoThumbnail(url, platform) : null;
-
-  // Show loading state while categories are being fetched
   if (isCategoriesLoading) {
     return (
       <div className="space-y-4">
@@ -164,106 +154,26 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
-        <FormItem>
-          <FormLabel>Thumbnail</FormLabel>
-          <div className="flex flex-col gap-4">
-            <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
-              {thumbnailUrl ? (
-                <>
-                  <img
-                    src={thumbnailUrl}
-                    alt="Video thumbnail"
-                    className="h-full w-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => {
-                        const fileInput = document.createElement('input');
-                        fileInput.type = 'file';
-                        fileInput.accept = 'image/jpeg,image/png,image/webp';
-                        fileInput.onchange = (e) => {
-                          const file = (e.target as HTMLInputElement).files?.[0];
-                          if (file) {
-                            form.setValue('thumbnailFile', file);
-                          }
-                        };
-                        fileInput.click();
-                      }}
-                      className="absolute top-2 right-2"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Change
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div 
-                  className="flex aspect-video w-full items-center justify-center rounded-lg border cursor-pointer hover:bg-muted/80 transition-colors"
-                  onClick={() => {
-                    const fileInput = document.createElement('input');
-                    fileInput.type = 'file';
-                    fileInput.accept = 'image/jpeg,image/png,image/webp';
-                    fileInput.onchange = (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) {
-                        form.setValue('thumbnailFile', file);
-                      }
-                    };
-                    fileInput.click();
+        {/* Thumbnail Upload field */}
+        <FormField
+          control={form.control}
+          name="thumbnailFile"
+          render={({ field: { onChange, value, ...field } }) => (
+            <FormItem>
+              <FormLabel>Thumbnail</FormLabel>
+              <FormControl>
+                <ThumbnailUpload
+                  onUploadComplete={(url: string) => {
+                    form.setValue("thumbnailUrl", url, { shouldValidate: true });
+                    form.setValue("customThumbnail", true, { shouldValidate: true });
                   }}
-                  style={{ 
-                    backgroundColor: getPlatformColor(platform)
-                  }}
-                >
-                  <div className="flex flex-col items-center gap-2">
-                    <ImageIcon className="h-8 w-8 text-white" />
-                    <span className="text-sm text-white">
-                      Click to upload thumbnail
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-            <FormField
-              control={form.control}
-              name="thumbnailFile"
-              render={({ field: { value, onChange, ...field } }) => (
-                <>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          onChange(file);
-                        }
-                      }}
-                      {...field}
-                    />
-                    {value && (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <span>{(value as File).name}</span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onChange(null)}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <FormMessage />
-                </>
-              )}
-            />
-          </div>
-        </FormItem>
+                  currentThumbnail={form.getValues("thumbnailUrl")}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
 
         <FormField
           control={form.control}
