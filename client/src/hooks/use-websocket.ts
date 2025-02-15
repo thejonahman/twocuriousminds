@@ -33,13 +33,6 @@ export function useWebSocket(): UseWebSocketReturn {
     connecting: false
   });
 
-  const getNextReconnectDelay = useCallback(() => {
-    const baseDelay = 2000; // Start with a 2-second delay
-    const maxDelay = 30000; // Maximum delay of 30 seconds
-    const factor = 1.5; // Exponential backoff factor
-    return Math.min(baseDelay * Math.pow(factor, reconnectAttemptsRef.current), maxDelay);
-  }, []);
-
   const cleanupConnection = useCallback(() => {
     if (ws.current) {
       try {
@@ -64,10 +57,12 @@ export function useWebSocket(): UseWebSocketReturn {
     setState(prev => ({ ...prev, connecting: true }));
 
     try {
-      // Get the correct protocol and URL
+      // Get the correct protocol and port
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
-      console.log('[WebSocket] Connecting to:', wsUrl);
+      const port = window.location.port ? `:${window.location.port}` : '';
+      const wsUrl = `${protocol}//${window.location.hostname}${port}/ws`;
+
+      console.log('[WebSocket] Attempting connection to:', wsUrl);
 
       const socket = new WebSocket(wsUrl);
       ws.current = socket;
@@ -96,12 +91,12 @@ export function useWebSocket(): UseWebSocketReturn {
           connecting: false
         });
 
-        // Only reconnect if the closure wasn't clean and we're still mounted
+        // Only reconnect if closure wasn't clean and we're still mounted
         if (mountedRef.current && user && event.code !== 1000 && event.code !== 1001) {
-          const delay = getNextReconnectDelay();
+          const delay = 2000; // Fixed 2-second delay for simplicity
           console.log('[WebSocket] Scheduling reconnect:', {
             delay,
-            attempts: reconnectAttemptsRef.current + 1
+            nextAttempt: reconnectAttemptsRef.current + 1
           });
 
           reconnectTimeoutRef.current = setTimeout(() => {
@@ -126,14 +121,7 @@ export function useWebSocket(): UseWebSocketReturn {
 
       socket.onerror = (error) => {
         if (!mountedRef.current) return;
-        console.error('[WebSocket] Error:', error);
-        if (reconnectAttemptsRef.current === 0) {
-          toast({
-            title: "Connection Error",
-            description: "Failed to connect to chat server. Retrying...",
-            variant: "destructive",
-          });
-        }
+        console.error('[WebSocket] Connection error:', error);
       };
 
     } catch (error) {
@@ -144,7 +132,7 @@ export function useWebSocket(): UseWebSocketReturn {
         connecting: false
       });
     }
-  }, [user, state.connecting, cleanupConnection, toast, getNextReconnectDelay]);
+  }, [user, state.connecting, cleanupConnection]);
 
   const sendMessage = useCallback((message: WebSocketMessage): boolean => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
