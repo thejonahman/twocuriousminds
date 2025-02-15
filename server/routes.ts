@@ -198,6 +198,144 @@ export function registerRoutes(app: Express): Server {
     res.json(subCategories);
   }));
 
+  // Add new category
+  app.post("/api/categories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.user?.is_admin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const { name, description, displayOrder } = req.body;
+
+    if (!name) {
+      return res.status(400).json({ message: "Category name is required" });
+    }
+
+    const [newCategory] = await db.insert(categories)
+      .values({
+        name,
+        description: description || null,
+        displayOrder: displayOrder || 0,
+        isDeleted: false
+      })
+      .returning();
+
+    res.json(newCategory);
+  }));
+
+  // Add new subcategory
+  app.post("/api/categories/:categoryId/subcategories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.user?.is_admin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const categoryId = parseInt(req.params.categoryId);
+    const { name, displayOrder } = req.body;
+
+    if (isNaN(categoryId)) {
+      return res.status(400).json({ message: "Invalid category ID" });
+    }
+
+    if (!name) {
+      return res.status(400).json({ message: "Subcategory name is required" });
+    }
+
+    // Verify category exists
+    const category = await db.query.categories.findFirst({
+      where: and(
+        eq(categories.id, categoryId),
+        eq(categories.isDeleted, false)
+      )
+    });
+
+    if (!category) {
+      return res.status(404).json({ message: "Category not found or is deleted" });
+    }
+
+    const [newSubcategory] = await db.insert(subcategories)
+      .values({
+        name,
+        categoryId,
+        displayOrder: displayOrder || 0,
+        isDeleted: false
+      })
+      .returning();
+
+    res.status(201).json(newSubcategory);
+  }));
+
+  // Soft delete category
+  app.delete("/api/categories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.user?.is_admin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const categoryId = parseInt(req.params.id);
+
+    if (isNaN(categoryId)) {
+      return res.status(400).json({ message: "Invalid category ID" });
+    }
+
+    // Get category to verify it exists and isn't already deleted
+    const category = await db.query.categories.findFirst({
+      where: eq(categories.id, categoryId)
+    });
+
+    if (!category) {
+      return res.status(404).json({ message: "Category not found" });
+    }
+
+    if (category.isDeleted) {
+      return res.status(400).json({ message: "Category is already deleted" });
+    }
+
+    // Soft delete the category and all its subcategories
+    await db.transaction(async (tx) => {
+      await tx.update(categories)
+        .set({ isDeleted: true })
+        .where(eq(categories.id, categoryId));
+
+      await tx.update(subcategories)
+        .set({ isDeleted: true })
+        .where(eq(subcategories.categoryId, categoryId));
+    });
+
+    res.json({ message: "Category and its subcategories deleted successfully" });
+  }));
+
+  // Soft delete subcategory
+  app.delete("/api/subcategories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    if (!req.user?.is_admin) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+
+    const subcategoryId = parseInt(req.params.id);
+
+    if (isNaN(subcategoryId)) {
+      return res.status(400).json({ message: "Invalid subcategory ID" });
+    }
+
+    // Get subcategory to verify it exists and isn't already deleted
+    const subcategory = await db.query.subcategories.findFirst({
+      where: eq(subcategories.id, subcategoryId)
+    });
+
+    if (!subcategory) {
+      return res.status(404).json({ message: "Subcategory not found" });
+    }
+
+    if (subcategory.isDeleted) {
+      return res.status(400).json({ message: "Subcategory is already deleted" });
+    }
+
+    // Soft delete the subcategory
+    await db.update(subcategories)
+      .set({ isDeleted: true })
+      .where(eq(subcategories.id, subcategoryId));
+
+    res.json({ message: "Subcategory deleted successfully" });
+  }));
+
+
   // Update the video search endpoint to filter out deleted videos
   app.get("/api/videos", asyncHandler(async (req: Request, res: Response) => {
     const allVideos = await db.query.videos.findMany({
@@ -857,7 +995,7 @@ export function registerRoutes(app: Express): Server {
     try {
       const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
       if (!domain) {
-        return res.status(400).json({ message: "No domain found in RESEND_FROM_EMAIL" });
+        return res.status(400).json({ message: "No domain foundin RESEND_FROM_EMAIL" });
       }
 
       // Get domain status first
