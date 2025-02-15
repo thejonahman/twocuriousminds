@@ -59,6 +59,8 @@ export const videoSchema = z.object({
       },
       "Image must be less than 5MB"
     ),
+  thumbnailUrl: z.string().nullable().optional(),
+  customThumbnail: z.boolean().optional()
 });
 
 export type VideoFormData = z.infer<typeof videoSchema>;

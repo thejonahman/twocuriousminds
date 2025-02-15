@@ -12,8 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { Loader2 } from 'lucide-react';
 import { VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory } from "@/types/video";
-import { Label } from "@/components/ui/label";
-import { Image as ImageIcon, X, Upload } from 'lucide-react';
+import { ThumbnailUpload } from "./thumbnail-upload";
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
@@ -82,7 +81,7 @@ export function AdminVideoForm() {
         console.log('Starting video submission:', data);
 
         // Handle thumbnail upload if provided
-        const thumbnailUrl = data.thumbnailFile 
+        const thumbnailUrl = data.thumbnailFile
           ? await uploadThumbnail(data.thumbnailFile)
           : getVideoThumbnail(data.url, data.platform);
 
@@ -97,22 +96,19 @@ export function AdminVideoForm() {
         };
 
         // Remove the file from the payload as it's already uploaded
-        delete payload.thumbnailFile;
+        delete (payload as any).thumbnailFile;
 
         console.log('Sending POST request to /api/videos with payload:', payload);
 
-        const response = await apiRequest("POST", "/api/videos", payload);
-        console.log('API response status:', response.status);
+        const response = await apiRequest("POST", '/api/videos', payload);
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => null);
-          console.error('API error response:', errorData);
-          throw new Error(errorData?.message || errorData?.error || "Failed to add video");
+          const errorData = await response.json();
+          throw new Error(errorData.message || "Failed to add video");
         }
 
-        const responseData = await response.json();
-        console.log('API success response:', responseData);
-        return responseData;
+        console.log('API success response:', response);
+        return response.json();
       } catch (error) {
         console.error('Video submission error:', error);
         throw error;
@@ -218,71 +214,19 @@ export function AdminVideoForm() {
             <FormField
               control={form.control}
               name="thumbnailFile"
-              render={({ field: { value, onChange, ...field } }) => (
+              render={({ field: { onChange, value, ...field } }) => (
                 <FormItem>
-                  <FormLabel>Custom Thumbnail (Optional)</FormLabel>
-                  <div className="flex flex-col gap-4">
-                    <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
-                      {value ? (
-                        <>
-                          <img
-                            src={URL.createObjectURL(value as File)}
-                            alt="Custom thumbnail preview"
-                            className="h-full w-full object-cover"
-                          />
-                          <div className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={() => onChange(null)}
-                              className="absolute top-2 right-2"
-                            >
-                              <X className="h-4 w-4 mr-2" />
-                              Remove
-                            </Button>
-                          </div>
-                        </>
-                      ) : (
-                        <div 
-                          className="flex aspect-video w-full items-center justify-center rounded-lg border cursor-pointer hover:bg-muted/80 transition-colors"
-                          onClick={() => {
-                            const fileInput = document.createElement('input');
-                            fileInput.type = 'file';
-                            fileInput.accept = 'image/jpeg,image/png,image/webp';
-                            fileInput.onchange = (e) => {
-                              const file = (e.target as HTMLInputElement).files?.[0];
-                              if (file) {
-                                onChange(file);
-                              }
-                            };
-                            fileInput.click();
-                          }}
-                        >
-                          <div className="flex flex-col items-center gap-2">
-                            <ImageIcon className="h-8 w-8" />
-                            <span className="text-sm text-muted-foreground">
-                              Click to upload thumbnail
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <FormControl>
-                      <Input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            onChange(file);
-                          }
-                        }}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </div>
+                  <FormLabel>Thumbnail</FormLabel>
+                  <FormControl>
+                    <ThumbnailUpload
+                      onUploadComplete={(url: string) => {
+                        form.setValue("thumbnailUrl", url, { shouldValidate: true });
+                        form.setValue("customThumbnail", true, { shouldValidate: true });
+                      }}
+                      currentThumbnail={form.getValues("thumbnailUrl")}
+                    />
+                  </FormControl>
+                  <FormMessage />
                 </FormItem>
               )}
             />

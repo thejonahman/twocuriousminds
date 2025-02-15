@@ -10,6 +10,7 @@ import { videos, messages, users, discussionGroups, groupMessages, groupMembers,
 import { setupAuth, requireAuth } from "./auth";
 import groupMessagesRouter from './routes/group-messages';
 import { sendUnreadMessagesNotification, resend } from './lib/email';
+import { type FileFilterCallback } from "multer";
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -34,10 +35,10 @@ export function registerRoutes(app: Express): Server {
   }
 
   const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
+    destination: function (_req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
       cb(null, uploadDir);
     },
-    filename: function (req, file, cb) {
+    filename: function (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
       cb(null, uniqueSuffix + path.extname(file.originalname));
     }
@@ -48,7 +49,7 @@ export function registerRoutes(app: Express): Server {
     limits: {
       fileSize: 5 * 1024 * 1024 // 5MB
     },
-    fileFilter: function (req, file, cb) {
+    fileFilter: function (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) {
       const filetypes = /jpeg|jpg|png|webp/;
       const mimetype = filetypes.test(file.mimetype);
       const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
@@ -65,13 +66,36 @@ export function registerRoutes(app: Express): Server {
 
   // Add thumbnail upload endpoint
   app.post('/api/upload/thumbnail', upload.single('thumbnail'), (req: Request, res: Response) => {
+    console.log('[Upload] Processing thumbnail upload request');
+
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      console.error('[Upload] No file uploaded');
+      return res.status(400).json({ 
+        error: 'No file uploaded',
+        success: false 
+      });
     }
 
-    // Return the URL of the uploaded file
-    const fileUrl = `/uploads/${req.file.filename}`;
-    res.json({ url: fileUrl });
+    try {
+      // Return the URL of the uploaded file
+      const fileUrl = `/uploads/${req.file.filename}`;
+      console.log('[Upload] Successfully uploaded thumbnail:', fileUrl);
+
+      res.json({ 
+        url: fileUrl,
+        success: true,
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+    } catch (error) {
+      console.error('[Upload] Error processing uploaded file:', error);
+      res.status(500).json({ 
+        error: 'Error processing uploaded file',
+        success: false
+      });
+    }
   });
 
   // Global middleware to ensure JSON responses for all /api routes
@@ -512,7 +536,6 @@ export function registerRoutes(app: Express): Server {
       throw error; // Let the global error handler handle it
     }
   }));
-
 
 
   // Add direct group access endpoint
