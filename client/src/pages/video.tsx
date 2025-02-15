@@ -5,7 +5,7 @@ import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DiscussionGroup } from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
-import { Share2, Copy, Check, Mail } from "lucide-react";
+import { Share2, Copy, Check, Mail, AlertTriangle } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,13 +16,19 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { z } from "zod";
 import { useUser } from "@/hooks/use-user";
+import { ErrorBoundary } from "@/components/error-boundary";
 
-
-// Define type for last active group
+// Update type for last active group
 const lastActiveGroupSchema = z.object({
   id: z.number(),
   name: z.string(),
+  inviteCode: z.string(),
   videoId: z.number().nullable(),
+  members: z.array(z.object({
+    id: z.number(),
+    username: z.string(),
+    userId: z.number(),
+  })),
 }).nullable();
 
 type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
@@ -56,10 +62,10 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Update lastActiveGroup query with proper type validation
+  // Update the query with proper error handling
   const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${id}/last-active-group`],
-    enabled: !!id && !groupId, // Only run if no groupId provided
+    enabled: !!id && !groupId,
     select: (data) => {
       try {
         return lastActiveGroupSchema.parse(data);
@@ -67,7 +73,8 @@ export default function Video() {
         console.error('Invalid last active group data:', error);
         return null;
       }
-    }
+    },
+    retry: 3,
   });
 
   // Update the useEffect for group restoration
@@ -99,7 +106,6 @@ export default function Video() {
     setRestorationAttempted(true);
   }, [user, id, groupId, lastActiveGroup, setLocation, restorationAttempted]);
 
-
   // Scroll to top whenever the video ID changes
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -114,7 +120,6 @@ export default function Video() {
   };
 
   const handleShare = async (type: string) => {
-    // Always include the groupId in the share URL if we're in a group discussion
     const baseUrl = window.location.origin;
     const shareUrl = groupId
       ? `${baseUrl}/video/${id}/group/${groupId}`
@@ -249,10 +254,31 @@ export default function Video() {
           </div>
 
           <div className="rounded-xl border bg-card shadow-sm">
-            <DiscussionGroup
-              videoId={video?.id}
-              initialGroupId={groupId ? parseInt(groupId) : undefined}
-            />
+            <ErrorBoundary
+              fallback={
+                <div className="p-6 text-center space-y-4">
+                  <div className="flex items-center justify-center gap-2 text-destructive">
+                    <AlertTriangle className="h-5 w-5" />
+                    <h3 className="font-semibold">Failed to load discussion group</h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Please try refreshing the page or joining the group again.
+                  </p>
+                  <Button 
+                    variant="outline"
+                    onClick={() => window.location.reload()}
+                    className="w-full"
+                  >
+                    Refresh Page
+                  </Button>
+                </div>
+              }
+            >
+              <DiscussionGroup
+                videoId={video?.id}
+                initialGroupId={groupId ? parseInt(groupId) : undefined}
+              />
+            </ErrorBoundary>
           </div>
         </div>
 

@@ -34,6 +34,20 @@ import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
 import { env } from "@/lib/env";
 
+interface GroupMember {
+  id: number;
+  username: string;
+  userId: number;
+}
+
+interface Group {
+  id: number;
+  name: string;
+  inviteCode: string;
+  members: GroupMember[];
+  description?: string;
+}
+
 interface Props {
   videoId: number;
   initialGroupId?: number;
@@ -72,7 +86,14 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
-    select: (data) => validateApiResponse(groupSchema, data),
+    select: (data) => {
+      try {
+        return validateApiResponse(groupSchema, data);
+      } catch (error) {
+        console.error('Group validation error:', error);
+        return null;
+      }
+    },
     retry: 3,
     staleTime: 30000,
   });
@@ -93,7 +114,14 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[]>({
     queryKey: [`/api/groups/${currentGroup?.id}/messages`],
     enabled: !!currentGroup?.id && !!user,
-    select: (data) => validateApiResponse(z.array(messageSchema), data),
+    select: (data) => {
+      try {
+        return validateApiResponse(z.array(messageSchema), data);
+      } catch (error) {
+        console.error('Message validation error:', error);
+        return [];
+      }
+    },
     staleTime: 1000,
   });
 
@@ -447,7 +475,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
             {currentGroup ? (
               <>
                 <Users className="h-5 w-5" />
-                {currentGroup.groupName || currentGroup.name}
+                {currentGroup.name}
                 {unreadCount > 0 && (
                   <span className="bg-primary text-primary-foreground rounded-full px-2 py-1 text-xs">
                     {unreadCount}
@@ -465,7 +493,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
             <div className="flex items-center gap-2">
               <ShareGroupDialog
                 url={`${window.location.origin}/join-group/${currentGroup.inviteCode}?videoId=${videoId}`}
-                groupName={currentGroup.groupName || currentGroup.name}
+                groupName={currentGroup.name}
                 videoTitle={videoData?.title}
                 memberCount={currentGroup.members?.length ?? 0}
                 messageCount={messages?.length || 0}
@@ -555,7 +583,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       <CardFooter>
         <form onSubmit={handleSubmit} className="flex w-full items-center gap-2">
           <Input
-            value={messageInput}
+            value={messageInput || ''}
             onChange={(e) => setMessageInput(e.target.value)}
             placeholder="Type your message..."
             className="flex-1"

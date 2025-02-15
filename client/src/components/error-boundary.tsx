@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo } from 'react';
 import { toast } from "@/hooks/use-toast";
 import { AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 interface Props {
   children: React.ReactNode;
@@ -32,7 +33,6 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error details with timestamp and component stack
     console.error('ErrorBoundary caught an error:', {
       timestamp: new Date().toISOString(),
       error: error.message,
@@ -46,7 +46,6 @@ export class ErrorBoundary extends Component<Props, State> {
       errorInfo
     });
 
-    // Show toast notification for better user feedback
     toast({
       title: "An error occurred",
       description: "We've logged the error and are working to fix it.",
@@ -70,16 +69,30 @@ export class ErrorBoundary extends Component<Props, State> {
               </pre>
             )}
           </div>
-          <button
+          <Button 
+            variant="destructive"
             onClick={() => window.location.reload()}
-            className="px-4 py-2 text-sm bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors"
+            className="w-full justify-center"
           >
             Reload page
-          </button>
+          </Button>
         </div>
       );
     }
 
     return this.props.children;
   }
+}
+
+export function withErrorBoundary<P extends object>(
+  Component: React.ComponentType<P>,
+  fallback?: React.ReactNode
+) {
+  return function WithErrorBoundary(props: P) {
+    return (
+      <ErrorBoundary fallback={fallback}>
+        <Component {...props} />
+      </ErrorBoundary>
+    );
+  };
 }
