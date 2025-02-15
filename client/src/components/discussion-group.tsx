@@ -43,14 +43,13 @@ interface Props {
   initialGroupId?: number;
 }
 
-interface VideoData {
-  title?: string;
-  description?: string;
-}
+const INITIAL_RECONNECT_DELAY = 2000;
+const MAX_RECONNECT_DELAY = 30000;
+const RECONNECT_BACKOFF_FACTOR = 1.5;
 
 const MESSAGES_PER_PAGE = 50;
 const MESSAGE_UPDATE_DEBOUNCE = 300;
-const RECONNECT_DELAY = 2000;
+
 
 export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   // Hooks
@@ -70,65 +69,175 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [restorationAttempted, setRestorationAttempted] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const [reconnectDelay, setReconnectDelay] = useState(INITIAL_RECONNECT_DELAY);
 
   // Debug logging with memoization
   const logDebug = useCallback((action: string, data: unknown) => {
     console.log(`[DiscussionGroupComponent ${new Date().toISOString()}] ${action}:`, data);
   }, []);
 
+  // Move handleNewMessages definition before connectWebSocket
+  const handleNewMessages = useCallback(async (newMessages: GroupMessage[]) => {
+    if (!currentGroup) return;
+
+    logDebug('New messages received', {
+      count: newMessages.length,
+      groupId: currentGroup.id
+    });
+
+    queryClient.setQueryData<GroupMessage[]>(
+      [`/api/groups/${currentGroup.id}/messages`],
+      old => {
+        const oldMessages = old || [];
+        const newMessageIds = new Set(newMessages.map(m => m.id));
+        return [...oldMessages.filter(m => !newMessageIds.has(m.id)), ...newMessages];
+      }
+    );
+
+    if (document.hidden) {
+      setUnreadCount(prev => prev + newMessages.length);
+    } else {
+      try {
+        await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        setUnreadCount(0);
+      } catch (error) {
+        console.error('Failed to mark messages as read:', error);
+      }
+    }
+  }, [currentGroup, queryClient, logDebug]);
+
+  // Reset reconnection state when connection is successful
+  const resetReconnectionState = useCallback(() => {
+    setReconnectAttempts(0);
+    setReconnectDelay(INITIAL_RECONNECT_DELAY);
+  }, []);
+
+  // Calculate next reconnection delay with exponential backoff
+  const getNextReconnectDelay = useCallback(() => {
+    const delay = Math.min(
+      INITIAL_RECONNECT_DELAY * Math.pow(RECONNECT_BACKOFF_FACTOR, reconnectAttempts),
+      MAX_RECONNECT_DELAY
+    );
+    return Math.floor(delay);
+  }, [reconnectAttempts]);
+
   // WebSocket connection management
   const connectWebSocket = useCallback(() => {
-    if (!user || !currentGroup) return;
+    if (!user || !currentGroup) {
+      console.log('[WebSocket] Not connecting - missing user or group:', { 
+        hasUser: !!user, 
+        hasGroup: !!currentGroup,
+        userId: user?.id,
+        groupId: currentGroup?.id 
+      });
+      return;
+    }
 
     try {
       setIsConnecting(true);
+      console.log('[WebSocket] Starting connection attempt...', {
+        userId: user.id,
+        groupId: currentGroup.id,
+        reconnectAttempts,
+        reconnectDelay,
+        timestamp: new Date().toISOString()
+      });
+
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        console.log('[WebSocket] Closing existing connection');
+        socketRef.current.close();
+      }
+
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws`;
+      console.log('[WebSocket] Connecting to:', wsUrl);
 
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
       ws.onopen = () => {
-        logDebug('WebSocket connected', { groupId: currentGroup.id });
+        console.log('[WebSocket] Connected successfully', {
+          userId: user.id,
+          groupId: currentGroup.id,
+          readyState: ws.readyState,
+          timestamp: new Date().toISOString()
+        });
         setIsConnecting(false);
+        resetReconnectionState();
       };
 
       ws.onmessage = (event) => {
         try {
+          console.log('[WebSocket] Received message:', event.data);
           const data = validateWSOutput(JSON.parse(event.data));
           if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
             handleNewMessages([data.data]);
+          } else if (data.type === 'connected') {
+            console.log('[WebSocket] Received connection confirmation');
           }
         } catch (error) {
-          console.error('WebSocket message parsing error:', error);
+          console.error('[WebSocket] Message parsing error:', error);
         }
       };
 
-      ws.onclose = () => {
-        logDebug('WebSocket disconnected', { groupId: currentGroup.id });
+      ws.onclose = (event) => {
+        console.log('[WebSocket] Connection closed', {
+          userId: user.id,
+          groupId: currentGroup.id,
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          reconnectAttempts,
+          timestamp: new Date().toISOString()
+        });
         setIsConnecting(true);
 
-        // Clear any existing reconnection timeout
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
         }
 
-        // Attempt to reconnect after delay
+        // Increment reconnection attempts and calculate new delay
+        setReconnectAttempts(prev => prev + 1);
+        const nextDelay = getNextReconnectDelay();
+        setReconnectDelay(nextDelay);
+
         reconnectTimeoutRef.current = setTimeout(() => {
-          connectWebSocket();
-        }, RECONNECT_DELAY);
+          if (currentGroup) {
+            console.log('[WebSocket] Attempting reconnection...', {
+              userId: user.id,
+              groupId: currentGroup.id,
+              attempt: reconnectAttempts + 1,
+              delay: nextDelay,
+              timestamp: new Date().toISOString()
+            });
+            connectWebSocket();
+          }
+        }, nextDelay);
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        ws.close();
+        console.error('[WebSocket] Connection error:', {
+          userId: user.id,
+          groupId: currentGroup.id,
+          error,
+          timestamp: new Date().toISOString()
+        });
       };
 
     } catch (error) {
-      console.error('WebSocket connection error:', error);
+      console.error('[WebSocket] Setup error:', {
+        error,
+        userId: user?.id,
+        groupId: currentGroup?.id,
+        timestamp: new Date().toISOString()
+      });
       setIsConnecting(false);
     }
-  }, [user, currentGroup, logDebug]);
+  }, [user, currentGroup, reconnectAttempts, reconnectDelay, getNextReconnectDelay, resetReconnectionState, handleNewMessages]);
 
   // Cleanup WebSocket on unmount or group change
   useEffect(() => {
@@ -232,40 +341,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       }
     }
   });
-
-  // Memoized message handler
-  const handleNewMessages = useCallback(async (newMessages: GroupMessage[]) => {
-    if (!currentGroup) return;
-
-    logDebug('New messages received', {
-      count: newMessages.length,
-      groupId: currentGroup.id
-    });
-
-    queryClient.setQueryData<GroupMessage[]>(
-      [`/api/groups/${currentGroup.id}/messages`],
-      old => {
-        const oldMessages = old || [];
-        const newMessageIds = new Set(newMessages.map(m => m.id));
-        return [...oldMessages.filter(m => !newMessageIds.has(m.id)), ...newMessages];
-      }
-    );
-
-    if (document.hidden) {
-      setUnreadCount(prev => prev + newMessages.length);
-    } else {
-      try {
-        await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        setUnreadCount(0);
-      } catch (error) {
-        console.error('Failed to mark messages as read:', error);
-      }
-    }
-  }, [currentGroup, queryClient, logDebug]);
-
 
   const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroupType, Error>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],

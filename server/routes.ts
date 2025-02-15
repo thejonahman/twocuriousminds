@@ -996,8 +996,7 @@ export function registerRoutes(app: Express): Server {
         console.log('Fetching test group:', groupId);
         const testGroup = await db.query.discussionGroups.findFirst({
           where: eq(discussionGroups.id, groupId),
-          with: {
-            messages: {
+          with: {            messages: {
               limit: 5,
               orderBy: [desc(groupMessages.createdAt)],
               with: {

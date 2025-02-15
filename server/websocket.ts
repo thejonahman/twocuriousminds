@@ -20,29 +20,53 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
   console.log('[WebSocket] Setting up WebSocket server');
 
   const wss = new WebSocketServer({ 
-    noServer: true
+    noServer: true,
+    path: '/ws'
   });
 
   // Handle upgrade requests
   httpServer.on('upgrade', async (request: any, socket, head) => {
     try {
+      console.log('[WebSocket] Received upgrade request:', {
+        path: request.url,
+        headers: request.headers,
+        timestamp: new Date().toISOString()
+      });
+
       // Ignore vite-hmr websocket connections
       if (request.headers['sec-websocket-protocol'] === 'vite-hmr') {
+        console.log('[WebSocket] Ignoring vite-hmr connection');
         socket.destroy();
         return;
       }
 
       // Verify path is /ws
       const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+      console.log('[WebSocket] Processing upgrade for path:', pathname);
+
       if (pathname !== '/ws') {
         console.log('[WebSocket] Invalid path:', pathname);
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      // Get session ID from cookie
-      const cookies = cookie.parse(request.headers.cookie || '');
+      // Parse cookies and extract session ID
+      if (!request.headers.cookie) {
+        console.log('[WebSocket] No cookies present');
+        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+
+      const cookies = cookie.parse(request.headers.cookie);
       const sessionId = cookies['connect.sid'];
+
+      console.log('[WebSocket] Session details:', {
+        hasCookies: !!request.headers.cookie,
+        hasSessionId: !!sessionId,
+        timestamp: new Date().toISOString()
+      });
 
       if (!sessionId) {
         console.log('[WebSocket] No session ID found');
@@ -51,33 +75,65 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
         return;
       }
 
-      // Get session from store with proper typing
-      const session = await new Promise<Session | null>((resolve, reject) => {
-        sessionMiddleware.store.get(sessionId, (err: any, session: Session | null) => {
-          if (err) {
-            console.error('[WebSocket] Session store error:', err);
-            reject(err);
-          } else {
-            resolve(session);
-          }
-        });
-      });
+      // Extract the raw session ID
+      const rawSessionId = sessionId.split('.')[0].replace('s:', '');
 
-      if (!session?.passport?.user) {
-        console.log('[WebSocket] No user ID in session');
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      try {
+        // Get session from store with proper typing and error handling
+        const session = await new Promise<Session | null>((resolve, reject) => {
+          sessionMiddleware.store.get(rawSessionId, (err: any, session: Session | null) => {
+            if (err) {
+              console.error('[WebSocket] Session store error:', err);
+              reject(err);
+            } else {
+              resolve(session);
+            }
+          });
+        });
+
+        console.log('[WebSocket] Session retrieved:', {
+          hasSession: !!session,
+          hasUser: !!session?.passport?.user,
+          timestamp: new Date().toISOString()
+        });
+
+        if (!session?.passport?.user) {
+          console.log('[WebSocket] No user ID in session');
+          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+
+        const userId = session.passport.user;
+        console.log('[WebSocket] Upgrading connection for user:', userId);
+
+        // Clean up any existing connection for this user
+        const existingConnection = connectedClients.get(userId);
+        if (existingConnection?.readyState === WebSocket.OPEN) {
+          console.log('[WebSocket] Closing existing connection for user:', userId);
+          existingConnection.close();
+        }
+
+        // Handle the upgrade
+        wss.handleUpgrade(request, socket, head, (ws) => {
+          console.log('[WebSocket] Connection upgraded successfully for user:', userId);
+          connectedClients.set(userId, ws);
+          wss.emit('connection', ws, userId);
+        });
+
+      } catch (error) {
+        console.error('[WebSocket] Session validation error:', error);
+        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
         socket.destroy();
         return;
       }
 
-      const userId = session.passport.user;
-      console.log('[WebSocket] Upgrading connection for user:', userId);
-
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, userId);
-      });
     } catch (error) {
-      console.error('[WebSocket] Upgrade error:', error);
+      console.error('[WebSocket] Upgrade error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
       socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
       socket.destroy();
     }
@@ -87,20 +143,13 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
   wss.on('connection', (ws: WebSocket, userId: number) => {
     console.log('[WebSocket] New connection established for user:', userId);
 
-    // Clean up any existing connection for this user
-    const existingConnection = connectedClients.get(userId);
-    if (existingConnection) {
-      console.log('[WebSocket] Closing existing connection for user:', userId);
-      existingConnection.close();
-    }
-
-    connectedClients.set(userId, ws);
-
     // Send connected message
-    ws.send(JSON.stringify({
-      type: 'connected',
-      message: 'Connected to chat server'
-    }));
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'connected',
+        message: 'Connected to chat server'
+      }));
+    }
 
     // Handle messages
     ws.on('message', async (data: Buffer) => {
@@ -142,148 +191,6 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
             }
           });
 
-          // Update group's updatedAt and increment unread count for other members
-          await db.transaction(async (tx) => {
-            // Update group timestamp
-            await tx
-              .update(discussionGroups)
-              .set({ updatedAt: new Date() })
-              .where(eq(discussionGroups.id, groupId));
-
-            // Increment unread count for other members
-            await tx
-              .update(groupMembers)
-              .set({ 
-                unreadCount: sql`${groupMembers.unreadCount} + 1`
-              })
-              .where(
-                and(
-                  eq(groupMembers.groupId, groupId),
-                  sql`${groupMembers.userId} != ${userId}`
-                )
-              );
-          });
-
-          // Get group details for notifications
-          const group = await db.query.discussionGroups.findFirst({
-            where: eq(discussionGroups.id, groupId),
-            with: {
-              video: true,
-              members: {
-                with: {
-                  user: true
-                }
-              }
-            }
-          });
-
-          if (!group) {
-            console.error('Group not found for notifications:', groupId);
-            return;
-          }
-
-          // Calculate engagement metrics for notifications
-          const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
-          const recentMessages = await db.query.groupMessages.findMany({
-            where: and(
-              eq(groupMessages.groupId, groupId),
-              gt(groupMessages.createdAt, last24Hours)
-            ),
-            with: {
-              user: {
-                columns: {
-                  username: true
-                }
-              }
-            }
-          });
-
-          const activeMembers = new Set(recentMessages.map(m => m.userId)).size;
-          const messagesByUser = recentMessages.reduce((acc, msg) => {
-            acc[msg.userId] = (acc[msg.userId] || 0) + 1;
-            return acc;
-          }, {} as Record<number, number>);
-
-          const topContributors = Object.entries(messagesByUser)
-            .map(([userId, count]) => ({
-              username: recentMessages.find(m => m.userId === parseInt(userId))?.user.username || 'Unknown',
-              messageCount: count
-            }))
-            .sort((a, b) => b.messageCount - a.messageCount)
-            .slice(0, 3);
-
-          const groupEngagement = {
-            totalMembers: group.members.length,
-            activeMembers,
-            recentMessages: recentMessages.length,
-            topContributors
-          };
-
-          // Get inactive members for email notifications
-          const inactiveMembers = await db.query.groupMembers.findMany({
-            where: and(
-              eq(groupMembers.groupId, groupId),
-              sql`${groupMembers.userId} != ${userId}`,
-              sql`${groupMembers.lastReadAt} < NOW() - INTERVAL '1 hour'`,
-              eq(groupMembers.emailNotifications, true)
-            ),
-            with: {
-              user: true
-            }
-          });
-
-          // Process email notifications for inactive members
-          for (const member of inactiveMembers) {
-            if (member.user.email) {
-              try {
-                const unreadMessages = await db.query.groupMessages.findMany({
-                  where: and(
-                    eq(groupMessages.groupId, groupId),
-                    gt(groupMessages.createdAt, member.lastReadAt || new Date(0))
-                  ),
-                  with: {
-                    user: {
-                      columns: {
-                        username: true
-                      }
-                    }
-                  },
-                  orderBy: [desc(groupMessages.createdAt)],
-                  limit: 5
-                });
-
-                await sendUnreadMessagesNotification({
-                  userEmail: member.user.email,
-                  userName: member.user.username,
-                  groupName: group.name,
-                  videoTitle: group.video?.title || 'Video Discussion',
-                  unreadCount: member.unreadCount || unreadMessages.length,
-                  unreadMessages,
-                  groupUrl: `${process.env.APP_URL || 'http://localhost:5000'}/video/${group.video?.id}/group/${groupId}`,
-                  groupEngagement,
-                  reminderCount: member.reminderCount || 0
-                });
-
-                // Increment reminder count
-                await db
-                  .update(groupMembers)
-                  .set({ 
-                    reminderCount: sql`COALESCE(${groupMembers.reminderCount}, 0) + 1`
-                  })
-                  .where(and(
-                    eq(groupMembers.groupId, groupId),
-                    eq(groupMembers.userId, member.userId)
-                  ));
-
-              } catch (error) {
-                console.error('[Email Notifications] Failed to send:', error, {
-                  userId: member.userId,
-                  email: member.user.email
-                });
-              }
-            }
-          }
-
           // Broadcast message to all members
           const broadcastMessage = {
             type: 'new_group_message',
@@ -314,12 +221,16 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
 
     ws.on('close', () => {
       console.log('[WebSocket] Connection closed for user:', userId);
-      connectedClients.delete(userId);
+      if (connectedClients.get(userId) === ws) {
+        connectedClients.delete(userId);
+      }
     });
 
     ws.on('error', (error) => {
       console.error('[WebSocket] Connection error for user:', userId, error);
-      connectedClients.delete(userId);
+      if (connectedClients.get(userId) === ws) {
+        connectedClients.delete(userId);
+      }
     });
   });
 
