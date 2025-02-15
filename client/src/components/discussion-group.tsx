@@ -55,7 +55,13 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
 
     queryClient.setQueryData<Message[]>(
       [`/api/groups/${currentGroup.id}/messages`],
-      old => [...(old || []), data.data]
+      old => {
+        const messages = old || [];
+        // Check if message already exists to prevent duplicates
+        const messageExists = messages.some(m => m.id === data.data.id);
+        if (messageExists) return messages;
+        return [...messages, data.data];
+      }
     );
 
     if (document.hidden) {
@@ -77,16 +83,17 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       if (!currentGroup) throw new Error('No active group');
 
       const message = {
-        type: 'new_message',
+        type: 'new_message' as const,
         groupId: currentGroup.id,
-        content,
-        timestamp: new Date().toISOString()
+        content
       };
 
-      // Send via WebSocket first for instant feedback
-      sendWsMessage(message);
+      // Only attempt WebSocket send if connected
+      if (wsState.connected) {
+        sendWsMessage(message);
+      }
 
-      // Then persist to database
+      // Always persist to database
       const response = await fetch(`/api/groups/${currentGroup.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -394,7 +401,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     }
   };
 
-  // Render loading states
+  // Main component render logic for error/loading states
   if (!user) {
     return (
       <Card>
@@ -426,22 +433,9 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     );
   }
 
-  if (wsState.error) { //Check WebSocket state for errors
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Discussion</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center gap-4 p-8">
-            <p className="text-sm text-muted-foreground">
-              Connection error. Retrying...
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  // Only show connection error if we have no messages and there's a persistent error
+  const showConnectionError = wsState.error &&
+    (!messages?.length || Date.now() - wsState.lastConnected > 5000);
 
   return (
     <Card>
@@ -480,6 +474,16 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
             </div>
           )}
         </CardTitle>
+        {showConnectionError && !wsState.connecting && messages?.length === 0 && (
+          <p className="text-sm text-muted-foreground mt-2">
+            Connection error. Retrying...
+          </p>
+        )}
+        {wsState.connecting && (
+          <p className="text-sm text-muted-foreground mt-2">
+            Connecting to chat server...
+          </p>
+        )}
       </CardHeader>
 
       <CardContent>
@@ -523,24 +527,26 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
         />
       </CardContent>
 
-      <CardFooter>
-        <form onSubmit={handleSubmit} className="flex w-full items-center gap-2">
-          <Input
-            value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
-            placeholder="Type your message..."
-            className="flex-1"
-            disabled={sendMessageMutation.isPending}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            disabled={!messageInput.trim() || sendMessageMutation.isPending}
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </form>
-      </CardFooter>
+      {currentGroup && (
+        <CardFooter>
+          <form onSubmit={handleSubmit} className="flex w-full items-center gap-2">
+            <Input
+              value={messageInput}
+              onChange={(e) => setMessageInput(e.target.value)}
+              placeholder={wsState.error ? "Reconnecting to chat..." : "Type your message..."}
+              className="flex-1"
+              disabled={sendMessageMutation.isPending || !!wsState.error}
+            />
+            <Button
+              type="submit"
+              size="icon"
+              disabled={!messageInput.trim() || sendMessageMutation.isPending || !!wsState.error}
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </form>
+        </CardFooter>
+      )}
     </Card>
   );
 }

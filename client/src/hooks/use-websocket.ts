@@ -7,6 +7,8 @@ interface WebSocketState {
   connected: boolean;
   connecting: boolean;
   error: string | null;
+  lastConnected: number;
+  bufferedMessages: WSMessage[];
 }
 
 export function useWebSocket() {
@@ -19,7 +21,9 @@ export function useWebSocket() {
   const [state, setState] = useState<WebSocketState>({
     connected: false,
     connecting: false,
-    error: null
+    error: null,
+    lastConnected: 0,
+    bufferedMessages: []
   });
 
   const connect = useCallback(() => {
@@ -42,63 +46,81 @@ export function useWebSocket() {
         ws.current = null;
       }
 
+      // Use the current window location to determine the WebSocket URL
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-      const wsUrl = `${protocol}//${window.location.hostname}:${port}/ws`;
-      console.log('[WebSocket] Connecting to:', wsUrl);
+      const wsUrl = new URL('/ws', window.location.href);
+      wsUrl.protocol = protocol;
 
+      console.log('[WebSocket] Connecting to:', wsUrl.toString());
       const socket = new WebSocket(wsUrl);
       ws.current = socket;
 
       socket.onopen = () => {
         console.log('[WebSocket] Connected successfully');
         reconnectAttemptsRef.current = 0;
-        setState({
+        setState(prev => ({
+          ...prev,
           connected: true,
           connecting: false,
-          error: null
-        });
+          error: null,
+          lastConnected: Date.now()
+        }));
       };
 
       socket.onclose = (event) => {
-        console.log('[WebSocket] Connection closed:', event.code, event.reason);
-        setState({
-          connected: false,
-          connecting: false,
-          error: event.code !== 1000 && event.code !== 1001 ? 'Connection closed' : null
-        });
+        const isCleanClosure = event.code === 1000 || event.code === 1001;
 
-        // Only attempt to reconnect if not a clean closure
-        if (event.code !== 1000 && event.code !== 1001) {
-          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+        // Use a longer delay for initial connection attempts
+        const disconnectionDelay = reconnectAttemptsRef.current === 0 ? 3000 : 1000;
+
+        setTimeout(() => {
+          if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+            setState(prev => ({
+              ...prev,
+              connected: false,
+              connecting: false,
+              error: isCleanClosure ? null : reconnectAttemptsRef.current >= 3 ? 'Connection closed' : null
+            }));
+          }
+        }, disconnectionDelay);
+
+        // Schedule reconnection for non-clean closures
+        if (!isCleanClosure) {
+          const backoffDelay = Math.min(1000 * Math.pow(1.5, reconnectAttemptsRef.current), 30000);
           reconnectAttemptsRef.current++;
-          console.log(`[WebSocket] Attempting to reconnect in ${delay}ms...`);
-          reconnectTimeoutRef.current = setTimeout(connect, delay);
+          console.log(`[WebSocket] Scheduling reconnection in ${backoffDelay}ms...`);
+          reconnectTimeoutRef.current = setTimeout(connect, backoffDelay);
         }
       };
 
       socket.onerror = (error) => {
         console.error('[WebSocket] Connection error:', error);
-        setState(prev => ({
-          connected: false,
-          connecting: false,
-          error: 'Failed to connect'
-        }));
-
-        if (reconnectAttemptsRef.current === 0) {
-          toast({
-            title: "Connection Error",
-            description: "Failed to connect to chat server. Retrying...",
-            variant: "destructive",
-          });
+        // Only show error after multiple failed attempts
+        if (reconnectAttemptsRef.current >= 3) {
+          setState(prev => ({
+            ...prev,
+            connected: false,
+            connecting: false,
+            error: 'Connection error'
+          }));
         }
       };
 
       socket.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('[WebSocket] Message received:', data);
           const validatedMessage = validateWSMessage(data);
+
+          // Clear any error state and update connection status
+          setState(prev => ({
+            ...prev,
+            error: null,
+            connected: true,
+            connecting: false,
+            lastConnected: Date.now(),
+            bufferedMessages: [...prev.bufferedMessages, validatedMessage]
+          }));
+
           messageHandlers.current.forEach(handler => handler(validatedMessage));
         } catch (error) {
           console.error('[WebSocket] Message parsing error:', error);
@@ -106,25 +128,26 @@ export function useWebSocket() {
       };
     } catch (error) {
       console.error('[WebSocket] Setup error:', error);
-      setState({
-        connected: false,
-        connecting: false,
-        error: 'Failed to setup connection'
-      });
-
-      toast({
-        title: "Connection Error",
-        description: "Failed to connect to chat server",
-        variant: "destructive",
-      });
+      // Only show error after multiple attempts
+      if (reconnectAttemptsRef.current >= 3) {
+        setState(prev => ({
+          ...prev,
+          connected: false,
+          connecting: false,
+          error: 'Failed to setup connection'
+        }));
+      }
     }
-  }, [user, state.connecting, toast]);
+  }, [user, state.connecting]);
 
-  // Add visibility change handler to reconnect when tab becomes visible
+  // Visibility change handler
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && user) {
-        connect();
+        const timeSinceLastConnection = Date.now() - state.lastConnected;
+        if (timeSinceLastConnection > 5000 && (!ws.current || ws.current.readyState !== WebSocket.OPEN)) {
+          connect();
+        }
       }
     };
 
@@ -132,7 +155,24 @@ export function useWebSocket() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [connect, user]);
+  }, [connect, user, state.lastConnected]);
+
+  // Connection management
+  useEffect(() => {
+    if (user) {
+      connect();
+    }
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (ws.current) {
+        ws.current.close(1000, "Cleanup");
+        ws.current = null;
+      }
+    };
+  }, [user, connect]);
 
   const sendMessage = useCallback((message: WSInputMessage): boolean => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
@@ -167,22 +207,6 @@ export function useWebSocket() {
       messageHandlers.current.delete(handler);
     };
   }, []);
-
-  useEffect(() => {
-    if (user) {
-      connect();
-    }
-
-    return () => {
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-      if (ws.current) {
-        ws.current.close(1000, "Cleanup");
-        ws.current = null;
-      }
-    };
-  }, [user, connect]);
 
   return {
     state,
