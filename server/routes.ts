@@ -28,134 +28,54 @@ export function registerRoutes(app: Express): Server {
   // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
 
-  // Configure multer for file uploads
-  const uploadDir = path.join(process.cwd(), 'uploads');
-
-  // Ensure uploads directory exists with proper permissions
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-    // Ensure directory has proper permissions (readable/writable)
-    fs.chmodSync(uploadDir, 0o755);
-  }
-
-  const storage = multer.diskStorage({
-    destination: function (_req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
-      cb(null, uploadDir);
-    },
-    filename: function (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, 'thumbnail-' + uniqueSuffix + ext);
-    }
-  });
-
-  const upload = multer({
-    storage: storage,
-    limits: {
-      fileSize: 5 * 1024 * 1024 // 5MB
-    },
-    fileFilter: function (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) {
-      const filetypes = /jpeg|jpg|png|webp/;
-      const mimetype = filetypes.test(file.mimetype);
-      const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-
-      if (mimetype && extname) {
-        return cb(null, true);
-      }
-      cb(new Error('Only JPEG, PNG and WebP images are allowed'));
-    }
-  });
-
-  // Serve uploaded files statically with proper MIME types
-  app.use('/uploads', express.static(uploadDir, {
-    index: false,
-    extensions: ['jpg', 'jpeg', 'png', 'webp'],
-    setHeaders: (res, filePath) => {
-      console.log('[Static] Setting headers for file:', filePath);
-      // Set proper cache control and content type
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
-      const ext = path.extname(filePath).toLowerCase();
-      switch (ext) {
-        case '.jpg':
-        case '.jpeg':
-          res.setHeader('Content-Type', 'image/jpeg');
-          break;
-        case '.png':
-          res.setHeader('Content-Type', 'image/png');
-          break;
-        case '.webp':
-          res.setHeader('Content-Type', 'image/webp');
-          break;
-      }
-    }
-  }));
-
-  // Add thumbnail upload endpoint with improved error handling
-  app.post('/api/upload/thumbnail', upload.single('thumbnail'), (req: Request, res: Response) => {
-    console.log('[Upload] Processing thumbnail upload request');
-
-    if (!req.file) {
-      console.error('[Upload] No file uploaded');
-      return res.status(400).json({
-        error: 'No file uploaded',
-        success: false
-      });
-    }
-
-    try {
-      const filename = req.file.filename;
-      // Ensure the URL starts with a forward slash
-      const fileUrl = `/uploads/${filename}`;
-
-      console.log('[Upload] Successfully uploaded thumbnail:', {
-        url: fileUrl,
-        filename: filename,
-        path: req.file.path,
-        mimetype: req.file.mimetype,
-        size: req.file.size
-      });
-
-      // Test file existence
-      if (!fs.existsSync(req.file.path)) {
-        throw new Error('File was not saved properly');
-      }
-
-      res.json({
-        url: fileUrl,
-        success: true,
-        filename: filename,
-        originalName: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype
-      });
-    } catch (error) {
-      console.error('[Upload] Error processing uploaded file:', error);
-      res.status(500).json({
-        error: 'Error processing uploaded file',
-        success: false,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
+  // Add detailed request logging middleware
+  app.use((req, res, next) => {
+    const start = Date.now();
+    console.log(`[REQUEST] ${req.method} ${req.path}`);
+    res.on("finish", () => {
+      const duration = Date.now() - start;
+      console.log(`[COMPLETE] ${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
+    });
+    next();
   });
 
   // Global middleware to ensure JSON responses for all /api routes
   app.use('/api', (req, res, next) => {
-    // Set JSON content type header for all API routes
     res.setHeader('Content-Type', 'application/json');
     console.log(`[API] ${req.method} ${req.path} - Setting JSON content type`);
     next();
   });
 
-  // Register the group messages router after auth is set up
-  app.use(groupMessagesRouter);
+  // Setup static file serving
+  const uploadDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.chmodSync(uploadDir, 0o755);
+  }
 
-  // Wrap all route handlers to ensure proper error handling
+  // Create Express Router for API endpoints
+  const apiRouter = express.Router();
+
+  // Health check endpoint
+  apiRouter.get("/health", (req: Request, res: Response) => {
+    console.log('[Health Check] Endpoint accessed');
+    res.json({ 
+      status: 'healthy', 
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime()
+    });
+  });
+
+  // Mount group messages router
+  apiRouter.use(groupMessagesRouter);
+
+  // Wrap async handlers
   const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
     return Promise.resolve(fn(req, res, next)).catch(next);
   };
 
-  // Public endpoints - no auth required
-  app.get("/api/categories", asyncHandler(async (req: Request, res: Response) => {
+  // Register all other routes on the apiRouter
+  apiRouter.get("/categories", asyncHandler(async (req: Request, res: Response) => {
     const allCategories = await db.query.categories.findMany({
       where: eq(categories.isDeleted, false),
       orderBy: [desc(categories.displayOrder)]
@@ -163,8 +83,7 @@ export function registerRoutes(app: Express): Server {
     res.json(allCategories);
   }));
 
-  // Add new endpoint for subcategories by category
-  app.get("/api/categories/:categoryId/subcategories", asyncHandler(async (req: Request, res: Response) => {
+  apiRouter.get("/categories/:categoryId/subcategories", asyncHandler(async (req: Request, res: Response) => {
     const categoryId = parseInt(req.params.categoryId);
     console.log('Fetching subcategories for categoryId:', categoryId);
 
@@ -198,8 +117,7 @@ export function registerRoutes(app: Express): Server {
     res.json(subCategories);
   }));
 
-  // Add new category
-  app.post("/api/categories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.post("/categories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -222,8 +140,7 @@ export function registerRoutes(app: Express): Server {
     res.json(newCategory);
   }));
 
-  // Add new subcategory
-  app.post("/api/categories/:categoryId/subcategories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.post("/categories/:categoryId/subcategories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -263,8 +180,7 @@ export function registerRoutes(app: Express): Server {
     res.status(201).json(newSubcategory);
   }));
 
-  // Soft delete category
-  app.delete("/api/categories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.delete("/categories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -302,8 +218,7 @@ export function registerRoutes(app: Express): Server {
     res.json({ message: "Category and its subcategories deleted successfully" });
   }));
 
-  // Soft delete subcategory
-  app.delete("/api/subcategories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.delete("/subcategories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -335,9 +250,7 @@ export function registerRoutes(app: Express): Server {
     res.json({ message: "Subcategory deleted successfully" });
   }));
 
-
-  // Update the video search endpoint to filter out deleted videos
-  app.get("/api/videos", asyncHandler(async (req: Request, res: Response) => {
+  apiRouter.get("/videos", asyncHandler(async (req: Request, res: Response) => {
     const allVideos = await db.query.videos.findMany({
       where: eq(videos.isDeleted, false), // Only get non-deleted videos
       with: {
@@ -348,8 +261,7 @@ export function registerRoutes(app: Express): Server {
     res.json(allVideos);
   }));
 
-  // Get individual video
-  app.get("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
+  apiRouter.get("/videos/:id", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
 
     if (isNaN(videoId)) {
@@ -374,8 +286,7 @@ export function registerRoutes(app: Express): Server {
     res.json(video);
   }));
 
-  // Get video recommendations
-  app.get("/api/videos/:id/recommendations", asyncHandler(async (req: Request, res: Response) => {
+  apiRouter.get("/videos/:id/recommendations", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
 
     if (isNaN(videoId)) {
@@ -412,8 +323,7 @@ export function registerRoutes(app: Express): Server {
     res.json(relatedVideos);
   }));
 
-  // Update the last active group endpoint with correct column references
-  app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.get("/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.videoId);
 
     if (isNaN(videoId)) {
@@ -470,8 +380,7 @@ export function registerRoutes(app: Express): Server {
     res.json(response);
   }));
 
-  // Add video submission endpoint
-  app.post("/api/videos", asyncHandler(async (req: Request, res: Response) => {
+  apiRouter.post("/videos", asyncHandler(async (req: Request, res: Response) => {
     const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
 
     if (!title || !url || !categoryId || !platform) {
@@ -532,8 +441,7 @@ export function registerRoutes(app: Express): Server {
     res.status(201).json(videoWithDetails);
   }));
 
-  // Update video endpoint - ensure thumbnailUrl is properly handled
-  app.patch("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
+  apiRouter.patch("/videos/:id", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
     const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
 
@@ -578,8 +486,7 @@ export function registerRoutes(app: Express): Server {
     res.json(videoWithDetails);
   }));
 
-  // Add REST endpoint for group invites
-  app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.get("/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const inviteCode = req.params.code;
     console.log('Fetching group for invite code:', inviteCode);
 
@@ -626,10 +533,8 @@ export function registerRoutes(app: Express): Server {
     res.json(group);
   }));
 
-  // Protected endpoints - require authentication
 
-  // Update the group creation endpoint
-  app.post("/api/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.post("/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { name, videoId, description } = req.body;
     const userId = req.user?.id;
 
@@ -737,9 +642,7 @@ export function registerRoutes(app: Express): Server {
     }
   }));
 
-
-  // Add direct group access endpoint
-  app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.get("/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -809,8 +712,7 @@ export function registerRoutes(app: Express): Server {
     res.json(group);
   }));
 
-  // Add this new endpoint after the other group-related endpoints
-  app.post("/api/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.post("/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -829,8 +731,7 @@ export function registerRoutes(app: Express): Server {
     res.json({ message: "Successfully left the group" });
   }));
 
-  // Update the delete endpoint with proper error handling and response
-  app.delete("/api/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.delete("/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.id);
     console.log(`[DELETE] Attempting to delete video ${videoId}`, {
       timestamp: new Date().toISOString(),
@@ -900,8 +801,7 @@ export function registerRoutes(app: Express): Server {
     }
   }));
 
-  // Preferences endpoints
-  app.get("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.get("/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const preferences = await db.query.userPreferences.findFirst({
       where: sql`${userPreferences.userId} = ${req.user!.id}`
     });
@@ -915,7 +815,7 @@ export function registerRoutes(app: Express): Server {
     res.json(preferences);
   }));
 
-  app.post("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.post("/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
 
     if (!Array.isArray(preferredCategories) || !Array.isArray(excludedCategories) || !Array.isArray(preferredPlatforms)) {
@@ -947,8 +847,7 @@ export function registerRoutes(app: Express): Server {
     res.json(savedPreferences);
   }));
 
-  // Get unread count for a group
-  app.get("/api/groups/:groupId/unread-count", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.get("/groups/:groupId/unread-count", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -981,11 +880,10 @@ export function registerRoutes(app: Express): Server {
     res.json({ unreadCount });
   }));
 
-  // Mark messages as read
-  app.post("/api/groups/:groupId/mark-read", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.post("/groups/:groupId/mark-read", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
-      return res.status(400).json({ message: "Invalid group ID" });
+            return res.status(400).json({ message: "Invalid group ID" });
     }
 
     // Update lastReadAt for the member
@@ -1005,8 +903,7 @@ export function registerRoutes(app: Express): Server {
     res.json({ message: "Messages marked as read" });
   }));
 
-  // Domain verification endpoint
-  app.get("/api/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.get("/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -1041,8 +938,7 @@ export function registerRoutes(app: Express): Server {
     }
   }));
 
-  // Test email endpoint
-  app.post("/api/send-test-email", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  apiRouter.post("/send-test-email", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     try {
       if (!resend) {
         throw new Error('Email service not configured');
@@ -1068,7 +964,7 @@ export function registerRoutes(app: Express): Server {
 
   // Update the test email endpoint to include better error handling and logging
   if (process.env.NODE_ENV !== 'production') {
-    app.post("/api/test/email-notification", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    apiRouter.post("/test/email-notification", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
       console.log('=== Test Email Endpoint Start ===');
       if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
         console.error('Email configuration missing:', {
@@ -1160,6 +1056,117 @@ export function registerRoutes(app: Express): Server {
     }));
   }
 
-  // Return the HTTP server at the end of registerRoutes
+  // 404 handler for API routes - must be last
+  apiRouter.use((req: Request, res: Response) => {
+    console.log(`[404] No route found for ${req.method} ${req.path}`);
+    res.status(404).json({
+      error: 'API endpoint not found',
+      success: false
+    });
+  });
+
+  // Mount the API router under /api
+  app.use('/api', apiRouter);
+
+  //Configure multer for file uploads
+  const upload = multer({
+    storage: multer.diskStorage({
+      destination: function (_req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
+        cb(null, uploadDir);
+      },
+      filename: function (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, 'thumbnail-' + uniqueSuffix + ext);
+      }
+    }),
+    limits: {
+      fileSize: 5 * 1024 * 1024 // 5MB
+    },
+    fileFilter: function (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) {
+      const filetypes = /jpeg|jpg|png|webp/;
+      const mimetype = filetypes.test(file.mimetype);
+      const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+
+      if (mimetype && extname) {
+        return cb(null, true);
+      }
+      cb(new Error('Only JPEG, PNG and WebP images are allowed'));
+    }
+  });
+
+  // Serve uploaded files statically with proper MIME types
+  app.use('/uploads', express.static(uploadDir, {
+    index: false,
+    extensions: ['jpg', 'jpeg', 'png', 'webp'],
+    setHeaders: (res, filePath) => {
+      console.log('[Static] Setting headers for file:', filePath);
+      // Set proper cache control and content type
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      const ext = path.extname(filePath).toLowerCase();
+      switch (ext) {
+        case '.jpg':
+        case '.jpeg':
+          res.setHeader('Content-Type', 'image/jpeg');
+          break;
+        case '.png':
+          res.setHeader('Content-Type', 'image/png');
+          break;
+        case '.webp':
+          res.setHeader('Content-Type', 'image/webp');
+          break;
+      }
+    }
+  }));
+
+  // Add thumbnail upload endpoint with improved error handling
+  apiRouter.post('/upload/thumbnail', upload.single('thumbnail'), asyncHandler(async (req: Request, res: Response) => {
+    console.log('[Upload] Processing thumbnail upload request');
+
+    if (!req.file) {
+      console.error('[Upload] No file uploaded');
+      return res.status(400).json({
+        error: 'No file uploaded',
+        success: false
+      });
+    }
+
+    try {
+      const filename = req.file.filename;
+      // Ensure the URL starts with a forward slash
+      const fileUrl = `/uploads/${filename}`;
+
+      console.log('[Upload] Successfully uploaded thumbnail:', {
+        url: fileUrl,
+        filename: filename,
+        path: req.file.path,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+
+      // Test file existence
+      if (!fs.existsSync(req.file.path)) {
+        throw new Error('File was not saved properly');
+      }
+
+      res.json({
+        url: fileUrl,
+        success: true,
+        filename: filename,
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+    } catch (error) {
+      console.error('[Upload] Error processing uploaded file:', error);
+      res.status(500).json({
+        error: 'Error processing uploaded file',
+        success: false,
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }));
+
+  // Return the HTTP server
   return httpServer;
 }
