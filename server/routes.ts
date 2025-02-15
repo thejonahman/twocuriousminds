@@ -1,16 +1,16 @@
 import { createServer, type Server } from "http";
-import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import { setupAuth, requireAuth } from "./auth";
-import { db } from "@db";
-import { sql, eq, and, desc, gt } from "drizzle-orm";
-import { discussionGroups, groupMembers, groupMessages, categories, subcategories, userPreferences, videos } from "@db/schema";
-import groupMessagesRouter from './routes/group-messages';
+import express, { type Express, type NextFunction } from 'express';
+import { Request, Response } from 'express';
+import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import multer from 'multer';
-import { type FileFilterCallback } from "multer";
+import { db } from "@db";
+import { sql, eq, and, desc, gt } from "drizzle-orm";
+import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences, subcategories } from "@db/schema";
+import { setupAuth, requireAuth } from "./auth";
+import groupMessagesRouter from './routes/group-messages';
 import { sendUnreadMessagesNotification, resend } from './lib/email';
-import { setupWebSocketServer } from './websocket';
+import { type FileFilterCallback } from "multer";
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -21,112 +21,141 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-// Async handler wrapper
-const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
-  return Promise.resolve(fn(req, res, next)).catch(next);
-};
-
-export function registerRoutes(app: Express): { server: Server, sessionMiddleware: any } {
+export function registerRoutes(app: Express): Server {
   // Create HTTP server first
   const httpServer = createServer(app);
 
-  // Setup auth and get session middleware
+  // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
 
-  // Initialize WebSocket server
-  setupWebSocketServer(httpServer, sessionMiddleware);
-
-  // Setup static file serving
+  // Configure multer for file uploads
   const uploadDir = path.join(process.cwd(), 'uploads');
+
+  // Ensure uploads directory exists with proper permissions
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
+    // Ensure directory has proper permissions (readable/writable)
     fs.chmodSync(uploadDir, 0o755);
   }
 
-  // Serve static files
-  app.use('/uploads', express.static(uploadDir));
-
-  // Add request logging middleware
-  app.use((req, res, next) => {
-    const start = Date.now();
-    console.log(`[REQUEST] ${req.method} ${req.path}`);
-    res.on("finish", () => {
-      const duration = Date.now() - start;
-      console.log(`[COMPLETE] ${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
-    });
-    next();
-  });
-
-  // API routes configuration
-  const apiRouter = express.Router();
-
-  // Ensure JSON responses for all /api routes
-  apiRouter.use((req, res, next) => {
-    res.setHeader('Content-Type', 'application/json');
-    next();
-  });
-
-  // Add group messages router first
-  apiRouter.use(groupMessagesRouter);
-
-  // Get last active group
-  apiRouter.get("/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const videoId = parseInt(req.params.videoId);
-
-    if (isNaN(videoId)) {
-      return res.status(400).json({ error: "Invalid video ID" });
+  const storage = multer.diskStorage({
+    destination: function (_req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
+      cb(null, uploadDir);
+    },
+    filename: function (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const ext = path.extname(file.originalname).toLowerCase();
+      cb(null, 'thumbnail-' + uniqueSuffix + ext);
     }
+  });
 
-    // Find the most recently active group for this video that the user is a member of
-    const lastActiveGroup = await db.query.discussionGroups.findFirst({
-      where: and(
-        eq(discussionGroups.videoId, videoId),
-        sql`exists (
-          select 1 
-          from ${groupMembers} 
-          where ${groupMembers.groupId} = ${discussionGroups.id}
-          and ${groupMembers.userId} = ${req.user!.id}
-        )`
-      ),
-      with: {
-        members: {
-          with: {
-            user: {
-              columns: {
-                id: true,
-                username: true
-              }
-            }
-          }
-        }
-      },
-      orderBy: [desc(discussionGroups.updatedAt)]
-    });
+  const upload = multer({
+    storage: storage,
+    limits: {
+      fileSize: 5 * 1024 * 1024 // 5MB
+    },
+    fileFilter: function (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) {
+      const filetypes = /jpeg|jpg|png|webp/;
+      const mimetype = filetypes.test(file.mimetype);
+      const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
 
-    if (!lastActiveGroup) {
-      return res.status(404).json({
-        data: null,
-        message: "No active group found"
+      if (mimetype && extname) {
+        return cb(null, true);
+      }
+      cb(new Error('Only JPEG, PNG and WebP images are allowed'));
+    }
+  });
+
+  // Serve uploaded files statically with proper MIME types
+  app.use('/uploads', express.static(uploadDir, {
+    index: false,
+    extensions: ['jpg', 'jpeg', 'png', 'webp'],
+    setHeaders: (res, filePath) => {
+      console.log('[Static] Setting headers for file:', filePath);
+      // Set proper cache control and content type
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      const ext = path.extname(filePath).toLowerCase();
+      switch (ext) {
+        case '.jpg':
+        case '.jpeg':
+          res.setHeader('Content-Type', 'image/jpeg');
+          break;
+        case '.png':
+          res.setHeader('Content-Type', 'image/png');
+          break;
+        case '.webp':
+          res.setHeader('Content-Type', 'image/webp');
+          break;
+      }
+    }
+  }));
+
+  // Add thumbnail upload endpoint with improved error handling
+  app.post('/api/upload/thumbnail', upload.single('thumbnail'), (req: Request, res: Response) => {
+    console.log('[Upload] Processing thumbnail upload request');
+
+    if (!req.file) {
+      console.error('[Upload] No file uploaded');
+      return res.status(400).json({
+        error: 'No file uploaded',
+        success: false
       });
     }
 
-    // Transform the response to match the expected schema
-    const response = {
-      data: {
-        ...lastActiveGroup,
-        members: lastActiveGroup.members.map(member => ({
-          id: member.id,
-          userId: member.user.id,
-          username: member.user.username
-        }))
+    try {
+      const filename = req.file.filename;
+      // Ensure the URL starts with a forward slash
+      const fileUrl = `/uploads/${filename}`;
+
+      console.log('[Upload] Successfully uploaded thumbnail:', {
+        url: fileUrl,
+        filename: filename,
+        path: req.file.path,
+        mimetype: req.file.mimetype,
+        size: req.file.size
+      });
+
+      // Test file existence
+      if (!fs.existsSync(req.file.path)) {
+        throw new Error('File was not saved properly');
       }
-    };
 
-    res.json(response);
-  }));
+      res.json({
+        url: fileUrl,
+        success: true,
+        filename: filename,
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      });
+    } catch (error) {
+      console.error('[Upload] Error processing uploaded file:', error);
+      res.status(500).json({
+        error: 'Error processing uploaded file',
+        success: false,
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
 
-  // Register all other routes
-  apiRouter.get("/categories", asyncHandler(async (req: Request, res: Response) => {
+  // Global middleware to ensure JSON responses for all /api routes
+  app.use('/api', (req, res, next) => {
+    // Set JSON content type header for all API routes
+    res.setHeader('Content-Type', 'application/json');
+    console.log(`[API] ${req.method} ${req.path} - Setting JSON content type`);
+    next();
+  });
+
+  // Register the group messages router after auth is set up
+  app.use(groupMessagesRouter);
+
+  // Wrap all route handlers to ensure proper error handling
+  const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
+    return Promise.resolve(fn(req, res, next)).catch(next);
+  };
+
+  // Public endpoints - no auth required
+  app.get("/api/categories", asyncHandler(async (req: Request, res: Response) => {
     const allCategories = await db.query.categories.findMany({
       where: eq(categories.isDeleted, false),
       orderBy: [desc(categories.displayOrder)]
@@ -134,7 +163,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(allCategories);
   }));
 
-  apiRouter.get("/categories/:categoryId/subcategories", asyncHandler(async (req: Request, res: Response) => {
+  // Add new endpoint for subcategories by category
+  app.get("/api/categories/:categoryId/subcategories", asyncHandler(async (req: Request, res: Response) => {
     const categoryId = parseInt(req.params.categoryId);
     console.log('Fetching subcategories for categoryId:', categoryId);
 
@@ -168,7 +198,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(subCategories);
   }));
 
-  apiRouter.post("/categories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Add new category
+  app.post("/api/categories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -191,7 +222,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(newCategory);
   }));
 
-  apiRouter.post("/categories/:categoryId/subcategories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Add new subcategory
+  app.post("/api/categories/:categoryId/subcategories", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -231,7 +263,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.status(201).json(newSubcategory);
   }));
 
-  apiRouter.delete("/categories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Soft delete category
+  app.delete("/api/categories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -269,7 +302,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json({ message: "Category and its subcategories deleted successfully" });
   }));
 
-  apiRouter.delete("/subcategories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Soft delete subcategory
+  app.delete("/api/subcategories/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
@@ -301,7 +335,9 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json({ message: "Subcategory deleted successfully" });
   }));
 
-  apiRouter.get("/videos", asyncHandler(async (req: Request, res: Response) => {
+
+  // Update the video search endpoint to filter out deleted videos
+  app.get("/api/videos", asyncHandler(async (req: Request, res: Response) => {
     const allVideos = await db.query.videos.findMany({
       where: eq(videos.isDeleted, false), // Only get non-deleted videos
       with: {
@@ -312,7 +348,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(allVideos);
   }));
 
-  apiRouter.get("/videos/:id", asyncHandler(async (req: Request, res: Response) => {
+  // Get individual video
+  app.get("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
 
     if (isNaN(videoId)) {
@@ -337,7 +374,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(video);
   }));
 
-  apiRouter.get("/videos/:id/recommendations", asyncHandler(async (req: Request, res: Response) => {
+  // Get video recommendations
+  app.get("/api/videos/:id/recommendations", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
 
     if (isNaN(videoId)) {
@@ -374,8 +412,47 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(relatedVideos);
   }));
 
+  // Add this new endpoint near the other video-related endpoints
+  app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const videoId = parseInt(req.params.videoId);
 
-  apiRouter.post("/videos", asyncHandler(async (req: Request, res: Response) => {
+    if (isNaN(videoId)) {
+      return res.status(400).json({ message: "Invalid video ID" });
+    }
+
+    // Find the most recently active group for this video where the user is a member
+    const lastActiveGroup = await db.query.discussionGroups.findFirst({
+      where: and(
+        eq(discussionGroups.videoId, videoId),
+        sql`exists (
+          select 1 from ${groupMembers}
+          where ${groupMembers.groupId} = ${discussionGroups.id}
+          and ${groupMembers.userId} = ${req.user!.id}
+        )`
+      ),
+      with: {
+        members: {
+          with: {
+            user: {
+              columns: {
+                username: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [desc(discussionGroups.updatedAt)]
+    });
+
+    if (!lastActiveGroup) {
+      return res.json(null);
+    }
+
+    res.json(lastActiveGroup);
+  }));
+
+  // Add video submission endpoint
+  app.post("/api/videos", asyncHandler(async (req: Request, res: Response) => {
     const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
 
     if (!title || !url || !categoryId || !platform) {
@@ -436,7 +513,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.status(201).json(videoWithDetails);
   }));
 
-  apiRouter.patch("/videos/:id", asyncHandler(async (req: Request, res: Response) => {
+  // Update video endpoint - ensure thumbnailUrl is properly handled
+  app.patch("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
     const videoId = parseInt(req.params.id);
     const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
 
@@ -481,7 +559,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(videoWithDetails);
   }));
 
-  apiRouter.get("/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Add REST endpoint for group invites
+  app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const inviteCode = req.params.code;
     console.log('Fetching group for invite code:', inviteCode);
 
@@ -528,8 +607,10 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(group);
   }));
 
+  // Protected endpoints - require authentication
 
-  apiRouter.post("/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Update the group creation endpoint
+  app.post("/api/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { name, videoId, description } = req.body;
     const userId = req.user?.id;
 
@@ -637,7 +718,9 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     }
   }));
 
-  apiRouter.get("/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+
+  // Add direct group access endpoint
+  app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -707,7 +790,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(group);
   }));
 
-  apiRouter.post("/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Add this new endpoint after the other group-related endpoints
+  app.post("/api/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -726,7 +810,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json({ message: "Successfully left the group" });
   }));
 
-  apiRouter.delete("/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Update the delete endpoint with proper error handling and response
+  app.delete("/api/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.id);
     console.log(`[DELETE] Attempting to delete video ${videoId}`, {
       timestamp: new Date().toISOString(),
@@ -796,7 +881,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     }
   }));
 
-  apiRouter.get("/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Preferences endpoints
+  app.get("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const preferences = await db.query.userPreferences.findFirst({
       where: sql`${userPreferences.userId} = ${req.user!.id}`
     });
@@ -810,7 +896,7 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(preferences);
   }));
 
-  apiRouter.post("/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  app.post("/api/preferences", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { preferredCategories, excludedCategories, preferredPlatforms } = req.body;
 
     if (!Array.isArray(preferredCategories) || !Array.isArray(excludedCategories) || !Array.isArray(preferredPlatforms)) {
@@ -842,7 +928,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(savedPreferences);
   }));
 
-  apiRouter.get("/groups/:groupId/unread-count", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Get unread count for a group
+  app.get("/api/groups/:groupId/unread-count", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -875,7 +962,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json({ unreadCount });
   }));
 
-  apiRouter.post("/groups/:groupId/mark-read", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Mark messages as read
+  app.post("/api/groups/:groupId/mark-read", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
@@ -898,146 +986,135 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json({ message: "Messages marked as read" });
   }));
 
-  apiRouter.get("/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Domain verification endpoint. Moved this before the httpServer creation.
+  app.get("/api/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
+      const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
+      if (!domain) {
+        return res.status(400).json({ message: "No domain foundin RESEND_FROM_EMAIL" });
+      }
+
+      // Get domain status first
       if (!resend) {
         throw new Error('Email service not configured');
       }
-
       const emailClient = resend;
       const domains = await emailClient.domains.list();
       console.log('Current domains:', domains);
 
-      // Send verification email if needed
-      if (!domains.data || domains.data.length === 0) {
-        console.log('No domains found, attempting to add domain');
-        const domain = process.env.EMAIL_DOMAIN || 'yourdomain.com';
+      const domainDetails = await emailClient.domains.get(domain);
+      console.log('Domain details:', domainDetails);
+
+      if (!domainDetails) {
+        // If domain doesn't exist, create it
         await emailClient.domains.create({ name: domain });
-        console.log('Domain created:', domain);
       }
 
-      res.json({
-        success: true,
-        domains: domains.data || []
-      });
+      const result = await emailClient.domains.verify(domain);
+      return res.json(result);
     } catch (error) {
-      console.error('Domain verification failed:', error);
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }));
-
-  apiRouter.post("/send-test-email", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      if (!resend) {
-        throw new Error('Email service not configured');
-      }
-
-      const emailClient = resend;
-      const result = await emailClient.emails.send({
-        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
-        to: req.user?.email || '',
-        subject: 'Test Email',
-        html: '<p>This is a test email from your video learning platform.</p>'
-      });
-
-      res.json({ success: true, result });
-    } catch (error) {
-      console.error('Failed to send test email:', error);
-      res.status(500).json({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      console.error('Domain verification error:', error);
+      return res.status(500).json({ message: "Error verifying domain", error });
     }
   }));
 
   // Update the test email endpoint to include better error handling and logging
   if (process.env.NODE_ENV !== 'production') {
-    apiRouter.post("/test/email-notification", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    app.post("/api/test/email-notification", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+      console.log('=== Test Email Endpoint Start ===');
+      if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+        console.error('Email configuration missing:', {
+          hasApiKey: !!process.env.RESEND_API_KEY,
+          hasFromEmail: !!process.env.RESEND_FROM_EMAIL
+        });
+        return res.status(500).json({ message: "Email configuration missing" });
+      }
+
+      if (!resend) {
+        console.error('Resend client not initialized in test endpoint');
+        return res.status(500).json({ message: "Email service not initialized" });
+      }
+
       try {
-        if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
-          throw new Error('Email service not configured');
+        if (!req.user?.email) {
+          console.error('No email address available for testing');
+          return res.status(400).json({ message: "No email address available for testing" });
         }
 
+        // Get the specific group
+        const groupId = parseInt(req.query.groupId as string);
+        if (!groupId) {
+          console.error('Group ID is required for test email');
+          return res.status(400).json({ message: "Group ID is required" });
+        }
+
+        console.log('Fetching test group:', groupId);
         const testGroup = await db.query.discussionGroups.findFirst({
-          where: eq(discussionGroups.id, 1),
+          where: eq(discussionGroups.id, groupId),
           with: {
-            video: true,
-            members: {
-              with: {
-                user: true
-              }
-            },
             messages: {
+              limit: 5,
+              orderBy: [desc(groupMessages.createdAt)],
               with: {
                 user: {
                   columns: {
                     username: true
                   }
                 }
-              },
-              limit: 5,
-              orderBy: [desc(groupMessages.createdAt)]
+              }
             }
           }
         });
 
         if (!testGroup) {
-          throw new Error('No test group found');
+          console.error('No discussion group found:', groupId);
+          return res.status(404).json({ message: "No discussion group found for testing" });
         }
 
-        const testUser = testGroup.members[0]?.user;
-        if (!testUser || !testUser.email) {
-          throw new Error('No valid test user found in group');        }
-
-        await sendUnreadMessagesNotification({
-          userEmail: testUser.email,
-          userName: testUser.username,
-          groupName: testGroup.name,
-          videoTitle: testGroup.video?.title || 'Video Discussion',
-          unreadCount: 5,
-          unreadMessages: testGroup.messages || [],
-          groupUrl: `${process.env.APP_URL || 'http://localhost:5000'}/video/${testGroup.video?.id}/group/${testGroup.id}`,
-          groupEngagement: {
-            totalMembers: testGroup.members.length,
-            activeMembers: 3,
-            recentMessages: testGroup.messages?.length || 0,
-            topContributors: []
-          },
-          reminderCount: 1
+        console.log('Found test group:', {
+          id: testGroup.id,
+          name: testGroup.name,
+          messageCount: testGroup.messages?.length || 0
         });
 
-        console.log('Test email sent successfully');
+        try {
+          await sendUnreadMessagesNotification({
+            userEmail: req.user.email,
+            userName: req.user.username,
+            groupName: testGroup.name,
+            videoTitle: "Test Video",
+            unreadCount: testGroup.messages?.length || 0,
+            unreadMessages: testGroup.messages || [],
+            groupUrl: `${process.env.APP_URL || 'http://localhost:3000'}/video/1/group/${testGroup.id}`
+          });
+          console.log('Test notification sent successfully');
+        } catch (error) {
+          console.error('Error in sendUnreadMessagesNotification:', error);
+          throw error;
+        }
+
         res.json({
-          success: true,
-          message: 'Test email sent successfully'
+          message: "Test email notification sent. Check your inbox.",
+          details: {
+            sentTo: req.user.email,
+            groupName: testGroup.name,
+            messageCount: testGroup.messages?.length || 0
+          }
         });
       } catch (error) {
         console.error('Error sending test email:', error);
         res.status(500).json({
-          successsuccess: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
+          message: "Error sending test email",
+          error: error instanceof Error ? error.message : "Unknown error",
+          details: error instanceof Error ? error.stack : undefined
         });
       }
     }));
   }
 
-  // Mount the API router
-  app.use('/api', apiRouter);
-
-  // Global error handler
-  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-    console.error('Global error handler:', err);
-    res.status(500).json({
-      error: err instanceof Error ? err.message : 'Internal server error'
-    });
-  });
-
-  return { server: httpServer, sessionMiddleware };
+  return httpServer;
 }

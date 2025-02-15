@@ -4,7 +4,6 @@ import { z } from "zod";
 const baseEntitySchema = z.object({
   id: z.number(),
   createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime().optional(),
 });
 
 // User schema for group members
@@ -121,16 +120,6 @@ export function validateWSInput(data: unknown): WSInputMessage {
     return wsInputMessageSchema.parse(data);
   } catch (error) {
     console.error('WebSocket input validation error:', error);
-    throw new Error('Invalid WebSocket message format');
-  }
-}
-
-// Utility function to validate WebSocket output messages
-export function validateWSOutput(data: unknown): WSMessage {
-  try {
-    return wsMessageSchema.parse(data);
-  } catch (error) {
-    console.error('WebSocket output validation error:', error);
     throw new Error('Invalid WebSocket message format');
   }
 }

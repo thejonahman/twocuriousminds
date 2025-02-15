@@ -54,19 +54,18 @@ function VideoPage() {
     refetchOnMount: true
   });
 
-  // Update the last active group query type and response handling
   const { data: lastActiveGroupResponse } = useQuery<ApiResponse<LastActiveGroup>, Error>({
     queryKey: [`/api/videos/${id}/last-active-group`] as const,
     enabled: !!id && !groupId,
-    select: (response: ApiResponse<unknown>) => {
+    select: (data: ApiResponse<unknown>) => {
       try {
         return {
-          ...response,
-          data: response.data ? lastActiveGroupSchema.parse(response.data) : null
+          ...data,
+          data: lastActiveGroupSchema.parse(data.data)
         };
       } catch (error) {
         console.error('Invalid last active group data:', error);
-        return { ...response, data: null };
+        return { ...data, data: null };
       }
     },
     retry: 3,

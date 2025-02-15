@@ -1,174 +1,199 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { setupWebSocketServer } from "./websocket";
+import { createServer as createNetServer, type Server as NetServer } from 'net';
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Add detailed request logging middleware with error tracking
+// Add detailed request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
-  console.log(`[REQUEST] ${req.method} ${req.path}`, {
+  const path = req.path;
+  const method = req.method;
+  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+
+  // Enhanced logging for debugging
+  console.log(`[REQUEST] ${method} ${path}`, {
+    timestamp: new Date().toISOString(),
     headers: req.headers,
     query: req.query,
-    timestamp: new Date().toISOString()
+    body: req.body
   });
 
+  // Capture response data
+  const originalResJson = res.json;
+  res.json = function (bodyJson, ...args) {
+    capturedJsonResponse = bodyJson;
+    console.log(`[RESPONSE] ${method} ${path} will send JSON:`, bodyJson);
+    return originalResJson.apply(res, [bodyJson, ...args]);
+  };
+
+  // Log response details with enhanced information
   res.on("finish", () => {
     const duration = Date.now() - start;
-    console.log(`[COMPLETE] ${req.method} ${req.path} ${res.statusCode} in ${duration}ms`);
+    const contentType = res.get('Content-Type');
+    const status = res.statusCode;
+
+    console.log(`[COMPLETE] ${method} ${path}`, {
+      timestamp: new Date().toISOString(),
+      status,
+      duration: `${duration}ms`,
+      contentType,
+      isApiRoute: path.startsWith("/api"),
+      responseType: capturedJsonResponse ? 'json' : 'non-json'
+    });
+
+    if (path.startsWith("/api")) {
+      let logLine = `${method} ${path} ${status} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+
+      if (logLine.length > 80) {
+        logLine = logLine.slice(0, 79) + "…";
+      }
+
+      log(logLine);
+    }
   });
 
   next();
 });
 
-// Register routes first to get access to the session middleware
-const { server, sessionMiddleware } = registerRoutes(app);
+// Ensure all API routes are registered before Vite middleware
+const server = registerRoutes(app);
 
-// Global error handler with better logging
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-  console.error('Application Error:', {
-    error: err.message,
-    stack: err.stack,
+// Add API-specific error handler for /api routes
+app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
+  console.error('API Error:', {
+    timestamp: new Date().toISOString(),
     path: req.path,
     method: req.method,
-    timestamp: new Date().toISOString()
+    error: err,
+    stack: err.stack
   });
 
-  if (req.path.startsWith('/api')) {
-    res.status(err.status || 500).json({
-      error: err.message || "Internal Server Error",
-      success: false
+  const status = err.status || err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
+
+  // Ensure we always return JSON for API routes
+  res.status(status)
+    .set('Content-Type', 'application/json')
+    .json({
+      error: message,
+      success: false,
+      timestamp: new Date().toISOString()
     });
-  } else {
-    next(err);
-  }
 });
 
-// Setup Vite with error handling
+// Add catch-all handler for /api routes to prevent falling through to Vite
+app.use('/api/*', (req: Request, res: Response) => {
+  console.log(`[404] No API route found for ${req.method} ${req.path}`);
+  res.status(404)
+    .set('Content-Type', 'application/json')
+    .json({
+      error: 'API endpoint not found',
+      success: false,
+      timestamp: new Date().toISOString()
+    });
+});
+
+// Setup Vite only after API routes are registered
 if (app.get("env") === "development") {
-  try {
-    setupVite(app, server);
-  } catch (error) {
-    console.error('Vite setup failed:', error);
-    process.exit(1);
-  }
+  setupVite(app, server);
 } else {
   serveStatic(app);
 }
 
-// Server startup with proper port binding and health checks
+// Configure the port and host for better accessibility
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
-// Create a Promise that resolves when the server is ready
-const serverReady = new Promise((resolve, reject) => {
-  let wss: any;
-  let startupAttempts = 0;
-  const MAX_STARTUP_ATTEMPTS = 5;
-  const RETRY_DELAY = 1000; // 1 second
-
-  const startServer = () => {
-    try {
-      // Close server if it's already listening
-      if (server.listening) {
-        server.close();
-      }
-
-      server.listen(PORT, HOST, () => {
-        console.log(`Server running at http://${HOST}:${PORT}`, {
-          env: process.env.NODE_ENV,
-          timestamp: new Date().toISOString()
-        });
-
-        // Initialize WebSocket server after HTTP server is ready
-        wss = setupWebSocketServer(server, sessionMiddleware);
-        console.log('[WebSocket] Server initialized');
-
-        // Add a basic health check endpoint
-        app.get('/health', (req, res) => {
-          res.json({
-            status: 'healthy',
-            uptime: process.uptime(),
-            timestamp: new Date().toISOString()
-          });
-        });
-
-        // Signal that the server is ready
-        if (process.send) {
-          process.send('ready');
-        }
-
-        resolve(true);
-      });
-
-      // Handle server-level errors
-      server.on('error', (error: any) => {
-        console.error('Server error:', {
-          error: error.message,
-          code: error.code,
-          timestamp: new Date().toISOString()
-        });
-        handleStartupError(error);
-      });
-
-    } catch (error) {
-      console.error('Server startup attempt failed:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
-      });
-      handleStartupError(error);
-    }
-  };
-
-  const handleStartupError = (error: any) => {
-    if (error.code === 'EADDRINUSE') {
-      if (startupAttempts < MAX_STARTUP_ATTEMPTS) {
-        startupAttempts++;
-        console.log(`Port ${PORT} is busy, retrying in ${RETRY_DELAY}ms... (Attempt ${startupAttempts}/${MAX_STARTUP_ATTEMPTS})`);
-        setTimeout(startServer, RETRY_DELAY);
-      } else {
-        const errorMessage = `Could not bind to port ${PORT} after ${MAX_STARTUP_ATTEMPTS} attempts`;
-        console.error(errorMessage);
-        reject(new Error(errorMessage));
-      }
-    } else {
-      console.error('Fatal server startup error:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
-      });
-      reject(error);
-    }
-  };
-
-  // Start the server
-  startServer();
-});
-
-// Graceful shutdown handler with WebSocket cleanup
-const shutdown = () => {
-  console.log('Shutting down server...', {
-    timestamp: new Date().toISOString()
+// Function to check if port is in use using ESM
+function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tester: NetServer = createNetServer()
+      .once('error', () => resolve(true))
+      .once('listening', () => {
+        tester.once('close', () => resolve(false)).close();
+      })
+      .listen(port);
   });
+}
 
+// Function to find an available port
+async function findAvailablePort(startPort: number): Promise<number> {
+  let port = startPort;
+  while (await isPortInUse(port)) {
+    port++;
+    if (port > startPort + 100) { // Don't search indefinitely
+      throw new Error('No available ports found in range');
+    }
+  }
+  return port;
+}
+
+let shutdownInProgress = false;
+
+// Convert function declaration to function expression
+const handleShutdown = () => {
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
+
+  console.log('Shutting down server...');
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
   });
 
-  // Force exit after 10 seconds
+  // Force exit if graceful shutdown takes too long
   setTimeout(() => {
-    console.error('Forced shutdown after timeout');
+    console.error('Forcing server shutdown');
     process.exit(1);
-  }, 10000);
+  }, 5000);
 };
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+// Start server with port availability check and explicit host binding
+const startServer = async () => {
+  try {
+    const port = await findAvailablePort(PORT);
+    if (port !== PORT) {
+      console.log(`Port ${PORT} was in use, using port ${port} instead`);
+    }
 
-// Export the server and ready promise for testing
-export { server, serverReady };
+    process.on('SIGTERM', handleShutdown);
+    process.on('SIGINT', handleShutdown);
+
+    // Create a promise that resolves when the server is listening
+    const serverReady = new Promise<void>((resolve) => {
+      server.listen(port, HOST, () => {
+        const startupMessage = `Server started and ready on http://${HOST}:${port}`;
+        log(startupMessage);
+        console.log('=== Server Configuration ===');
+        console.log(`Environment: ${app.get("env")}`);
+        console.log(`Port: ${port}`);
+        console.log(`Host: ${HOST}`);
+        console.log(`Timestamp: ${new Date().toISOString()}`);
+        console.log('=========================');
+        console.log('Server is now ready to accept connections');
+        resolve();
+      });
+    });
+
+    // Wait for server to be ready before signaling
+    await serverReady;
+
+    // Signal that the server is ready (for workflow port waiting)
+    if (process.send) {
+      process.send('ready');
+      console.log('Sent ready signal to parent process');
+    }
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
