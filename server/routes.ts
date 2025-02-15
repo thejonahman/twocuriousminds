@@ -1,13 +1,12 @@
 import { createServer, type Server } from "http";
-import express, { type Express, type NextFunction } from 'express';
-import { Request, Response } from 'express';
+import express, { type Express } from 'express';
+import { setupAuth } from "./auth";
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences, subcategories } from "@db/schema";
-import { setupAuth, requireAuth } from "./auth";
 import groupMessagesRouter from './routes/group-messages';
 import { sendUnreadMessagesNotification, resend } from './lib/email';
 import { type FileFilterCallback } from "multer";
@@ -21,7 +20,7 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
-export function registerRoutes(app: Express): Server {
+export function registerRoutes(app: Express): { server: Server, sessionMiddleware: any } {
   // Create HTTP server first
   const httpServer = createServer(app);
 
@@ -59,8 +58,8 @@ export function registerRoutes(app: Express): Server {
   // Health check endpoint
   apiRouter.get("/health", (req: Request, res: Response) => {
     console.log('[Health Check] Endpoint accessed');
-    res.json({ 
-      status: 'healthy', 
+    res.json({
+      status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime()
     });
@@ -534,7 +533,6 @@ export function registerRoutes(app: Express): Server {
   }));
 
 
-
   apiRouter.post("/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { name, videoId, description } = req.body;
     const userId = req.user?.id;
@@ -884,7 +882,7 @@ export function registerRoutes(app: Express): Server {
   apiRouter.post("/groups/:groupId/mark-read", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
-            return res.status(400).json({ message: "Invalid group ID" });
+      return res.status(400).json({ message: "Invalid group ID" });
     }
 
     // Update lastReadAt for the member
@@ -926,9 +924,9 @@ export function registerRoutes(app: Express): Server {
         console.log('Domain created:', domain);
       }
 
-      res.json({ 
-        success: true, 
-        domains: domains.data || [] 
+      res.json({
+        success: true,
+        domains: domains.data || []
       });
     } catch (error) {
       console.error('Domain verification failed:', error);
@@ -996,7 +994,8 @@ export function registerRoutes(app: Express): Server {
         console.log('Fetching test group:', groupId);
         const testGroup = await db.query.discussionGroups.findFirst({
           where: eq(discussionGroups.id, groupId),
-          with: {            messages: {
+          with: {
+            messages: {
               limit: 5,
               orderBy: [desc(groupMessages.createdAt)],
               with: {
@@ -1011,7 +1010,8 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!testGroup) {
-          console.error('No discussion group found:', groupId);          return res.status(404).json({ message: "No discussion group found for testing" });
+          console.error('No discussion group found:', groupId);
+          return res.status(404).json({ message: "No discussion group found for testing" });
         }
 
         console.log('Found test group:', {
@@ -1166,6 +1166,6 @@ export function registerRoutes(app: Express): Server {
     }
   }));
 
-  // Return the HTTP server
-  return httpServer;
+  // Return the HTTP server and session middleware
+  return { server: httpServer, sessionMiddleware };
 }

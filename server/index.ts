@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { setupWebSocketServer } from "./websocket";
 
 const app = express();
 app.use(express.json());
@@ -19,8 +20,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// Register routes
-const server = registerRoutes(app);
+// Register routes first to get access to the session middleware
+const { server, sessionMiddleware } = registerRoutes(app);
 
 // API error handler
 app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
@@ -38,24 +39,44 @@ if (app.get("env") === "development") {
   serveStatic(app);
 }
 
-// Simple server startup
+// Server startup with proper port binding
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
-server.listen(PORT, HOST, () => {
-  console.log(`Server running at http://${HOST}:${PORT}`);
-  if (process.send) {
-    process.send('ready');
-  }
+// Create a Promise that resolves when the server is ready
+const serverReady = new Promise((resolve, reject) => {
+  server.listen(PORT, HOST, () => {
+    console.log(`Server running at http://${HOST}:${PORT}`);
+
+    // Initialize WebSocket server after HTTP server is ready
+    const wss = setupWebSocketServer(server, sessionMiddleware);
+    console.log('[WebSocket] Server initialized');
+
+    // Signal that the server is ready
+    if (process.send) {
+      process.send('ready');
+    }
+
+    resolve(true);
+  });
+
+  server.on('error', (error: Error) => {
+    console.error('Server startup error:', error);
+    reject(error);
+  });
 });
 
 // Basic shutdown handling
-process.on('SIGTERM', () => {
+const shutdown = () => {
   console.log('Shutting down server...');
-  server.close(() => process.exit(0));
-});
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+};
 
-process.on('SIGINT', () => {
-  console.log('Shutting down server...');
-  server.close(() => process.exit(0));
-});
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+// Export the server and ready promise for testing
+export { server, serverReady };

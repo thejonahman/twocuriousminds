@@ -25,6 +25,13 @@ export interface Video {
   subcategory: Subcategory | null;
 }
 
+// VideoData type used in discussion component
+export interface VideoData {
+  id: number;
+  title: string;
+  description?: string;
+}
+
 export const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),

@@ -37,6 +37,7 @@ import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
 import debounce from 'lodash/debounce';
 import { VirtualizedMessageList } from "@/components/ui/virtualized-message-list";
+import { VideoData } from "@/types/video";
 
 interface Props {
   videoId: number;
@@ -114,6 +115,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const resetReconnectionState = useCallback(() => {
     setReconnectAttempts(0);
     setReconnectDelay(INITIAL_RECONNECT_DELAY);
+    setIsConnecting(false);
   }, []);
 
   // Calculate next reconnection delay with exponential backoff
@@ -125,119 +127,119 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     return Math.floor(delay);
   }, [reconnectAttempts]);
 
-  // WebSocket connection management
+  // Enhanced WebSocket connection handling
   const connectWebSocket = useCallback(() => {
     if (!user || !currentGroup) {
-      console.log('[WebSocket] Not connecting - missing user or group:', { 
+      console.log('[WebSocket] Connection attempted without user or group:', { 
         hasUser: !!user, 
         hasGroup: !!currentGroup,
-        userId: user?.id,
-        groupId: currentGroup?.id 
+        timestamp: new Date().toISOString()
       });
       return;
     }
 
     try {
-      setIsConnecting(true);
-      console.log('[WebSocket] Starting connection attempt...', {
-        userId: user.id,
-        groupId: currentGroup.id,
-        reconnectAttempts,
-        reconnectDelay,
-        timestamp: new Date().toISOString()
-      });
-
+      // Close existing connection if any
       if (socketRef.current?.readyState === WebSocket.OPEN) {
         console.log('[WebSocket] Closing existing connection');
         socketRef.current.close();
+        socketRef.current = null;
       }
 
+      setIsConnecting(true);
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws`;
-      console.log('[WebSocket] Connecting to:', wsUrl);
+
+      console.log('[WebSocket] Initiating connection:', {
+        url: wsUrl,
+        userId: user.id,
+        groupId: currentGroup.id,
+        timestamp: new Date().toISOString()
+      });
 
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
+      // Connection timeout handler
+      const connectionTimeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          console.log('[WebSocket] Connection timeout - closing socket');
+          ws.close();
+        }
+      }, 10000); // 10 second timeout
+
       ws.onopen = () => {
-        console.log('[WebSocket] Connected successfully', {
-          userId: user.id,
-          groupId: currentGroup.id,
+        clearTimeout(connectionTimeout);
+        console.log('[WebSocket] Connection established:', {
           readyState: ws.readyState,
           timestamp: new Date().toISOString()
         });
-        setIsConnecting(false);
         resetReconnectionState();
+      };
+
+      ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
+        console.log('[WebSocket] Connection closed:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          timestamp: new Date().toISOString()
+        });
+
+        setIsConnecting(true);
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+
+        // Only attempt reconnection if we still have a current group
+        if (currentGroup) {
+          const nextDelay = getNextReconnectDelay();
+          console.log('[WebSocket] Scheduling reconnection:', {
+            attempt: reconnectAttempts + 1,
+            delay: nextDelay,
+            timestamp: new Date().toISOString()
+          });
+
+          setReconnectAttempts(prev => prev + 1);
+          reconnectTimeoutRef.current = setTimeout(connectWebSocket, nextDelay);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('[WebSocket] Connection error:', {
+          error,
+          readyState: ws.readyState,
+          timestamp: new Date().toISOString()
+        });
+        // Don't set isConnecting to false here, let onclose handle it
       };
 
       ws.onmessage = (event) => {
         try {
-          console.log('[WebSocket] Received message:', event.data);
-          const data = validateWSOutput(JSON.parse(event.data));
-          if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
+          const data = JSON.parse(event.data);
+          console.log('[WebSocket] Received message:', {
+            type: data.type,
+            timestamp: new Date().toISOString()
+          });
+
+          if (data.type === 'connected') {
+            console.log('[WebSocket] Connection confirmed by server');
+          } else if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
             handleNewMessages([data.data]);
-          } else if (data.type === 'connected') {
-            console.log('[WebSocket] Received connection confirmation');
           }
         } catch (error) {
           console.error('[WebSocket] Message parsing error:', error);
         }
       };
 
-      ws.onclose = (event) => {
-        console.log('[WebSocket] Connection closed', {
-          userId: user.id,
-          groupId: currentGroup.id,
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean,
-          reconnectAttempts,
-          timestamp: new Date().toISOString()
-        });
-        setIsConnecting(true);
-
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-
-        // Increment reconnection attempts and calculate new delay
-        setReconnectAttempts(prev => prev + 1);
-        const nextDelay = getNextReconnectDelay();
-        setReconnectDelay(nextDelay);
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (currentGroup) {
-            console.log('[WebSocket] Attempting reconnection...', {
-              userId: user.id,
-              groupId: currentGroup.id,
-              attempt: reconnectAttempts + 1,
-              delay: nextDelay,
-              timestamp: new Date().toISOString()
-            });
-            connectWebSocket();
-          }
-        }, nextDelay);
-      };
-
-      ws.onerror = (error) => {
-        console.error('[WebSocket] Connection error:', {
-          userId: user.id,
-          groupId: currentGroup.id,
-          error,
-          timestamp: new Date().toISOString()
-        });
-      };
-
     } catch (error) {
       console.error('[WebSocket] Setup error:', {
         error,
-        userId: user?.id,
-        groupId: currentGroup?.id,
         timestamp: new Date().toISOString()
       });
       setIsConnecting(false);
     }
-  }, [user, currentGroup, reconnectAttempts, reconnectDelay, getNextReconnectDelay, resetReconnectionState, handleNewMessages]);
+  }, [user, currentGroup, reconnectAttempts, getNextReconnectDelay, resetReconnectionState, handleNewMessages]);
 
   // Cleanup WebSocket on unmount or group change
   useEffect(() => {
@@ -359,9 +361,22 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     staleTime: 30000,
   });
 
-  const { data: videoData } = useQuery<VideoData>({
+  const { data: videoData, isLoading: isVideoDataLoading } = useQuery<VideoData>({
     queryKey: [`/api/videos/${videoId}`],
     enabled: !!videoId,
+    select: useCallback((data: unknown) => {
+      try {
+        const videoData = data as VideoData;
+        return {
+          id: videoData.id,
+          title: videoData.title,
+          description: videoData.description
+        };
+      } catch (error) {
+        console.error('Video data validation error:', error);
+        return null;
+      }
+    }, []),
   });
 
   // Fix query type for messages
@@ -609,7 +624,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     );
   }
 
-  if (isGroupLoading || isLastActiveLoading) {
+  if (isGroupLoading || isLastActiveLoading || isVideoDataLoading) {
     return (
       <Card>
         <CardHeader>
