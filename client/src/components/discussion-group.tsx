@@ -24,29 +24,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
-  type Message,
-  type Group,
+  Message,
+  DiscussionGroup,
   validateApiResponse,
   messageSchema,
-  groupSchema,
+  discussionGroupSchema,
 } from "@/lib/api-types";
 import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
 import { env } from "@/lib/env";
-
-interface GroupMember {
-  id: number;
-  username: string;
-  userId: number;
-}
-
-interface Group {
-  id: number;
-  name: string;
-  inviteCode: string;
-  members: GroupMember[];
-  description?: string;
-}
 
 interface Props {
   videoId: number;
@@ -69,39 +55,50 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   // State
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
-  const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
+  const [currentGroup, setCurrentGroup] = useState<DiscussionGroup | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [restorationAttempted, setRestorationAttempted] = useState(false);
 
   // Debug logging function with timestamp
-  const logDebug = (action: string, data: any) => {
+  const logDebug = (action: string, data: unknown) => {
     console.log(`[DiscussionGroup ${new Date().toISOString()}] ${action}:`, data);
   };
 
   // Polling setup
   const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
 
-  // Queries with proper enabled conditions
-  const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
+  // Queries with proper type safety
+  const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroup, Error>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
-    select: (data) => {
+    select: (data: unknown) => {
       try {
-        return validateApiResponse(groupSchema, data);
+        const validated = validateApiResponse(discussionGroupSchema, data);
+        if (!validated) throw new Error('Invalid group data');
+        return validated;
       } catch (error) {
         console.error('Group validation error:', error);
-        return null;
+        throw error;
       }
     },
     retry: 3,
     staleTime: 30000,
   });
 
-  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<Group>({
+  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroup, Error>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
-    select: (data) => validateApiResponse(groupSchema, data),
+    select: (data: unknown) => {
+      try {
+        const validated = validateApiResponse(discussionGroupSchema, data);
+        if (!validated) throw new Error('Invalid group data');
+        return validated;
+      } catch (error) {
+        console.error('Group validation error:', error);
+        throw error;
+      }
+    },
     retry: 3,
     staleTime: 30000,
   });
@@ -111,10 +108,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     enabled: !!videoId,
   });
 
-  const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[]>({
+  const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[], Error>({
     queryKey: [`/api/groups/${currentGroup?.id}/messages`],
     enabled: !!currentGroup?.id && !!user,
-    select: (data) => {
+    select: (data: unknown) => {
       try {
         return validateApiResponse(z.array(messageSchema), data);
       } catch (error) {
@@ -136,7 +133,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         // If we have an initialGroupId from URL, use that
         if (initialGroupId && group) {
           logDebug('Restoring from URL group ID', { groupId: initialGroupId });
-          setCurrentGroup(prevGroup => {
+          setCurrentGroup((prevGroup: DiscussionGroup | null) => {
             if (prevGroup?.id === group.id) return prevGroup;
             return group;
           });

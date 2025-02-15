@@ -1,28 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { VideoGrid } from "@/components/video-grid";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { Search, X } from "lucide-react";
+import { Search, X, AlertTriangle } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation } from "wouter";
 import debounce from 'lodash/debounce';
 import { ErrorBoundary } from "@/components/error-boundary";
 import { toast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 import { Video } from "@/lib/types";
 
-interface CategoryData {
+interface CategoryDetails {
   name: string;
-  subcategories: Record<string, {
-    name: string;
-    videos: Video[];
-    displayOrder?: number;
-  }>;
+  subcategories: Record<string, SubcategoryDetails>;
 }
 
+interface SubcategoryDetails {
+  name: string;
+  videos: Video[];
+  displayOrder?: number;
+}
+
+type VideosByCategory = Record<string, CategoryDetails>;
+
 export default function Home() {
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [, setLocation] = useLocation();
   const search = useSearch();
   const params = new URLSearchParams(search);
@@ -33,11 +39,16 @@ export default function Home() {
     return id !== null && /^\d+$/.test(id);
   };
 
-  const { data: videos = [], isLoading, error } = useQuery<Video[]>({
-    queryKey: ["/api/videos"],
+  const { 
+    data: videos = [], 
+    isLoading, 
+    error,
+    refetch 
+  } = useQuery<Video[], Error>({
+    queryKey: ["/api/videos"] as const,
     retry: 3,
     refetchOnWindowFocus: false,
-    refetchOnMount: true,
+    refetchOnMount: true
   });
 
   const debouncedSearch = useCallback(
@@ -47,26 +58,13 @@ export default function Home() {
     []
   );
 
-  const filteredVideos = videos && videos.length > 0
-    ? videos.filter(video => {
-        const searchTerms = searchQuery.toLowerCase().split(" ");
-        const searchableText = `${video.title} ${video.description || ""} ${video.category.name} ${video.subcategory?.name || ""}`.toLowerCase();
-        return searchTerms.every(term => searchableText.includes(term));
-      })
-    : [];
-
-  useEffect(() => {
-    if (searchQuery) {
-      console.log('Search query changed:', {
-        query: searchQuery,
-        resultsCount: filteredVideos.length,
-        totalVideos: videos.length
-      });
-    }
-  }, [searchQuery, filteredVideos.length, videos.length]);
+  const filteredVideos = videos.filter((video: Video) => {
+    const searchTerms = searchQuery.toLowerCase().split(" ");
+    const searchableText = `${video.title} ${video.description || ""} ${video.category.name} ${video.subcategory?.name || ""}`.toLowerCase();
+    return searchTerms.every(term => searchableText.includes(term));
+  });
 
   const handleCategoryChange = useCallback((categoryId: string) => {
-    console.log('Category changed:', { categoryId });
     if (!isValidId(categoryId)) {
       console.warn('Invalid category ID:', categoryId);
       return;
@@ -97,7 +95,7 @@ export default function Home() {
   }, [search, setLocation]);
 
   useEffect(() => {
-    if (initialSubcategoryId && videos) {
+    if (initialSubcategoryId && videos.length > 0) {
       try {
         const element = document.getElementById(`subcategory-${initialSubcategoryId}`);
         if (element) {
@@ -109,61 +107,49 @@ export default function Home() {
     }
   }, [initialSubcategoryId, videos]);
 
-  const videosByCategory: Record<string, CategoryData> | null = !searchQuery
-    ? videos.reduce<Record<string, CategoryData>>((acc, video) => {
-        try {
-          const categoryId = String(video.category.id);
-          if (!acc[categoryId]) {
-            acc[categoryId] = {
-              name: video.category.name,
-              subcategories: {},
+  const videosByCategory = !searchQuery
+    ? videos.reduce<VideosByCategory>((acc, video) => {
+        const categoryId = String(video.category.id);
+        if (!acc[categoryId]) {
+          acc[categoryId] = {
+            name: video.category.name,
+            subcategories: {},
+          };
+        }
+
+        if (video.subcategory) {
+          const subcategoryId = String(video.subcategory.id);
+          if (!acc[categoryId].subcategories[subcategoryId]) {
+            acc[categoryId].subcategories[subcategoryId] = {
+              name: video.subcategory.name,
+              videos: [],
+              displayOrder: video.subcategory.displayOrder,
             };
           }
-
-          if (video.subcategory) {
-            const subcategoryId = String(video.subcategory.id);
-            if (!acc[categoryId].subcategories[subcategoryId]) {
-              acc[categoryId].subcategories[subcategoryId] = {
-                name: video.subcategory.name,
-                videos: [],
-                displayOrder: video.subcategory.displayOrder,
-              };
-            }
-            acc[categoryId].subcategories[subcategoryId].videos.push(video);
-          }
-          return acc;
-        } catch (error) {
-          console.error('Error processing video:', error);
-          return acc;
+          acc[categoryId].subcategories[subcategoryId].videos.push(video);
         }
+        return acc;
       }, {})
     : null;
 
-  const categories = [
-    { id: "1", name: "Learn about ADHD", displayOrder: -1 },
-    { id: "2", name: "Another Category", displayOrder: 1 },
-  ];
-
   const sortedCategories = videosByCategory
     ? Object.entries(videosByCategory).sort(([,a], [,b]) => {
-        const categoryA = categories.find(cat => cat.name === a.name);
-        const categoryB = categories.find(cat => cat.name === b.name);
-        const orderA = categoryA?.displayOrder ?? 0;
-        const orderB = categoryB?.displayOrder ?? 0;
+        const orderA = a.name === 'Learn about ADHD' ? -1 : 0;
+        const orderB = b.name === 'Learn about ADHD' ? -1 : 0;
         return orderA !== orderB ? orderA - orderB : a.name.localeCompare(b.name);
       })
     : [];
 
   if (isLoading) {
     return (
-      <div className="space-y-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-10 w-2/3 bg-muted rounded-lg" />
-          <div className="h-5 w-1/2 bg-muted rounded-lg" />
-          <div className="h-12 w-full bg-muted rounded-lg" />
+      <div className="space-y-8 animate-in fade-in-50">
+        <div className="space-y-4">
+          <div className="h-10 w-2/3 bg-muted rounded-lg animate-pulse" />
+          <div className="h-5 w-1/2 bg-muted rounded-lg animate-pulse" />
+          <div className="h-12 w-full bg-muted rounded-lg animate-pulse" />
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="aspect-video bg-muted rounded-xl" />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="aspect-video bg-muted rounded-xl animate-pulse" />
             ))}
           </div>
         </div>
@@ -173,16 +159,21 @@ export default function Home() {
 
   if (error) {
     return (
-      <div className="text-center py-8">
-        <p className="text-destructive">Error loading videos. Please try again later.</p>
-      </div>
-    );
-  }
-
-  if (!videos || videos.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-muted-foreground">No videos found</p>
+      <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive space-y-4">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5" />
+          <h2 className="text-lg font-semibold">Failed to load videos</h2>
+        </div>
+        <p className="text-sm">
+          {error instanceof Error ? error.message : "An unexpected error occurred while loading videos."}
+        </p>
+        <Button 
+          variant="destructive"
+          onClick={() => refetch()}
+          className="w-full justify-center"
+        >
+          Try Again
+        </Button>
       </div>
     );
   }

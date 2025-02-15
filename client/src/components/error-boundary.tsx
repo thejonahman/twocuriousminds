@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 
 interface Props {
   children: React.ReactNode;
-  fallback?: React.ReactNode;
+  fallback?: React.ReactNode | ((error: Error, reset: () => void) => React.ReactNode);
 }
 
 interface State {
@@ -53,9 +53,24 @@ export class ErrorBoundary extends Component<Props, State> {
     });
   }
 
+  resetErrorBoundary = () => {
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null
+    });
+  };
+
   render() {
     if (this.state.hasError) {
-      return this.props.fallback || (
+      if (this.props.fallback) {
+        if (typeof this.props.fallback === 'function') {
+          return this.props.fallback(this.state.error!, this.resetErrorBoundary);
+        }
+        return this.props.fallback;
+      }
+
+      return (
         <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive space-y-4">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5" />
@@ -71,10 +86,10 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
           <Button 
             variant="destructive"
-            onClick={() => window.location.reload()}
+            onClick={this.resetErrorBoundary}
             className="w-full justify-center"
           >
-            Reload page
+            Try Again
           </Button>
         </div>
       );
@@ -86,7 +101,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
 export function withErrorBoundary<P extends object>(
   Component: React.ComponentType<P>,
-  fallback?: React.ReactNode
+  fallback?: React.ReactNode | ((error: Error, reset: () => void) => React.ReactNode)
 ) {
   return function WithErrorBoundary(props: P) {
     return (

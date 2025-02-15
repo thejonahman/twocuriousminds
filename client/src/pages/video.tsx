@@ -17,8 +17,9 @@ import { useState, useEffect } from "react";
 import { z } from "zod";
 import { useUser } from "@/hooks/use-user";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { Video, ApiResponse } from "@/lib/types";
 
-// Update type for last active group
+// Update type for last active group with strict schema
 const lastActiveGroupSchema = z.object({
   id: z.number(),
   name: z.string(),
@@ -29,61 +30,55 @@ const lastActiveGroupSchema = z.object({
     username: z.string(),
     userId: z.number(),
   })),
-}).nullable();
+});
 
 type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
+type ShareType = 'copy' | 'email' | 'twitter' | 'linkedin';
 
-export default function Video() {
-  const { id, groupId } = useParams();
+function VideoPage() {
+  const { id, groupId } = useParams<{ id: string; groupId?: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const { user } = useUser();
   const [restorationAttempted, setRestorationAttempted] = useState(false);
 
-  // Query for video details
-  const { data: video, isLoading } = useQuery<{
-    id: number;
-    title: string;
-    description: string;
-    url: string;
-    platform: string;
-    categoryId: number;
-    category: {
-      id: number;
-      name: string;
-    };
-    subcategoryId: number | undefined;
-    subcategory: {
-      id: number;
-      name: string;
-    } | null;
-  }>({
-    queryKey: [`/api/videos/${id}`],
+  const { 
+    data: video, 
+    isLoading: isVideoLoading, 
+    error: videoError 
+  } = useQuery<Video, Error>({
+    queryKey: [`/api/videos/${id}`] as const,
+    retry: 3,
+    refetchOnWindowFocus: false,
+    refetchOnMount: true
   });
 
-  // Update the query with proper error handling
-  const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
-    queryKey: [`/api/videos/${id}/last-active-group`],
+  const { data: lastActiveGroupResponse } = useQuery<ApiResponse<LastActiveGroup>, Error>({
+    queryKey: [`/api/videos/${id}/last-active-group`] as const,
     enabled: !!id && !groupId,
-    select: (data) => {
+    select: (data: ApiResponse<unknown>) => {
       try {
-        return lastActiveGroupSchema.parse(data);
+        return {
+          ...data,
+          data: lastActiveGroupSchema.parse(data.data)
+        };
       } catch (error) {
         console.error('Invalid last active group data:', error);
-        return null;
+        return { ...data, data: null };
       }
     },
     retry: 3,
   });
 
-  // Update the useEffect for group restoration
+  const lastActiveGroup = lastActiveGroupResponse?.data;
+
   useEffect(() => {
     if (!user || restorationAttempted) return;
 
     const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
 
-    const shouldRejoinGroup = (lastLeftGroupId: string | null, lastLeftTime: string | null) => {
+    const shouldRejoinGroup = (lastLeftGroupId: string | null, lastLeftTime: string | null): boolean => {
       if (!lastLeftGroupId || !lastLeftTime) return true;
       const timeSinceLeft = Date.now() - parseInt(lastLeftTime);
       return timeSinceLeft >= REJOIN_TIMEOUT;
@@ -119,7 +114,7 @@ export default function Video() {
     }
   };
 
-  const handleShare = async (type: string) => {
+  const handleShare = async (type: ShareType) => {
     const baseUrl = window.location.origin;
     const shareUrl = groupId
       ? `${baseUrl}/video/${id}/group/${groupId}`
@@ -147,7 +142,7 @@ export default function Video() {
         window.location.href = `mailto:?subject=Check out this video discussion&body=I thought you might like this video discussion: ${shareUrl}`;
         break;
       case 'twitter':
-        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this video discussion: ${video?.title}`)}`);
+        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this video discussion: ${video?.title || ''}`)}`);
         break;
       case 'linkedin':
         window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`);
@@ -155,7 +150,7 @@ export default function Video() {
     }
   };
 
-  if (isLoading) {
+  if (isVideoLoading) {
     return (
       <div className="container mx-auto py-6">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-6">
@@ -169,10 +164,23 @@ export default function Video() {
     );
   }
 
-  if (!video) {
+  if (videoError || !video) {
     return (
-      <div className="container mx-auto py-6 text-center">
-        <p className="text-muted-foreground">Video not found</p>
+      <div className="container mx-auto py-6 space-y-4">
+        <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5" />
+            <h2 className="text-lg font-semibold">
+              {videoError ? 'Error loading video' : 'Video not found'}
+            </h2>
+          </div>
+          <p className="mt-2 text-sm">
+            {videoError instanceof Error ? videoError.message : "The requested video could not be found."}
+          </p>
+        </div>
+        <Button onClick={() => setLocation('/')} variant="outline">
+          Return to Home
+        </Button>
       </div>
     );
   }
@@ -214,7 +222,7 @@ export default function Video() {
             <VideoPlayer video={video} />
             <div className="mt-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">{video?.title}</h1>
+                <h1 className="text-2xl font-bold">{video.title}</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="icon" className="ml-2">
@@ -249,33 +257,14 @@ export default function Video() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <p className="text-muted-foreground">{video?.description}</p>
+              <p className="text-muted-foreground">{video.description}</p>
             </div>
           </div>
 
           <div className="rounded-xl border bg-card shadow-sm">
-            <ErrorBoundary
-              fallback={
-                <div className="p-6 text-center space-y-4">
-                  <div className="flex items-center justify-center gap-2 text-destructive">
-                    <AlertTriangle className="h-5 w-5" />
-                    <h3 className="font-semibold">Failed to load discussion group</h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    Please try refreshing the page or joining the group again.
-                  </p>
-                  <Button 
-                    variant="outline"
-                    onClick={() => window.location.reload()}
-                    className="w-full"
-                  >
-                    Refresh Page
-                  </Button>
-                </div>
-              }
-            >
+            <ErrorBoundary>
               <DiscussionGroup
-                videoId={video?.id}
+                videoId={video.id}
                 initialGroupId={groupId ? parseInt(groupId) : undefined}
               />
             </ErrorBoundary>
@@ -284,12 +273,14 @@ export default function Video() {
 
         <div className="lg:sticky lg:top-4 space-y-4">
           <RecommendationSidebar
-            currentVideoId={video?.id}
-            categoryId={video?.categoryId}
-            subcategoryId={video?.subcategoryId}
+            currentVideoId={video.id}
+            categoryId={video.categoryId}
+            subcategoryId={video.subcategoryId}
           />
         </div>
       </div>
     </div>
   );
 }
+
+export default VideoPage;

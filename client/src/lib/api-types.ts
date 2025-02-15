@@ -7,9 +7,10 @@ const baseEntitySchema = z.object({
 });
 
 // User schema for group members
-const groupMemberSchema = z.object({
+export const groupMemberSchema = z.object({
   id: z.number(),
   username: z.string(),
+  userId: z.number(),
 });
 
 // Message schemas
@@ -30,16 +31,23 @@ export const groupMessageSchema = messageSchema.extend({
 });
 
 // Group schemas
-export const groupSchema = baseEntitySchema.extend({
+export const discussionGroupSchema = baseEntitySchema.extend({
   name: z.string(),
   description: z.string().nullable(),
   videoId: z.number().nullable(),
+  inviteCode: z.string(),
   creatorId: z.number(),
   isPrivate: z.boolean(),
-  inviteCode: z.string(),
+  members: z.array(groupMemberSchema),
   messages: z.array(groupMessageSchema).optional(),
-  members: z.array(groupMemberSchema).optional(),
 });
+
+// Types exported from schemas
+export type Message = z.infer<typeof messageSchema>;
+export type VideoMessage = z.infer<typeof videoMessageSchema>;
+export type GroupMessage = z.infer<typeof groupMessageSchema>;
+export type GroupMember = z.infer<typeof groupMemberSchema>;
+export type DiscussionGroup = z.infer<typeof discussionGroupSchema>;
 
 // Input message schemas (for sending to WebSocket)
 export const wsInputMessageSchema = z.discriminatedUnion("type", [
@@ -77,11 +85,11 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("group_created"),
-    data: groupSchema,
+    data: discussionGroupSchema,
   }),
   z.object({
     type: z.literal("group_joined"),
-    data: groupSchema,
+    data: discussionGroupSchema,
   }),
   z.object({
     type: z.literal("error"),
@@ -89,11 +97,6 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-// API response types
-export type Message = z.infer<typeof messageSchema>;
-export type VideoMessage = z.infer<typeof videoMessageSchema>;
-export type GroupMessage = z.infer<typeof groupMessageSchema>;
-export type Group = z.infer<typeof groupSchema>;
 export type WSMessage = z.infer<typeof wsMessageSchema>;
 export type WSInputMessage = z.infer<typeof wsInputMessageSchema>;
 

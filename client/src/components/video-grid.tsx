@@ -12,29 +12,34 @@ import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Video } from "@/lib/types";
-import { ErrorBoundary } from "./error-boundary";
-
-// Platform icon component with increased size for better visibility
-const PlatformIcon = memo(({ platform }: { platform: string }) => {
-  const size = "h-12 w-12"; // Increased size for better visibility
-  switch (platform.toLowerCase()) {
-    case 'youtube':
-      return <Youtube className={`${size} text-red-500`} />;
-    case 'tiktok':
-      return <SiTiktok className={`${size} text-black dark:text-white`} />;
-    case 'instagram':
-      return <Instagram className={`${size} text-pink-500`} />;
-    default:
-      return <Image className={`${size} text-muted-foreground`} />;
-  }
-});
+import { Video, ApiResponse, isApiError } from "@/lib/types";
+import { withErrorBoundary } from "@/components/error-boundary";
 
 interface VideoGridProps {
   videos: Video[];
   showEditButton?: boolean;
   highlightVideoId?: number;
 }
+
+interface PlatformIconProps {
+  platform: string;
+}
+
+// Platform icon component with increased size for better visibility
+const PlatformIcon = memo<PlatformIconProps>(({ platform }) => {
+  const iconSize = "h-12 w-12";
+  switch (platform.toLowerCase()) {
+    case 'youtube':
+      return <Youtube className={`${iconSize} text-red-500`} />;
+    case 'tiktok':
+      return <SiTiktok className={`${iconSize} text-black dark:text-white`} />;
+    case 'instagram':
+      return <Instagram className={`${iconSize} text-pink-500`} />;
+    default:
+      return <Image className={`${iconSize} text-muted-foreground`} />;
+  }
+});
+PlatformIcon.displayName = 'PlatformIcon';
 
 function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }: VideoGridProps) {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
@@ -43,51 +48,41 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
   const scrollPositionRef = useRef(0);
   const queryClient = useQueryClient();
 
-  const deleteMutation = useMutation({
+  const deleteMutation = useMutation<ApiResponse<void>, Error, number>({
     mutationFn: async (videoId: number) => {
-      console.log('[Delete] Starting delete mutation for video:', videoId);
       setDeletingVideoId(videoId);
 
       try {
         const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
-        console.log('[Delete] API Response:', { status: response.status });
-
         if (!response.ok) {
-          throw new Error('Failed to delete video');
+          throw new Error(`Failed to delete video: ${response.statusText}`);
         }
-
-        const data = await response.json();
-        console.log('[Delete] Success response:', data);
-        return data;
+        return await response.json();
       } catch (error) {
-        console.error('[Delete] Error in mutation:', error);
-        throw error;
+        console.error('Delete mutation error:', error);
+        throw error instanceof Error ? error : new Error('Failed to delete video');
       }
     },
-    onSuccess: (data, videoId) => {
-      console.log('[Delete] Successfully deleted video:', videoId);
+    onSuccess: (_, videoId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
-        title: "Success",
-        description: "Video deleted successfully",
+        title: "Video deleted",
+        description: "The video has been successfully removed.",
       });
     },
-    onError: (error) => {
-      console.error('[Delete] Delete mutation error:', error);
+    onError: (error: Error) => {
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete video",
+        title: "Failed to delete video",
+        description: error.message || "Please try again later.",
         variant: "destructive",
       });
     },
     onSettled: () => {
-      console.log('[Delete] Mutation settled, clearing state');
       setDeletingVideoId(null);
     },
   });
 
   const handleDelete = useCallback((videoId: number) => {
-    console.log('[Delete] handleDelete called for video:', videoId);
     deleteMutation.mutate(videoId);
   }, [deleteMutation]);
 
@@ -97,12 +92,10 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
     setDialogOpen(true);
   }, []);
 
-  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    console.log('[VideoGrid] Image failed to load:', {
+    console.warn('Image failed to load:', {
       src: img.src,
-      naturalWidth: img.naturalWidth,
-      naturalHeight: img.naturalHeight,
       error: e
     });
 
@@ -110,7 +103,7 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
     const container = img.parentElement;
     if (container) {
       const fallback = container.querySelector('.fallback-icon');
-      if (fallback) {
+      if (fallback instanceof HTMLElement) {
         fallback.classList.remove('hidden');
       }
     }
@@ -253,32 +246,25 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
   );
 }
 
-// Wrap the component with error boundary using the HOC pattern
-const withErrorBoundary = (Component: React.ComponentType<any>, FallbackComponent: React.ReactElement) => {
-  return function WrappedComponent(props: any) {
-    return (
-      <ErrorBoundary FallbackComponent={FallbackComponent}>
-        <Component {...props} />
-      </ErrorBoundary>
-    );
-  };
-};
-
-export const VideoGrid = withErrorBoundary(VideoGridComponent, (
-  <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive space-y-4">
-    <div className="flex items-center gap-2">
-      <AlertTriangle className="h-5 w-5" />
-      <h2 className="text-lg font-semibold">Failed to load videos</h2>
+// Export the wrapped component with error boundary
+export const VideoGrid = withErrorBoundary<VideoGridProps>(
+  VideoGridComponent,
+  (error, reset) => (
+    <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive space-y-4">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-5 w-5" />
+        <h2 className="text-lg font-semibold">Failed to load videos</h2>
+      </div>
+      <p className="text-sm">
+        {error.message || "There was an error loading the video grid. Please try again."}
+      </p>
+      <Button 
+        variant="destructive"
+        onClick={reset}
+        className="w-full justify-center"
+      >
+        Try Again
+      </Button>
     </div>
-    <p className="text-sm">
-      There was an error loading the video grid. Please try refreshing the page.
-    </p>
-    <Button 
-      variant="destructive"
-      onClick={() => window.location.reload()}
-      className="w-full justify-center"
-    >
-      Refresh page
-    </Button>
-  </div>
-));
+  )
+);
