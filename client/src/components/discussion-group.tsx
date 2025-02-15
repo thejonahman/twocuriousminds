@@ -1,40 +1,19 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { usePolling } from "@/hooks/use-polling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, MessageSquare, Plus, Users } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardFooter,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Message,
-  DiscussionGroup as DiscussionGroupType,
-  validateApiResponse,
-  messageSchema,
-  discussionGroupSchema,
-  GroupMessage, // Assuming this is defined elsewhere
-} from "@/lib/api-types";
+import { Card, CardHeader, CardContent, CardFooter, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+
+import { Message, DiscussionGroup, validateApiResponse, messageSchema, discussionGroupSchema, GroupMessage, WSMessage } from "@/lib/api-types";
 import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
-import debounce from 'lodash/debounce';
 import { VirtualizedMessageList } from "@/components/ui/virtualized-message-list";
+import { useWebSocket } from "@/hooks/use-websocket";
 
 interface Props {
   videoId: number;
@@ -46,9 +25,6 @@ interface VideoData {
   description?: string;
 }
 
-const MESSAGES_PER_PAGE = 50;
-const MESSAGE_UPDATE_DEBOUNCE = 300;
-
 export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   // Hooks
   const { user } = useAuth();
@@ -56,11 +32,12 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { state: wsState, sendMessage: sendWsMessage, addMessageHandler } = useWebSocket();
 
   // State
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
-  const [currentGroup, setCurrentGroup] = useState<DiscussionGroupType | null>(null);
+  const [currentGroup, setCurrentGroup] = useState<DiscussionGroup | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [restorationAttempted, setRestorationAttempted] = useState(false);
@@ -70,8 +47,108 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     console.log(`[DiscussionGroupComponent ${new Date().toISOString()}] ${action}:`, data);
   }, []);
 
-  // Optimized queries with proper caching and error handling
-  const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroupType, Error>({
+  // Message handler for WebSocket messages
+  const handleNewMessages = useCallback((data: WSMessage) => {
+    if (!currentGroup || data.type !== 'new_message' || data.data.groupId !== currentGroup.id) return;
+
+    logDebug('WebSocket message received', data);
+
+    queryClient.setQueryData<Message[]>(
+      [`/api/groups/${currentGroup.id}/messages`],
+      old => [...(old || []), data.data]
+    );
+
+    if (document.hidden) {
+      setUnreadCount(prev => prev + 1);
+    } else {
+      fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }).catch(error => {
+        console.error('Failed to mark messages as read:', error);
+      });
+      setUnreadCount(0);
+    }
+  }, [currentGroup, queryClient, logDebug]);
+
+  // Optimized message mutation
+  const sendMessageMutation = useMutation({
+    mutationFn: async (content: string) => {
+      if (!currentGroup) throw new Error('No active group');
+
+      const message = {
+        type: 'new_message',
+        groupId: currentGroup.id,
+        content,
+        timestamp: new Date().toISOString()
+      };
+
+      // Send via WebSocket first for instant feedback
+      sendWsMessage(message);
+
+      // Then persist to database
+      const response = await fetch(`/api/groups/${currentGroup.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content })
+      });
+
+      if (!response.ok) throw new Error('Failed to send message');
+      return response.json();
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to send message",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Message submission handler
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!messageInput.trim() || !currentGroup) return;
+
+    const content = messageInput.trim();
+    setMessageInput(""); // Clear input immediately for better UX
+
+    try {
+      await sendMessageMutation.mutateAsync(content);
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    } catch (error) {
+      // Error handled by mutation callbacks
+      setMessageInput(content); // Restore input on error
+    }
+  };
+
+  // Setup WebSocket message handler
+  useEffect(() => {
+    if (!user || !currentGroup) return;
+
+    const cleanup = addMessageHandler(handleNewMessages);
+
+    // Handle visibility change
+    const handleVisibilityChange = () => {
+      if (!document.hidden && unreadCount > 0 && currentGroup) {
+        fetch(`/api/groups/${currentGroup.id}/mark-read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        }).catch(console.error);
+        setUnreadCount(0);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      cleanup();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [user, currentGroup, handleNewMessages, unreadCount, addMessageHandler]);
+
+
+  const { data: group, isLoading: isGroupLoading } = useQuery<DiscussionGroup, Error>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: useCallback((data: unknown) => {
@@ -88,112 +165,10 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       return failureCount < 3 && !error.message.includes('Invalid group data');
     },
     staleTime: 30000,
-    gcTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 5 * 60 * 1000,
   });
 
-  // Optimistic updates mutation
-  const sendMessageMutation = useMutation({
-    mutationFn: async (content: string) => {
-      if (!currentGroup) throw new Error('No active group');
-      const response = await fetch(`/api/groups/${currentGroup.id}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content })
-      });
-      if (!response.ok) throw new Error('Failed to send message');
-      return response.json();
-    },
-    onMutate: async (content) => {
-      if (!currentGroup || !user) return;
-
-      // Cancel outgoing fetches
-      await queryClient.cancelQueries({ queryKey: [`/api/groups/${currentGroup.id}/messages`] });
-
-      // Get current messages
-      const previousMessages = queryClient.getQueryData<Message[]>([`/api/groups/${currentGroup.id}/messages`]);
-
-      // Optimistically add new message
-      const optimisticMessage: GroupMessage = { // Type corrected here
-        id: Date.now(),
-        content,
-        userId: user.id,
-        groupId: currentGroup.id,
-        createdAt: new Date().toISOString(),
-        user: {
-          id: user.id,
-          username: user.username || 'Unknown User'
-        }
-      };
-
-      queryClient.setQueryData<GroupMessage[]>( // Type corrected here
-        [`/api/groups/${currentGroup.id}/messages`],
-        old => [...(old || []), optimisticMessage]
-      );
-
-      return { previousMessages };
-    },
-    onError: (err, content, context) => {
-      if (context?.previousMessages && currentGroup) {
-        queryClient.setQueryData(
-          [`/api/groups/${currentGroup.id}/messages`],
-          context.previousMessages
-        );
-      }
-      toast({
-        title: "Error",
-        description: "Failed to send message. Please try again.",
-        variant: "destructive",
-      });
-    },
-    onSuccess: () => {
-      if (currentGroup) {
-        queryClient.invalidateQueries({
-          queryKey: [`/api/groups/${currentGroup.id}/messages`]
-        });
-      }
-    }
-  });
-
-  // Debounced message input handler
-  const debouncedMessageUpdate = useMemo(
-    () => debounce((value: string) => setMessageInput(value), MESSAGE_UPDATE_DEBOUNCE),
-    []
-  );
-
-  // Memoized message handler
-  const handleNewMessages = useCallback(async (newMessages: Message[]) => {
-    if (!currentGroup) return;
-
-    logDebug('New messages received', {
-      count: newMessages.length,
-      groupId: currentGroup.id
-    });
-
-    queryClient.setQueryData<Message[]>(
-      [`/api/groups/${currentGroup.id}/messages`],
-      old => {
-        const oldMessages = old || [];
-        const newMessageIds = new Set(newMessages.map(m => m.id));
-        return [...oldMessages.filter(m => !newMessageIds.has(m.id)), ...newMessages];
-      }
-    );
-
-    if (document.hidden) {
-      setUnreadCount(prev => prev + newMessages.length);
-    } else {
-      try {
-        await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' }
-        });
-        setUnreadCount(0);
-      } catch (error) {
-        console.error('Failed to mark messages as read:', error);
-      }
-    }
-  }, [currentGroup, queryClient, logDebug]);
-
-  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroupType, Error>({
+  const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<DiscussionGroup, Error>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
     select: useCallback((data: unknown) => {
@@ -330,50 +305,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     };
   }, [currentGroup, videoId]);
 
-  // Message handler
-  useEffect(() => {
-    if (!user || !currentGroup) return;
-
-    const cleanup = addMessageHandler(handleNewMessages);
-
-    // Add visibility change handler
-    const handleVisibilityChange = async () => {
-      if (!document.hidden && unreadCount > 0) {
-        try {
-          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          setUnreadCount(0);
-        } catch (error) {
-          console.error('Failed to mark messages as read:', error);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      cleanup();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [user, currentGroup, handleNewMessages, unreadCount]);
-
-  // Polling setup
-  const { state: pollingState, sendMessage, addMessageHandler } = usePolling(currentGroup?.id);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!messageInput.trim() || !currentGroup) return;
-
-    try {
-      await sendMessageMutation.mutateAsync(messageInput.trim());
-      setMessageInput('');
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    } catch (error) {
-      // Error handling is done in mutation callbacks
-    }
-  };
 
   const handleCreateGroup = async () => {
     const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
@@ -495,7 +426,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
     );
   }
 
-  if (pollingState.error) {
+  if (wsState.error) { //Check WebSocket state for errors
     return (
       <Card>
         <CardHeader>
@@ -596,9 +527,10 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
         <form onSubmit={handleSubmit} className="flex w-full items-center gap-2">
           <Input
             value={messageInput}
-            onChange={(e) => debouncedMessageUpdate(e.target.value)}
+            onChange={(e) => setMessageInput(e.target.value)}
             placeholder="Type your message..."
             className="flex-1"
+            disabled={sendMessageMutation.isPending}
           />
           <Button
             type="submit"

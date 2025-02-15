@@ -53,11 +53,11 @@ export type GroupMessage = z.infer<typeof groupMessageSchema>;
 export type GroupMember = z.infer<typeof groupMemberSchema>;
 export type DiscussionGroup = z.infer<typeof discussionGroupSchema>;
 
-// Input message schemas (for sending to WebSocket)
+// WebSocket message schemas with discriminated unions
 export const wsInputMessageSchema = z.discriminatedUnion("type", [
   z.object({
-    type: z.literal("message"),
-    videoId: z.number(),
+    type: z.literal("new_message"),
+    groupId: z.number(),
     content: z.string(),
   }),
   z.object({
@@ -81,10 +81,6 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("new_message"),
-    data: videoMessageSchema,
-  }),
-  z.object({
-    type: z.literal("new_group_message"),
     data: groupMessageSchema,
   }),
   z.object({
@@ -111,6 +107,16 @@ export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
   } catch (error) {
     console.error('API Response validation error:', error);
     throw new Error('Invalid API response format');
+  }
+}
+
+// Utility function to validate WebSocket messages
+export function validateWSMessage(data: unknown): WSMessage {
+  try {
+    return wsMessageSchema.parse(data);
+  } catch (error) {
+    console.error('WebSocket message validation error:', error);
+    throw new Error('Invalid WebSocket message format');
   }
 }
 
