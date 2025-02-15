@@ -22,8 +22,6 @@ interface CategoryData {
 }
 
 export default function Home() {
-  console.log('Home component rendering');
-
   const [searchQuery, setSearchQuery] = useState("");
   const [, setLocation] = useLocation();
   const search = useSearch();
@@ -40,38 +38,22 @@ export default function Home() {
     retry: 3,
     refetchOnWindowFocus: false,
     refetchOnMount: true,
-    onError: (error: Error) => {
-      console.error('Failed to fetch videos:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load videos. Please try again later.",
-        variant: "destructive",
-      });
-    },
-    onSuccess: (data: Video[]) => {
-      console.log('Videos fetched successfully:', {
-        count: data.length,
-        categories: Array.from(new Set(data.map(v => v.category.name))),
-        subcategories: Array.from(new Set(data.map(v => v.subcategory?.name).filter(Boolean)))
-      });
-    }
   });
 
   const debouncedSearch = useCallback(
     debounce((query: string) => {
-      console.log('Debounced search triggered:', query);
       setSearchQuery(query);
     }, 300),
     []
   );
 
-  const filteredVideos = searchQuery
+  const filteredVideos = videos && videos.length > 0
     ? videos.filter(video => {
         const searchTerms = searchQuery.toLowerCase().split(" ");
         const searchableText = `${video.title} ${video.description || ""} ${video.category.name} ${video.subcategory?.name || ""}`.toLowerCase();
         return searchTerms.every(term => searchableText.includes(term));
       })
-    : videos;
+    : [];
 
   useEffect(() => {
     if (searchQuery) {

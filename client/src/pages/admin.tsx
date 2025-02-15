@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLocation } from "wouter";
 import { Video } from "@/lib/types";
+import { CategoryManager } from "@/components/category-manager";
 
 interface User {
   id: number;
@@ -52,6 +53,7 @@ export function AdminPage(): JSX.Element {
         <TabsList>
           <TabsTrigger value="add">Add New Video</TabsTrigger>
           <TabsTrigger value="manage">Manage Videos</TabsTrigger>
+          <TabsTrigger value="categories">Manage Categories</TabsTrigger>
         </TabsList>
 
         <TabsContent value="add" className="space-y-4">
@@ -60,6 +62,10 @@ export function AdminPage(): JSX.Element {
 
         <TabsContent value="manage">
           {videos && <VideoGrid videos={videos} showEditButton={true} />}
+        </TabsContent>
+
+        <TabsContent value="categories">
+          <CategoryManager />
         </TabsContent>
       </Tabs>
     </div>
