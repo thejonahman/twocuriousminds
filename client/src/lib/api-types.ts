@@ -13,13 +13,17 @@ export const groupMemberSchema = z.object({
   userId: z.number(),
 });
 
-// Message schemas
+// User schema for messages
+const messageUserSchema = z.object({
+  id: z.number(),
+  username: z.string(),
+});
+
+// Message schemas with strict typing
 export const messageSchema = baseEntitySchema.extend({
   content: z.string(),
   userId: z.number(),
-  user: z.object({
-    username: z.string(),
-  }),
+  user: messageUserSchema,
 });
 
 export const videoMessageSchema = messageSchema.extend({
