@@ -59,6 +59,7 @@ export const videos = pgTable("videos", {
   subcategoryId: integer("subcategory_id").references(() => subcategories.id),
   platform: text("platform").notNull(),
   watched: boolean("watched").default(false),
+  customThumbnail: boolean("custom_thumbnail").default(false).notNull(),
   isDeleted: boolean("is_deleted").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

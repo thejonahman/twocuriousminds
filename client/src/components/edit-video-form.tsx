@@ -11,6 +11,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Video, VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory, getPlatformColor } from "@/types/video";
+import { Image as ImageIcon, X, Upload } from 'lucide-react';
+import { Label } from "@/components/ui/label";
 
 interface EditVideoFormProps {
   video: Video;
@@ -64,15 +66,22 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     mutationFn: async (data: VideoFormData) => {
       try {
         console.log('Making PATCH request to /api/videos', { videoId: video.id, data });
-        const thumbnailUrl = getVideoThumbnail(data.url, data.platform);
-        console.log('Generated thumbnail URL:', thumbnailUrl);
+        const thumbnailUrl = data.thumbnailFile 
+          ? await uploadThumbnail(data.thumbnailFile)
+          : getVideoThumbnail(data.url, data.platform);
+
+        console.log('Generated/Uploaded thumbnail URL:', thumbnailUrl);
 
         const payload = {
           ...data,
           categoryId: parseInt(data.categoryId),
           subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
-          thumbnailUrl
+          thumbnailUrl,
+          customThumbnail: !!data.thumbnailFile
         };
+
+        // Remove the file from the payload as it's already uploaded
+        delete payload.thumbnailFile;
 
         const response = await apiRequest("PATCH", `/api/videos/${video.id}`, payload);
         if (!response.ok) {
@@ -156,28 +165,103 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         />
 
         <FormItem>
-          <FormLabel>Thumbnail Preview</FormLabel>
+          <FormLabel>Thumbnail</FormLabel>
           <div className="flex flex-col gap-4">
-            {thumbnailUrl ? (
-              <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
-                <img
-                  src={thumbnailUrl}
-                  alt="Video thumbnail"
-                  className="h-full w-full object-cover"
-                />
-              </div>
-            ) : (
-              <div 
-                className="flex aspect-video w-full items-center justify-center rounded-lg border" 
-                style={{ 
-                  backgroundColor: getPlatformColor(platform)
-                }}
-              >
-                <span className="text-sm text-white">
-                  {platform.toUpperCase()} Video
-                </span>
-              </div>
-            )}
+            <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-muted">
+              {thumbnailUrl ? (
+                <>
+                  <img
+                    src={thumbnailUrl}
+                    alt="Video thumbnail"
+                    className="h-full w-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => {
+                        const fileInput = document.createElement('input');
+                        fileInput.type = 'file';
+                        fileInput.accept = 'image/jpeg,image/png,image/webp';
+                        fileInput.onchange = (e) => {
+                          const file = (e.target as HTMLInputElement).files?.[0];
+                          if (file) {
+                            form.setValue('thumbnailFile', file);
+                          }
+                        };
+                        fileInput.click();
+                      }}
+                      className="absolute top-2 right-2"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Change
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div 
+                  className="flex aspect-video w-full items-center justify-center rounded-lg border cursor-pointer hover:bg-muted/80 transition-colors"
+                  onClick={() => {
+                    const fileInput = document.createElement('input');
+                    fileInput.type = 'file';
+                    fileInput.accept = 'image/jpeg,image/png,image/webp';
+                    fileInput.onchange = (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (file) {
+                        form.setValue('thumbnailFile', file);
+                      }
+                    };
+                    fileInput.click();
+                  }}
+                  style={{ 
+                    backgroundColor: getPlatformColor(platform)
+                  }}
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <ImageIcon className="h-8 w-8 text-white" />
+                    <span className="text-sm text-white">
+                      Click to upload thumbnail
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <FormField
+              control={form.control}
+              name="thumbnailFile"
+              render={({ field: { value, onChange, ...field } }) => (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          onChange(file);
+                        }
+                      }}
+                      {...field}
+                    />
+                    {value && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <span>{(value as File).name}</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onChange(null)}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  <FormMessage />
+                </>
+              )}
+            />
           </div>
         </FormItem>
 
@@ -324,4 +408,21 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       </form>
     </Form>
   );
+}
+
+async function uploadThumbnail(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('thumbnail', file);
+
+  const response = await fetch('/api/upload/thumbnail', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to upload thumbnail');
+  }
+
+  const data = await response.json();
+  return data.url;
 }

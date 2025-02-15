@@ -1,6 +1,9 @@
 import { createServer, type Server } from "http";
 import express, { type Express, type NextFunction } from 'express';
 import { Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
 import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences, subcategories } from "@db/schema";
@@ -23,6 +26,53 @@ export function registerRoutes(app: Express): Server {
 
   // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
+
+  // Configure multer for file uploads
+  const uploadDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+
+  const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, uniqueSuffix + path.extname(file.originalname));
+    }
+  });
+
+  const upload = multer({
+    storage: storage,
+    limits: {
+      fileSize: 5 * 1024 * 1024 // 5MB
+    },
+    fileFilter: function (req, file, cb) {
+      const filetypes = /jpeg|jpg|png|webp/;
+      const mimetype = filetypes.test(file.mimetype);
+      const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+
+      if (mimetype && extname) {
+        return cb(null, true);
+      }
+      cb(new Error('Only JPEG, PNG and WebP images are allowed'));
+    }
+  });
+
+  // Serve uploaded files statically
+  app.use('/uploads', express.static(uploadDir));
+
+  // Add thumbnail upload endpoint
+  app.post('/api/upload/thumbnail', upload.single('thumbnail'), (req: Request, res: Response) => {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    // Return the URL of the uploaded file
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
+  });
 
   // Global middleware to ensure JSON responses for all /api routes
   app.use('/api', (req, res, next) => {
@@ -201,7 +251,7 @@ export function registerRoutes(app: Express): Server {
 
   // Add video submission endpoint
   app.post("/api/videos", asyncHandler(async (req: Request, res: Response) => {
-    const { title, url, description, categoryId, subcategoryId, platform } = req.body;
+    const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
 
     if (!title || !url || !categoryId || !platform) {
       return res.status(400).json({
@@ -233,7 +283,7 @@ export function registerRoutes(app: Express): Server {
       }
     }
 
-    // Insert the video
+    // Insert the video with the custom thumbnail URL if provided
     const [newVideo] = await db.insert(videos)
       .values({
         title,
@@ -242,6 +292,8 @@ export function registerRoutes(app: Express): Server {
         categoryId,
         subcategoryId: subcategoryId || null,
         platform,
+        thumbnailUrl,
+        customThumbnail: customThumbnail || false,
         createdAt: new Date(),
         isDeleted: false
       })
@@ -460,6 +512,7 @@ export function registerRoutes(app: Express): Server {
       throw error; // Let the global error handler handle it
     }
   }));
+
 
 
   // Add direct group access endpoint

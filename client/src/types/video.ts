@@ -20,6 +20,7 @@ export interface Video {
   subcategoryId?: number;
   platform: string;
   thumbnailUrl: string | null;
+  customThumbnail: boolean;
   category: Category;
   subcategory: Subcategory | null;
 }
@@ -38,7 +39,26 @@ export const videoSchema = z.object({
     }, "Must be a YouTube, TikTok, or Instagram URL"),
   categoryId: z.string().min(1, "Category is required"),
   subcategoryId: z.string().optional(),
-  platform: z.enum(["youtube", "tiktok", "instagram"])
+  platform: z.enum(["youtube", "tiktok", "instagram"]),
+  thumbnailFile: z
+    .instanceof(File)
+    .optional()
+    .nullable()
+    .refine(
+      (file) => {
+        if (!file) return true;
+        const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+        return validTypes.includes(file.type);
+      },
+      "Only JPEG, PNG and WebP images are allowed"
+    )
+    .refine(
+      (file) => {
+        if (!file) return true;
+        return file.size <= 5 * 1024 * 1024; // 5MB
+      },
+      "Image must be less than 5MB"
+    ),
 });
 
 export type VideoFormData = z.infer<typeof videoSchema>;
