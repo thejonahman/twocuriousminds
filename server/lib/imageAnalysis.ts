@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-// Simplified image finding function without AI categorization
+// Simplified image finding function without AI analysis
 export async function findBestImageForVideo(
   title: string,
   description: string,
@@ -37,6 +37,18 @@ export async function findBestImageForVideo(
 
   } catch (error) {
     console.error('Error finding image:', error);
+    return null;
+  }
+}
+
+// Add function to analyze a specific image file
+export async function analyzeImageFile(filePath: string): Promise<string | null> {
+  try {
+    const imageBuffer = fs.readFileSync(filePath);
+    const base64Image = imageBuffer.toString('base64');
+    return await analyzeImage(base64Image);
+  } catch (error) {
+    console.error('Error analyzing specific image:', error);
     return null;
   }
 }

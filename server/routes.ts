@@ -534,6 +534,7 @@ export function registerRoutes(app: Express): Server {
   }));
 
 
+
   apiRouter.post("/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { name, videoId, description } = req.body;
     const userId = req.user?.id;
@@ -1011,8 +1012,7 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!testGroup) {
-          console.error('No discussion group found:', groupId);
-          return res.status(404).json({ message: "No discussion group found for testing" });
+          console.error('No discussion group found:', groupId);          return res.status(404).json({ message: "No discussion group found for testing" });
         }
 
         console.log('Found test group:', {
