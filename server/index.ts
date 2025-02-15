@@ -45,25 +45,56 @@ const HOST = '0.0.0.0';
 
 // Create a Promise that resolves when the server is ready
 const serverReady = new Promise((resolve, reject) => {
-  server.listen(PORT, HOST, () => {
-    console.log(`Server running at http://${HOST}:${PORT}`);
+  let wss: any;
+  let startupAttempts = 0;
+  const MAX_STARTUP_ATTEMPTS = 5;
 
-    // Initialize WebSocket server after HTTP server is ready
-    const wss = setupWebSocketServer(server, sessionMiddleware);
-    console.log('[WebSocket] Server initialized');
+  const startServer = () => {
+    try {
+      server.listen(PORT, HOST, () => {
+        console.log(`Server running at http://${HOST}:${PORT}`);
 
-    // Signal that the server is ready
-    if (process.send) {
-      process.send('ready');
+        // Initialize WebSocket server after HTTP server is ready
+        wss = setupWebSocketServer(server, sessionMiddleware);
+        console.log('[WebSocket] Server initialized');
+
+        // Signal that the server is ready
+        if (process.send) {
+          process.send('ready');
+        }
+
+        resolve(true);
+      });
+    } catch (error) {
+      console.error('Server startup attempt failed:', error);
+      handleStartupError(error);
     }
+  };
 
-    resolve(true);
-  });
+  const handleStartupError = (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      if (startupAttempts < MAX_STARTUP_ATTEMPTS) {
+        startupAttempts++;
+        console.log(`Port ${PORT} is busy, retrying in 1 second... (Attempt ${startupAttempts}/${MAX_STARTUP_ATTEMPTS})`);
+        setTimeout(() => {
+          server.close();
+          startServer();
+        }, 1000);
+      } else {
+        console.error(`Failed to start server after ${MAX_STARTUP_ATTEMPTS} attempts`);
+        reject(new Error(`Could not bind to port ${PORT} after ${MAX_STARTUP_ATTEMPTS} attempts`));
+      }
+    } else {
+      console.error('Fatal server startup error:', error);
+      reject(error);
+    }
+  };
 
-  server.on('error', (error: Error) => {
-    console.error('Server startup error:', error);
-    reject(error);
-  });
+  // Handle startup errors
+  server.on('error', handleStartupError);
+
+  // Start the server
+  startServer();
 });
 
 // Basic shutdown handling

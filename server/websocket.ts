@@ -29,6 +29,8 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
       console.log('[WebSocket] Received upgrade request:', {
         path: request.url,
         headers: request.headers,
+        cookies: request.headers.cookie,
+        protocol: request.headers['sec-websocket-protocol'],
         timestamp: new Date().toISOString()
       });
 
@@ -50,7 +52,7 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
 
       // Parse cookies and extract session ID
       if (!request.headers.cookie) {
-        console.log('[WebSocket] No cookies present');
+        console.log('[WebSocket] No cookies present in request');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -60,21 +62,34 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
       const sessionId = cookies['connect.sid'];
 
       if (!sessionId) {
-        console.log('[WebSocket] No session ID found');
+        console.log('[WebSocket] No session ID found in cookies');
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
 
+      console.log('[WebSocket] Found session ID:', sessionId);
+
       // Extract the raw session ID
       const rawSessionId = sessionId.split('.')[0].replace('s:', '');
+      console.log('[WebSocket] Extracted raw session ID:', rawSessionId);
 
       try {
         // Get session from store
         const session = await new Promise<Session | null>((resolve, reject) => {
           sessionMiddleware.store.get(rawSessionId, (err: any, session: Session | null) => {
-            if (err) reject(err);
-            else resolve(session);
+            if (err) {
+              console.error('[WebSocket] Session retrieval error:', err);
+              reject(err);
+            } else {
+              console.log('[WebSocket] Retrieved session:', {
+                hasSession: !!session,
+                hasPassport: !!session?.passport,
+                hasUser: !!session?.passport?.user,
+                timestamp: new Date().toISOString()
+              });
+              resolve(session);
+            }
           });
         });
 
@@ -86,17 +101,44 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
         }
 
         const userId = session.passport.user;
+        console.log('[WebSocket] Authenticated user:', userId);
 
         // Close existing connection if any
         const existingConnection = connectedClients.get(userId);
-        if (existingConnection?.readyState === WebSocket.OPEN) {
-          existingConnection.close();
+        if (existingConnection) {
+          if (existingConnection.readyState === WebSocket.OPEN) {
+            console.log('[WebSocket] Closing existing connection for user:', userId);
+            existingConnection.close(1000, 'New connection received');
+          }
           connectedClients.delete(userId);
         }
 
         // Handle the upgrade
         wss.handleUpgrade(request, socket, head, (ws) => {
-          console.log('[WebSocket] Connection upgraded for user:', userId);
+          console.log('[WebSocket] Connection upgraded successfully for user:', userId);
+
+          // Set a ping interval to keep the connection alive
+          const pingInterval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.ping();
+            } else {
+              clearInterval(pingInterval);
+            }
+          }, 30000);
+
+          // Handle pong responses
+          ws.on('pong', () => {
+            console.log('[WebSocket] Received pong from user:', userId);
+          });
+
+          // Send initial connection success message
+          ws.send(JSON.stringify({
+            type: 'connected',
+            message: 'Connected to chat server',
+            userId: userId,
+            timestamp: new Date().toISOString()
+          }));
+
           connectedClients.set(userId, ws);
           wss.emit('connection', ws, userId);
         });
@@ -118,17 +160,15 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
   wss.on('connection', (ws: WebSocket, userId: number) => {
     console.log('[WebSocket] New connection established for user:', userId);
 
-    // Send connected message
-    ws.send(JSON.stringify({
-      type: 'connected',
-      message: 'Connected to chat server'
-    }));
-
     // Handle messages
     ws.on('message', async (data: Buffer) => {
       try {
         const message = JSON.parse(data.toString());
-        console.log('[WebSocket] Received message:', message);
+        console.log('[WebSocket] Received message:', {
+          userId,
+          messageType: message.type,
+          timestamp: new Date().toISOString()
+        });
 
         if (!message.type || message.type !== 'group_message') {
           throw new Error('Invalid message type');
@@ -150,6 +190,8 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
           })
           .returning();
 
+        console.log('[WebSocket] Saved message:', savedMessage);
+
         // Get group members for broadcasting
         const members = await db.query.groupMembers.findMany({
           where: eq(groupMembers.groupId, groupId),
@@ -167,35 +209,52 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
           }
         };
 
-        for (const member of members) {
+        console.log('[WebSocket] Broadcasting message to members:', {
+          messageId: savedMessage.id,
+          groupId,
+          recipientCount: members.length
+        });
+
+        members.forEach(member => {
           const client = connectedClients.get(member.userId);
           if (client?.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(broadcastMessage));
           }
-        }
+        });
 
       } catch (error) {
         console.error('[WebSocket] Message handling error:', error);
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
             type: 'error',
-            message: error instanceof Error ? error.message : 'Failed to process message'
+            message: error instanceof Error ? error.message : 'Failed to process message',
+            timestamp: new Date().toISOString()
           }));
         }
       }
     });
 
     // Handle connection close
-    ws.on('close', () => {
-      console.log('[WebSocket] Connection closed for user:', userId);
+    ws.on('close', (code: number, reason: string) => {
+      console.log('[WebSocket] Connection closed for user:', {
+        userId,
+        code,
+        reason: reason.toString(),
+        timestamp: new Date().toISOString()
+      });
       if (connectedClients.get(userId) === ws) {
         connectedClients.delete(userId);
       }
     });
 
     // Handle errors
-    ws.on('error', (error) => {
-      console.error('[WebSocket] Connection error for user:', userId, error);
+    ws.on('error', (error: Error) => {
+      console.error('[WebSocket] Connection error for user:', {
+        userId,
+        error: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString()
+      });
       if (connectedClients.get(userId) === ws) {
         connectedClients.delete(userId);
       }
