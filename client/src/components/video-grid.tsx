@@ -226,7 +226,7 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
       ))}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-4">
           <DialogHeader>
             <DialogTitle>Edit Video</DialogTitle>
           </DialogHeader>
@@ -258,7 +258,7 @@ export const VideoGrid = withErrorBoundary<VideoGridProps>(
       <p className="text-sm">
         {error.message || "There was an error loading the video grid. Please try again."}
       </p>
-      <Button 
+      <Button
         variant="destructive"
         onClick={reset}
         className="w-full justify-center"

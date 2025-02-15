@@ -62,7 +62,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         console.log('Making PATCH request to /api/videos', { videoId: video.id, data });
 
         // Handle thumbnail upload if provided
-        let thumbnailUrl = data.thumbnailFile 
+        let thumbnailUrl = data.thumbnailFile
           ? await uploadThumbnail(data.thumbnailFile)
           : data.thumbnailUrl || getVideoThumbnail(data.url, data.platform);
 
@@ -139,7 +139,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" ref={formRef}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 max-h-[75vh] overflow-y-auto pr-6 pb-4" ref={formRef}>
         <FormField
           control={form.control}
           name="title"
@@ -154,7 +154,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
-        {/* Thumbnail Upload field */}
         <FormField
           control={form.control}
           name="thumbnailFile"
