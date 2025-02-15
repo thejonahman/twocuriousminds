@@ -1,15 +1,16 @@
 import { createServer, type Server } from "http";
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import { WebSocketServer } from 'ws';
 import { setupAuth, requireAuth } from "./auth";
-import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
-import { videos, messages, users, discussionGroups, groupMessages, groupMembers, categories, userPreferences, subcategories } from "@db/schema";
+import { discussionGroups, groupMembers, groupMessages, categories, subcategories, userPreferences, videos } from "@db/schema";
 import groupMessagesRouter from './routes/group-messages';
-import { sendUnreadMessagesNotification, resend } from './lib/email';
+import path from 'path';
+import fs from 'fs';
+import multer from 'multer';
 import { type FileFilterCallback } from "multer";
+import { sendUnreadMessagesNotification, resend } from './lib/email';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -20,14 +21,66 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
+// Async handler wrapper
+const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
+  return Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 export function registerRoutes(app: Express): { server: Server, sessionMiddleware: any } {
   // Create HTTP server first
   const httpServer = createServer(app);
 
-  // Setup auth and get session middleware BEFORE registering routes
+  // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Add detailed request logging middleware
+  // Create WebSocket server early
+  console.log('[WebSocket] Setting up WebSocket server');
+  const wss = new WebSocketServer({ 
+    server: httpServer,
+    path: '/ws'
+  });
+  console.log('[WebSocket] Server initialized');
+
+  // WebSocket connection handling
+  wss.on('connection', (ws) => {
+    console.log('[WebSocket] Client connected');
+
+    // Send initial connection success message
+    ws.send(JSON.stringify({
+      type: 'connected',
+      message: 'Successfully connected to chat server'
+    }));
+
+    // Handle incoming messages
+    ws.on('message', async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        console.log('[WebSocket] Received message:', message);
+      } catch (error) {
+        console.error('[WebSocket] Error parsing message:', error);
+      }
+    });
+
+    ws.on('error', (error) => {
+      console.error('[WebSocket] Error:', error.message);
+    });
+
+    ws.on('close', () => {
+      console.log('[WebSocket] Client disconnected');
+    });
+  });
+
+  // Setup static file serving
+  const uploadDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.chmodSync(uploadDir, 0o755);
+  }
+
+  // Serve static files
+  app.use('/uploads', express.static(uploadDir));
+
+  // Add request logging middleware
   app.use((req, res, next) => {
     const start = Date.now();
     console.log(`[REQUEST] ${req.method} ${req.path}`);
@@ -38,52 +91,73 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     next();
   });
 
-  // Global middleware to ensure JSON responses for all /api routes
-  app.use('/api', (req, res, next) => {
+  // API routes configuration
+  const apiRouter = express.Router();
+
+  // Ensure JSON responses for all /api routes
+  apiRouter.use((req, res, next) => {
     res.setHeader('Content-Type', 'application/json');
-    console.log(`[API] ${req.method} ${req.path} - Setting JSON content type`);
     next();
   });
 
-  // Setup static file serving
-  const uploadDir = path.join(process.cwd(), 'uploads');
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-    fs.chmodSync(uploadDir, 0o755);
-  }
-
-  // Create Express Router for API endpoints
-  const apiRouter = express.Router();
-
-  // Health check endpoint
-  apiRouter.get("/health", (req: Request, res: Response) => {
-    console.log('[Health Check] Endpoint accessed');
-    res.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
-  });
-
-  // Mount group messages router
+  // Add group messages router first
   apiRouter.use(groupMessagesRouter);
 
-  // Wrap async handlers with enhanced error logging
-  const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
-    return Promise.resolve(fn(req, res, next))
-      .catch((error: any) => {
-        console.error('[Route Error]', {
-          path: req.path,
-          method: req.method,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          stack: error instanceof Error ? error.stack : undefined,
-          timestamp: new Date().toISOString()
-        });
-        next(error);
-      });
-  };
+  // Get last active group
+  apiRouter.get("/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const videoId = parseInt(req.params.videoId);
 
-  // Register all other routes on the apiRouter
+    if (isNaN(videoId)) {
+      return res.status(400).json({ error: "Invalid video ID" });
+    }
+
+    const lastActiveGroup = await db.query.discussionGroups.findFirst({
+      where: and(
+        eq(discussionGroups.videoId, videoId),
+        sql`exists (
+          select 1 
+          from ${groupMembers} 
+          where ${groupMembers.groupId} = ${discussionGroups.id}
+          and ${groupMembers.userId} = ${req.user!.id}
+        )`
+      ),
+      with: {
+        members: {
+          with: {
+            user: {
+              columns: {
+                id: true,
+                username: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [desc(discussionGroups.updatedAt)]
+    });
+
+    if (!lastActiveGroup) {
+      return res.status(404).json({
+        data: null,
+        message: "No active group found"
+      });
+    }
+
+    const response = {
+      data: {
+        ...lastActiveGroup,
+        members: lastActiveGroup.members.map(member => ({
+          id: member.id,
+          userId: member.user.id,
+          username: member.user.username
+        }))
+      }
+    };
+
+    res.json(response);
+  }));
+
+  // Register all other routes
   apiRouter.get("/categories", asyncHandler(async (req: Request, res: Response) => {
     const allCategories = await db.query.categories.findMany({
       where: eq(categories.isDeleted, false),
@@ -332,80 +406,6 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     res.json(relatedVideos);
   }));
 
-  apiRouter.get("/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const videoId = parseInt(req.params.videoId);
-
-    if (isNaN(videoId)) {
-      return res.status(400).json({ message: "Invalid video ID" });
-    }
-
-    // Find the most recently active group for this video where the user is a member
-    const lastActiveGroup = await db.query.discussionGroups.findFirst({
-      where: and(
-        eq(discussionGroups.videoId, videoId),
-        sql`exists (
-          select 1 
-          from ${groupMembers} 
-          where ${groupMembers.groupId} = ${discussionGroups.id}
-          and ${groupMembers.userId} = ${req.user!.id}
-        )`
-      ),
-      with: {
-        members: {
-          with: {
-            user: {
-              columns: {
-                id: true,
-                username: true
-              }
-            }
-          }
-        },
-        video: true
-      },
-      orderBy: [desc(discussionGroups.updatedAt)]
-    });
-
-    if (!lastActiveGroup) {
-      console.log('No active group found for video:', videoId);
-      return res.status(404).json({
-        data: null,
-        message: "No active group found",
-        statusCode: 404
-      });
-    }
-
-    // Transform the response to match the expected schema
-    const transformedGroup = {
-      id: lastActiveGroup.id,
-      name: lastActiveGroup.name,
-      description: lastActiveGroup.description,
-      videoId: lastActiveGroup.videoId,
-      inviteCode: lastActiveGroup.inviteCode,
-      creatorId: lastActiveGroup.creatorId,
-      isPrivate: lastActiveGroup.isPrivate,
-      createdAt: lastActiveGroup.createdAt,
-      updatedAt: lastActiveGroup.updatedAt,
-      members: lastActiveGroup.members.map(member => ({
-        id: member.id,
-        userId: member.user.id,
-        username: member.user.username
-      }))
-    };
-
-    const response = {
-      data: transformedGroup,
-      message: "Last active group retrieved successfully",
-      statusCode: 200
-    };
-
-    console.log('Successfully found and transformed group:', {
-      groupId: transformedGroup.id,
-      memberCount: transformedGroup.members.length
-    });
-
-    res.json(response);
-  }));
 
   apiRouter.post("/videos", asyncHandler(async (req: Request, res: Response) => {
     const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
@@ -559,7 +559,6 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
     console.log('Successfully joined group:', group.id);
     res.json(group);
   }));
-
 
 
   apiRouter.post("/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
@@ -993,206 +992,85 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
   // Update the test email endpoint to include better error handling and logging
   if (process.env.NODE_ENV !== 'production') {
     apiRouter.post("/test/email-notification", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-      console.log('=== Test Email Endpoint Start ===');
-      if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
-        console.error('Email configuration missing:', {
-          hasApiKey: !!process.env.RESEND_API_KEY,
-          hasFromEmail: !!process.env.RESEND_FROM_EMAIL
-        });
-        return res.status(500).json({ message: "Email configuration missing" });
-      }
-
-      if (!resend) {
-        console.error('Resend client not initialized in test endpoint');
-        return res.status(500).json({ message: "Email service not initialized" });
-      }
-
       try {
-        if (!req.user?.email) {
-          console.error('No email address available for testing');
-          return res.status(400).json({ message: "No email address available for testing" });
+        if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+          throw new Error('Email service not configured');
         }
 
-        // Get the specific group
-        const groupId = parseInt(req.query.groupId as string);
-        if (!groupId) {
-          console.error('Group ID is required for test email');
-          return res.status(400).json({ message: "Group ID is required" });
-        }
-
-        console.log('Fetching test group:', groupId);
-        const testGroup = await db.query.discussionGroups.findFirst({          where: eq(discussionGroups.id, groupId),
+        const testGroup = await db.query.discussionGroups.findFirst({
+          where: eq(discussionGroups.id, 1),
           with: {
+            video: true,
+            members: {
+              with: {
+                user: true
+              }
+            },
             messages: {
-              limit: 5,              orderBy: [desc(groupMessages.createdAt)],
               with: {
                 user: {
                   columns: {
                     username: true
                   }
                 }
-              }
+              },
+              limit: 5,
+              orderBy: [desc(groupMessages.createdAt)]
             }
           }
         });
 
         if (!testGroup) {
-          console.error('No discussion group found:', groupId);
-          return res.status(404).json({ message: "No discussion group found for testing" });
+          throw new Error('No test group found');
         }
 
-        console.log('Found test group:', {
-          id: testGroup.id,
-          name: testGroup.name,
-          messageCount: testGroup.messages?.length || 0
+        const testUser = testGroup.members[0]?.user;
+        if (!testUser || !testUser.email) {
+          throw new Error('No valid test user found in group');
+        }
+
+        await sendUnreadMessagesNotification({
+          userEmail: testUser.email,
+          userName: testUser.username,
+          groupName: testGroup.name,
+          videoTitle: testGroup.video?.title || 'Video Discussion',
+          unreadCount: 5,
+          unreadMessages: testGroup.messages || [],
+          groupUrl: `${process.env.APP_URL || 'http://localhost:5000'}/video/${testGroup.video?.id}/group/${testGroup.id}`,
+          groupEngagement: {
+            totalMembers: testGroup.members.length,
+            activeMembers: 3,
+            recentMessages: testGroup.messages?.length || 0,
+            topContributors: []
+          },
+          reminderCount: 1
         });
 
-        try {
-          await sendUnreadMessagesNotification({
-            userEmail: req.user.email,
-            userName: req.user.username,
-            groupName: testGroup.name,
-            videoTitle: "Test Video",
-            unreadCount: testGroup.messages?.length || 0,
-            unreadMessages: testGroup.messages || [],
-            groupUrl: `${process.env.APP_URL || 'http://localhost:3000'}/video/1/group/${testGroup.id}`
-          });
-          console.log('Test notification sent successfully');
-        } catch (error) {
-          console.error('Error in sendUnreadMessagesNotification:', error);
-          throw error;
-        }
-
+        console.log('Test email sent successfully');
         res.json({
-          message: "Test email notification sent. Check your inbox.",
-          details: {
-            sentTo: req.user.email,
-            groupName: testGroup.name,
-            messageCount: testGroup.messages?.length || 0
-          }
+          success: true,
+          message: 'Test email sent successfully'
         });
       } catch (error) {
         console.error('Error sending test email:', error);
         res.status(500).json({
-          message: "Error sending test email",
-          error: error instanceof Error ? error.message : "Unknown error",
-          details: error instanceof Error ? error.stack : undefined
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     }));
   }
 
-  // 404 handler for API routes - must be last
-  apiRouter.use((req: Request, res: Response) => {
-    console.log(`[404] No route found for ${req.method} ${req.path}`);
-    res.status(404).json({
-      error: 'API endpoint not found',
-      success: false
+  // Mount the API router
+  app.use('/api', apiRouter);
+
+  // Global error handler
+  app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    console.error('Global error handler:', err);
+    res.status(500).json({
+      error: err instanceof Error ? err.message : 'Internal server error'
     });
   });
 
-  // Mount the API router under /api
-  app.use('/api', apiRouter);
-
-  //Configure multer for file uploads
-  const upload = multer({
-    storage: multer.diskStorage({
-      destination: function (_req: Request, _file: Express.Multer.File, cb: (error: Error | null, destination: string) => void) {
-        cb(null, uploadDir);
-      },
-      filename: function (_req: Request, file: Express.Multer.File, cb: (error: Error | null, filename: string) => void) {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const ext = path.extname(file.originalname).toLowerCase();
-        cb(null, 'thumbnail-' + uniqueSuffix + ext);
-      }
-    }),
-    limits: {
-      fileSize: 5 * 1024 * 1024 // 5MB
-    },
-    fileFilter: function (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) {
-      const filetypes = /jpeg|jpg|png|webp/;
-      const mimetype = filetypes.test(file.mimetype);
-      const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-
-      if (mimetype && extname) {
-        return cb(null, true);
-      }
-      cb(new Error('Only JPEG, PNG and WebP images are allowed'));
-    }
-  });
-
-  // Serve uploaded files statically with proper MIME types
-  app.use('/uploads', express.static(uploadDir, {
-    index: false,
-    extensions: ['jpg', 'jpeg', 'png', 'webp'],
-    setHeaders: (res, filePath) => {
-      console.log('[Static] Setting headers for file:', filePath);
-      // Set proper cache control and content type
-      res.setHeader('Cache-Control', 'public, max-age=31536000');
-      const ext = path.extname(filePath).toLowerCase();
-      switch (ext) {
-        case '.jpg':
-        case '.jpeg':
-          res.setHeader('Content-Type', 'image/jpeg');
-          break;
-        case '.png':
-          res.setHeader('Content-Type', 'image/png');
-          break;
-        case '.webp':
-          res.setHeader('Content-Type', 'image/webp');
-          break;
-      }
-    }
-  }));
-
-  // Add thumbnail upload endpoint with improved error handling
-  apiRouter.post('/upload/thumbnail', upload.single('thumbnail'), asyncHandler(async (req: Request, res: Response) => {
-    console.log('[Upload] Processing thumbnail upload request');
-
-    if (!req.file) {
-      console.error('[Upload] No file uploaded');
-      return res.status(400).json({
-        error: 'No file uploaded',
-        success: false
-      });
-    }
-
-    try {
-      const filename = req.file.filename;
-      // Ensure the URL starts with a forward slash
-      const fileUrl = `/uploads/${filename}`;
-
-      console.log('[Upload] Successfully uploaded thumbnail:', {
-        url: fileUrl,
-        filename: filename,
-        path: req.file.path,
-        mimetype: req.file.mimetype,
-        size: req.file.size
-      });
-
-      // Test file existence
-      if (!fs.existsSync(req.file.path)) {
-        throw new Error('File was not saved properly');
-      }
-
-      res.json({
-        url: fileUrl,
-        success: true,
-        filename: filename,
-        originalName: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype
-      });
-    } catch (error) {
-      console.error('[Upload] Error processing uploaded file:', error);
-      res.status(500).json({
-        error: 'Error processing uploaded file',
-        success: false,
-        details: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }));
-
-  // Return the HTTP server and session middleware
   return { server: httpServer, sessionMiddleware };
 }
