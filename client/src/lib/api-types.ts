@@ -9,7 +9,7 @@ const baseEntitySchema = z.object({
 // User schema for group members
 export const groupMemberSchema = z.object({
   id: z.number(),
-  username: z.string(),
+  username: z.string().optional(),
   userId: z.number(),
 });
 
@@ -42,8 +42,8 @@ export const discussionGroupSchema = baseEntitySchema.extend({
   inviteCode: z.string(),
   creatorId: z.number(),
   isPrivate: z.boolean(),
-  members: z.array(groupMemberSchema),
-  messages: z.array(groupMessageSchema).optional(),
+  members: z.array(groupMemberSchema).optional().default([]),
+  messages: z.array(groupMessageSchema).optional().default([]),
 });
 
 // Types exported from schemas
@@ -52,6 +52,16 @@ export type VideoMessage = z.infer<typeof videoMessageSchema>;
 export type GroupMessage = z.infer<typeof groupMessageSchema>;
 export type GroupMember = z.infer<typeof groupMemberSchema>;
 export type DiscussionGroup = z.infer<typeof discussionGroupSchema>;
+
+// Utility function to validate API responses with better error handling
+export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
+  try {
+    return schema.parse(data);
+  } catch (error) {
+    console.error('API Response validation error:', error);
+    throw new Error('Invalid API response format');
+  }
+}
 
 // WebSocket message schemas with discriminated unions
 export const wsInputMessageSchema = z.discriminatedUnion("type", [
@@ -100,17 +110,7 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
 export type WSMessage = z.infer<typeof wsMessageSchema>;
 export type WSInputMessage = z.infer<typeof wsInputMessageSchema>;
 
-// Utility function to validate API responses
-export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
-  try {
-    return schema.parse(data);
-  } catch (error) {
-    console.error('API Response validation error:', error);
-    throw new Error('Invalid API response format');
-  }
-}
-
-// Utility function to validate WebSocket messages
+// Utility functions to validate WebSocket messages with better error handling
 export function validateWSMessage(data: unknown): WSMessage {
   try {
     return wsMessageSchema.parse(data);
@@ -120,7 +120,6 @@ export function validateWSMessage(data: unknown): WSMessage {
   }
 }
 
-// Utility function to validate WebSocket input messages
 export function validateWSInput(data: unknown): WSInputMessage {
   try {
     return wsInputMessageSchema.parse(data);

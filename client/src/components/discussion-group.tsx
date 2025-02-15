@@ -435,7 +435,7 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
 
   // Only show connection error if we have no messages and there's a persistent error
   const showConnectionError = wsState.error &&
-    (!messages?.length || Date.now() - wsState.lastConnected > 5000);
+    (!messages?.length || Date.now() - wsState.lastConnected > 10000);
 
   return (
     <Card>
@@ -474,20 +474,20 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
             </div>
           )}
         </CardTitle>
-        {showConnectionError && !wsState.connecting && messages?.length === 0 && (
-          <p className="text-sm text-muted-foreground mt-2">
-            Connection error. Retrying...
-          </p>
-        )}
-        {wsState.connecting && (
+        {wsState.connecting && !messages?.length && (
           <p className="text-sm text-muted-foreground mt-2">
             Connecting to chat server...
+          </p>
+        )}
+        {wsState.error && Date.now() - wsState.lastConnected > 10000 && !wsState.connecting && (
+          <p className="text-sm text-muted-foreground mt-2">
+            Connection error. Retrying...
           </p>
         )}
       </CardHeader>
 
       <CardContent>
-        {!currentGroup && (
+        {!currentGroup ? (
           <div className="flex items-center justify-between gap-2 mb-4">
             <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
               <DialogTrigger asChild>
@@ -517,14 +517,14 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
               </DialogContent>
             </Dialog>
           </div>
+        ) : (
+          <VirtualizedMessageList
+            messages={messages}
+            currentUserId={user?.id}
+            isLoading={isMessagesLoading}
+            onLoadMore={() => {/* Implement infinite scroll */}}
+          />
         )}
-
-        <VirtualizedMessageList
-          messages={messages}
-          currentUserId={user?.id}
-          isLoading={isMessagesLoading}
-          onLoadMore={() => {/* Implement infinite scroll */}}
-        />
       </CardContent>
 
       {currentGroup && (
@@ -533,14 +533,25 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
             <Input
               value={messageInput}
               onChange={(e) => setMessageInput(e.target.value)}
-              placeholder={wsState.error ? "Reconnecting to chat..." : "Type your message..."}
+              placeholder={
+                wsState.connecting && !wsState.error ? "Connecting..." :
+                wsState.error && Date.now() - wsState.lastConnected > 15000 ? "Reconnecting to chat..." :
+                "Type your message..."
+              }
               className="flex-1"
-              disabled={sendMessageMutation.isPending || !!wsState.error}
+              disabled={
+                sendMessageMutation.isPending ||
+                (wsState.error && Date.now() - wsState.lastConnected > 15000 && !wsState.connecting)
+              }
             />
             <Button
               type="submit"
               size="icon"
-              disabled={!messageInput.trim() || sendMessageMutation.isPending || !!wsState.error}
+              disabled={
+                !messageInput.trim() ||
+                sendMessageMutation.isPending ||
+                (wsState.error && Date.now() - wsState.lastConnected > 15000 && !wsState.connecting)
+              }
             >
               <Send className="h-4 w-4" />
             </Button>

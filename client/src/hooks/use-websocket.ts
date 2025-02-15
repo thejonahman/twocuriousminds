@@ -18,6 +18,9 @@ export function useWebSocket() {
   const messageHandlers = useRef<Set<(data: WSMessage) => void>>(new Set());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
   const reconnectAttemptsRef = useRef(0);
+  const lastMessageTimeRef = useRef<number>(Date.now());
+  const connectionStartTimeRef = useRef<number>(Date.now());
+
   const [state, setState] = useState<WebSocketState>({
     connected: false,
     connecting: false,
@@ -31,33 +34,29 @@ export function useWebSocket() {
       return;
     }
 
-    // Clear any existing reconnection timeout
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
     }
 
+    connectionStartTimeRef.current = Date.now();
     setState(prev => ({ ...prev, connecting: true, error: null }));
-    console.log('[WebSocket] Attempting to connect...');
 
     try {
-      // Close existing connection if any
       if (ws.current) {
         ws.current.close();
         ws.current = null;
       }
 
-      // Use the current window location to determine the WebSocket URL
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = new URL('/ws', window.location.href);
       wsUrl.protocol = protocol;
 
-      console.log('[WebSocket] Connecting to:', wsUrl.toString());
       const socket = new WebSocket(wsUrl);
       ws.current = socket;
 
       socket.onopen = () => {
-        console.log('[WebSocket] Connected successfully');
         reconnectAttemptsRef.current = 0;
+        lastMessageTimeRef.current = Date.now();
         setState(prev => ({
           ...prev,
           connected: true,
@@ -69,34 +68,38 @@ export function useWebSocket() {
 
       socket.onclose = (event) => {
         const isCleanClosure = event.code === 1000 || event.code === 1001;
+        const timeSinceStart = Date.now() - connectionStartTimeRef.current;
+        const timeSinceLastMessage = Date.now() - lastMessageTimeRef.current;
+        const hasRecentActivity = timeSinceLastMessage < 8000 || timeSinceStart < 5000;
 
-        // Use a longer delay for initial connection attempts
-        const disconnectionDelay = reconnectAttemptsRef.current === 0 ? 3000 : 1000;
+        if (hasRecentActivity && !isCleanClosure) {
+          setState(prev => ({
+            ...prev,
+            connecting: true,
+            error: null
+          }));
+        } else {
+          setState(prev => ({
+            ...prev,
+            connected: false,
+            connecting: false,
+            error: isCleanClosure ? null : 'Connection closed'
+          }));
+        }
 
-        setTimeout(() => {
-          if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
-            setState(prev => ({
-              ...prev,
-              connected: false,
-              connecting: false,
-              error: isCleanClosure ? null : reconnectAttemptsRef.current >= 3 ? 'Connection closed' : null
-            }));
-          }
-        }, disconnectionDelay);
-
-        // Schedule reconnection for non-clean closures
         if (!isCleanClosure) {
           const backoffDelay = Math.min(1000 * Math.pow(1.5, reconnectAttemptsRef.current), 30000);
           reconnectAttemptsRef.current++;
-          console.log(`[WebSocket] Scheduling reconnection in ${backoffDelay}ms...`);
           reconnectTimeoutRef.current = setTimeout(connect, backoffDelay);
         }
       };
 
       socket.onerror = (error) => {
         console.error('[WebSocket] Connection error:', error);
-        // Only show error after multiple failed attempts
-        if (reconnectAttemptsRef.current >= 3) {
+        const timeSinceStart = Date.now() - connectionStartTimeRef.current;
+        const timeSinceLastMessage = Date.now() - lastMessageTimeRef.current;
+
+        if ((reconnectAttemptsRef.current >= 3 && timeSinceStart > 8000) || timeSinceLastMessage > 15000) {
           setState(prev => ({
             ...prev,
             connected: false,
@@ -110,8 +113,8 @@ export function useWebSocket() {
         try {
           const data = JSON.parse(event.data);
           const validatedMessage = validateWSMessage(data);
+          lastMessageTimeRef.current = Date.now();
 
-          // Clear any error state and update connection status
           setState(prev => ({
             ...prev,
             error: null,
@@ -128,8 +131,8 @@ export function useWebSocket() {
       };
     } catch (error) {
       console.error('[WebSocket] Setup error:', error);
-      // Only show error after multiple attempts
-      if (reconnectAttemptsRef.current >= 3) {
+      const timeSinceStart = Date.now() - connectionStartTimeRef.current;
+      if (reconnectAttemptsRef.current >= 3 && timeSinceStart > 8000) {
         setState(prev => ({
           ...prev,
           connected: false,
@@ -140,7 +143,6 @@ export function useWebSocket() {
     }
   }, [user, state.connecting]);
 
-  // Visibility change handler
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && user) {
@@ -157,7 +159,6 @@ export function useWebSocket() {
     };
   }, [connect, user, state.lastConnected]);
 
-  // Connection management
   useEffect(() => {
     if (user) {
       connect();
@@ -176,19 +177,16 @@ export function useWebSocket() {
 
   const sendMessage = useCallback((message: WSInputMessage): boolean => {
     if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
-      console.log('[WebSocket] Cannot send message - not connected');
-      toast({
-        title: "Error",
-        description: "Not connected to chat server",
-        variant: "destructive",
-      });
+      if (!state.connecting) {
+        connect();
+      }
       return false;
     }
 
     try {
       const validatedMessage = validateWSInput(message);
-      console.log('[WebSocket] Sending message:', validatedMessage);
       ws.current.send(JSON.stringify(validatedMessage));
+      lastMessageTimeRef.current = Date.now();
       return true;
     } catch (error) {
       console.error('[WebSocket] Send error:', error);
@@ -199,7 +197,7 @@ export function useWebSocket() {
       });
       return false;
     }
-  }, [toast]);
+  }, [state.connecting, connect, toast]);
 
   const addMessageHandler = useCallback((handler: (data: WSMessage) => void) => {
     messageHandlers.current.add(handler);
