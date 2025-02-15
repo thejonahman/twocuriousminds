@@ -1,6 +1,5 @@
 import { createServer, type Server } from "http";
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
-import { WebSocketServer } from 'ws';
 import { setupAuth, requireAuth } from "./auth";
 import { db } from "@db";
 import { sql, eq, and, desc, gt } from "drizzle-orm";
@@ -11,6 +10,7 @@ import fs from 'fs';
 import multer from 'multer';
 import { type FileFilterCallback } from "multer";
 import { sendUnreadMessagesNotification, resend } from './lib/email';
+import { setupWebSocketServer } from './websocket';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -33,42 +33,8 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
   // Setup auth and get session middleware
   const sessionMiddleware = setupAuth(app);
 
-  // Create WebSocket server early
-  console.log('[WebSocket] Setting up WebSocket server');
-  const wss = new WebSocketServer({ 
-    server: httpServer,
-    path: '/ws'
-  });
-  console.log('[WebSocket] Server initialized');
-
-  // WebSocket connection handling
-  wss.on('connection', (ws) => {
-    console.log('[WebSocket] Client connected');
-
-    // Send initial connection success message
-    ws.send(JSON.stringify({
-      type: 'connected',
-      message: 'Successfully connected to chat server'
-    }));
-
-    // Handle incoming messages
-    ws.on('message', async (data) => {
-      try {
-        const message = JSON.parse(data.toString());
-        console.log('[WebSocket] Received message:', message);
-      } catch (error) {
-        console.error('[WebSocket] Error parsing message:', error);
-      }
-    });
-
-    ws.on('error', (error) => {
-      console.error('[WebSocket] Error:', error.message);
-    });
-
-    ws.on('close', () => {
-      console.log('[WebSocket] Client disconnected');
-    });
-  });
+  // Initialize WebSocket server
+  setupWebSocketServer(httpServer, sessionMiddleware);
 
   // Setup static file serving
   const uploadDir = path.join(process.cwd(), 'uploads');
@@ -111,6 +77,7 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
       return res.status(400).json({ error: "Invalid video ID" });
     }
 
+    // Find the most recently active group for this video that the user is a member of
     const lastActiveGroup = await db.query.discussionGroups.findFirst({
       where: and(
         eq(discussionGroups.videoId, videoId),
@@ -143,6 +110,7 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
       });
     }
 
+    // Transform the response to match the expected schema
     const response = {
       data: {
         ...lastActiveGroup,
@@ -1026,8 +994,7 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
 
         const testUser = testGroup.members[0]?.user;
         if (!testUser || !testUser.email) {
-          throw new Error('No valid test user found in group');
-        }
+          throw new Error('No valid test user found in group');        }
 
         await sendUnreadMessagesNotification({
           userEmail: testUser.email,
@@ -1054,7 +1021,7 @@ export function registerRoutes(app: Express): { server: Server, sessionMiddlewar
       } catch (error) {
         console.error('Error sending test email:', error);
         res.status(500).json({
-          success: false,
+          successsuccess: false,
           error: error instanceof Error ? error.message : 'Unknown error'
         });
       }

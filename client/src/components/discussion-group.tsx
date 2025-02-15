@@ -88,7 +88,9 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
       old => {
         const oldMessages = old || [];
         const newMessageIds = new Set(newMessages.map(m => m.id));
-        return [...oldMessages.filter(m => !newMessageIds.has(m.id)), ...newMessages];
+        // Filter out duplicates and add new messages
+        return [...oldMessages.filter(m => !newMessageIds.has(m.id)), ...newMessages]
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
       }
     );
 
@@ -110,7 +112,6 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   const resetReconnectionState = useCallback(() => {
     setReconnectAttempts(0);
     setReconnectDelay(INITIAL_RECONNECT_DELAY);
-    //setIsConnecting(false); // This line is causing error, removed.
   }, []);
 
   const getNextReconnectDelay = useCallback(() => {
@@ -351,16 +352,18 @@ export function DiscussionGroupComponent({ videoId, initialGroupId }: Props) {
   }, [currentGroup, videoId]);
 
   useEffect(() => {
-    if (!currentGroup) return;
+    if (!currentGroup || !wsState.connected) return;
 
-    const cleanupHandler = addMessageHandler((data: WebSocketMessage) => {
+    const cleanup = addMessageHandler((data: WebSocketMessage) => {
       if (data.type === 'new_group_message' && data.data.groupId === currentGroup.id) {
         handleNewMessages([data.data]);
       }
     });
 
-    return cleanupHandler;
-  }, [currentGroup, addMessageHandler, handleNewMessages]);
+    return () => {
+      cleanup();
+    };
+  }, [currentGroup, wsState.connected, addMessageHandler, handleNewMessages]);
 
 
   const debouncedMessageUpdate = useMemo(

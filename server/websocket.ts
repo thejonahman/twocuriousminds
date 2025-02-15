@@ -18,184 +18,144 @@ export function setupWebSocketServer(httpServer: Server, sessionMiddleware: any)
   console.log('[WebSocket] Setting up WebSocket server');
 
   const wss = new WebSocketServer({ 
-    noServer: true,
-    path: '/ws/chat'
+    server: httpServer,
+    path: '/ws'
   });
 
-  // Handle upgrade requests
-  httpServer.on('upgrade', async (request: any, socket, head) => {
-    try {
-      // Special handling for Vite HMR connections
-      if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
-        return; // Let Vite handle its own upgrade
-      }
+  console.log('[WebSocket] Server created with path: /ws');
 
-      const url = new URL(request.url, `http://${request.headers.host}`);
-      if (url.pathname !== '/ws/chat') {
-        socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
-        socket.destroy();
+  // Handle connections
+  wss.on('connection', async (ws: WebSocket, request: any) => {
+    try {
+      console.log('[WebSocket] New connection attempt');
+
+      // Skip Vite HMR connections
+      if (request.headers['sec-websocket-protocol']?.includes('vite-hmr')) {
+        console.log('[WebSocket] Ignoring Vite HMR connection');
         return;
       }
 
-      // Authorization check
       if (!request.headers.cookie) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
+        console.error('[WebSocket] No cookie found');
+        ws.close(4001, 'No session cookie');
         return;
       }
 
       const cookies = cookie.parse(request.headers.cookie);
-      const sessionId = cookies['connect.sid'];
-
-      if (!sessionId) {
-        socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-        socket.destroy();
+      const sessionCookie = cookies['connect.sid'];
+      if (!sessionCookie) {
+        console.error('[WebSocket] No session cookie found');
+        ws.close(4001, 'Invalid session');
         return;
       }
 
-      const rawSessionId = sessionId.split('.')[0].replace('s:', '');
+      // Extract session ID from cookie
+      const sessionId = sessionCookie.split('.')[0].replace('s:', '');
+      console.log('[WebSocket] Processing session:', { sessionId });
 
-      try {
-        const session = await new Promise<Session | null>((resolve, reject) => {
-          sessionMiddleware.store.get(rawSessionId, (err: any, session: Session | null) => {
-            if (err) reject(err);
-            else resolve(session);
-          });
+      const session = await new Promise<Session | null>((resolve, reject) => {
+        sessionMiddleware.store.get(sessionId, (err: any, session: Session | null) => {
+          if (err) {
+            console.error('[WebSocket] Session error:', err);
+            reject(err);
+          } else {
+            console.log('[WebSocket] Session retrieved:', {
+              hasSession: !!session,
+              hasUser: session?.passport?.user
+            });
+            resolve(session);
+          }
         });
+      });
 
-        if (!session?.passport?.user) {
-          socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-          socket.destroy();
-          return;
+      if (!session?.passport?.user) {
+        console.error('[WebSocket] Invalid session or no user');
+        ws.close(4001, 'Invalid session');
+        return;
+      }
+
+      const userId = session.passport.user;
+      console.log('[WebSocket] Connection established for user:', userId);
+
+      // Store the connection
+      connectedClients.set(userId, ws);
+
+      // Setup ping/pong
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.ping();
+        } else {
+          clearInterval(pingInterval);
         }
+      }, 30000);
 
-        const userId = session.passport.user;
-
-        // Close existing connection if any
-        const existingConnection = connectedClients.get(userId);
-        if (existingConnection?.readyState === WebSocket.OPEN) {
-          existingConnection.close(1000, 'New connection received');
+      ws.on('close', () => {
+        console.log('[WebSocket] Connection closed for user:', userId);
+        clearInterval(pingInterval);
+        if (connectedClients.get(userId) === ws) {
           connectedClients.delete(userId);
         }
+      });
 
-        // Handle the upgrade
-        wss.handleUpgrade(request, socket, head, (ws) => {
-          console.log('[WebSocket] Connection upgraded for user:', userId);
-
-          // Ping interval for keep-alive
-          const pingInterval = setInterval(() => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.ping();
-            } else {
-              clearInterval(pingInterval);
-            }
-          }, 30000);
-
-          ws.on('pong', () => {
-            // Keep-alive response received
-          });
-
-          ws.on('close', () => {
-            clearInterval(pingInterval);
-            if (connectedClients.get(userId) === ws) {
-              connectedClients.delete(userId);
-            }
-          });
-
-          // Send connection confirmation
-          ws.send(JSON.stringify({
-            type: 'connected',
-            message: 'Connected to chat server',
+      // Handle messages
+      ws.on('message', async (data: Buffer) => {
+        try {
+          const message = JSON.parse(data.toString());
+          console.log('[WebSocket] Received message:', {
+            type: message.type,
             userId,
             timestamp: new Date().toISOString()
-          }));
+          });
 
-          // Store the connection
-          connectedClients.set(userId, ws);
-          wss.emit('connection', ws, userId);
-        });
+          if (message.type === 'group_message') {
+            const { groupId, content } = message;
 
-      } catch (error) {
-        console.error('[WebSocket] Session validation error:', error);
-        socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
-        socket.destroy();
-      }
+            const [savedMessage] = await db.insert(groupMessages)
+              .values({
+                groupId,
+                userId,
+                content,
+                createdAt: new Date(),
+                updatedAt: new Date()
+              })
+              .returning();
+
+            const members = await db.query.groupMembers.findMany({
+              where: eq(groupMembers.groupId, groupId),
+              with: {
+                user: true
+              }
+            });
+
+            members.forEach(member => {
+              const client = connectedClients.get(member.userId);
+              if (client?.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                  type: 'new_group_message',
+                  data: {
+                    ...savedMessage,
+                    user: members.find(m => m.userId === userId)?.user
+                  }
+                }));
+              }
+            });
+          }
+        } catch (error) {
+          console.error('[WebSocket] Message handling error:', error);
+        }
+      });
+
+      // Send initial connection message
+      ws.send(JSON.stringify({
+        type: 'connected',
+        message: 'Connected to chat server',
+        userId
+      }));
 
     } catch (error) {
-      console.error('[WebSocket] Upgrade error:', error);
-      socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
-      socket.destroy();
+      console.error('[WebSocket] Connection error:', error);
+      ws.close(1011, 'Internal server error');
     }
-  });
-
-  // Handle messages
-  wss.on('connection', (ws: WebSocket, userId: number) => {
-    ws.on('message', async (data: Buffer) => {
-      try {
-        const message = JSON.parse(data.toString());
-
-        if (!message.type || message.type !== 'group_message') {
-          throw new Error('Invalid message type');
-        }
-
-        const { groupId, content } = message;
-        if (!groupId || !content) {
-          throw new Error('Invalid message format');
-        }
-
-        // Save and broadcast message
-        const [savedMessage] = await db.insert(groupMessages)
-          .values({
-            groupId,
-            userId,
-            content,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          })
-          .returning();
-
-        // Get group members
-        const members = await db.query.groupMembers.findMany({
-          where: eq(groupMembers.groupId, groupId),
-          with: {
-            user: true
-          }
-        });
-
-        // Broadcast to all members
-        const broadcastMessage = {
-          type: 'new_group_message',
-          data: {
-            ...savedMessage,
-            user: members.find(m => m.userId === userId)?.user
-          }
-        };
-
-        members.forEach(member => {
-          const client = connectedClients.get(member.userId);
-          if (client?.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify(broadcastMessage));
-          }
-        });
-
-      } catch (error) {
-        console.error('[WebSocket] Message handling error:', error);
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Failed to process message'
-          }));
-        }
-      }
-    });
-
-    ws.on('error', (error: Error) => {
-      console.error('[WebSocket] Connection error:', {
-        userId,
-        error: error.message,
-        stack: error.stack
-      });
-    });
   });
 
   return wss;
