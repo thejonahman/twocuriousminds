@@ -412,7 +412,7 @@ export function registerRoutes(app: Express): Server {
     res.json(relatedVideos);
   }));
 
-  // Add this new endpoint near the other video-related endpoints
+  // Update the last active group endpoint with correct column references
   app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.videoId);
 
@@ -435,6 +435,7 @@ export function registerRoutes(app: Express): Server {
           with: {
             user: {
               columns: {
+                id: true,
                 username: true
               }
             }
@@ -445,10 +446,28 @@ export function registerRoutes(app: Express): Server {
     });
 
     if (!lastActiveGroup) {
-      return res.json(null);
+      return res.json({
+        data: null,
+        message: "No active group found",
+        statusCode: 404
+      });
     }
 
-    res.json(lastActiveGroup);
+    // Transform the response to match the expected schema
+    const response = {
+      data: {
+        ...lastActiveGroup,
+        members: lastActiveGroup.members.map(member => ({
+          id: member.id,
+          userId: member.userId,
+          username: member.user.username
+        }))
+      },
+      message: "Last active group retrieved successfully",
+      statusCode: 200
+    };
+
+    res.json(response);
   }));
 
   // Add video submission endpoint
@@ -986,39 +1005,64 @@ export function registerRoutes(app: Express): Server {
     res.json({ message: "Messages marked as read" });
   }));
 
-  // Domain verification endpoint. Moved this before the httpServer creation.
+  // Domain verification endpoint
   app.get("/api/verify-domain", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     if (!req.user?.isAdmin) {
       return res.status(403).json({ message: "Admin access required" });
     }
 
     try {
-      const domain = process.env.RESEND_FROM_EMAIL?.split('@')[1];
-      if (!domain) {
-        return res.status(400).json({ message: "No domain foundin RESEND_FROM_EMAIL" });
-      }
-
-      // Get domain status first
       if (!resend) {
         throw new Error('Email service not configured');
       }
+
       const emailClient = resend;
       const domains = await emailClient.domains.list();
       console.log('Current domains:', domains);
 
-      const domainDetails = await emailClient.domains.get(domain);
-      console.log('Domain details:', domainDetails);
-
-      if (!domainDetails) {
-        // If domain doesn't exist, create it
+      // Send verification email if needed
+      if (!domains.data || domains.data.length === 0) {
+        console.log('No domains found, attempting to add domain');
+        const domain = process.env.EMAIL_DOMAIN || 'yourdomain.com';
         await emailClient.domains.create({ name: domain });
+        console.log('Domain created:', domain);
       }
 
-      const result = await emailClient.domains.verify(domain);
-      return res.json(result);
+      res.json({ 
+        success: true, 
+        domains: domains.data || [] 
+      });
     } catch (error) {
-      console.error('Domain verification error:', error);
-      return res.status(500).json({ message: "Error verifying domain", error });
+      console.error('Domain verification failed:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }));
+
+  // Test email endpoint
+  app.post("/api/send-test-email", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!resend) {
+        throw new Error('Email service not configured');
+      }
+
+      const emailClient = resend;
+      const result = await emailClient.emails.send({
+        from: process.env.RESEND_FROM_EMAIL || 'noreply@yourdomain.com',
+        to: req.user?.email || '',
+        subject: 'Test Email',
+        html: '<p>This is a test email from your video learning platform.</p>'
+      });
+
+      res.json({ success: true, result });
+    } catch (error) {
+      console.error('Failed to send test email:', error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }));
 
@@ -1116,5 +1160,6 @@ export function registerRoutes(app: Express): Server {
     }));
   }
 
+  // Return the HTTP server at the end of registerRoutes
   return httpServer;
 }

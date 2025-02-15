@@ -78,7 +78,6 @@ app.use('/api', (err: any, req: Request, res: Response, next: NextFunction) => {
   const status = err.status || err.statusCode || 500;
   const message = err.message || "Internal Server Error";
 
-  // Ensure we always return JSON for API routes
   res.status(status)
     .set('Content-Type', 'application/json')
     .json({
@@ -111,7 +110,7 @@ if (app.get("env") === "development") {
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = '0.0.0.0';
 
-// Function to check if port is in use using ESM
+// Function to check if port is in use
 function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const tester: NetServer = createNetServer()
@@ -128,7 +127,7 @@ async function findAvailablePort(startPort: number): Promise<number> {
   let port = startPort;
   while (await isPortInUse(port)) {
     port++;
-    if (port > startPort + 100) { // Don't search indefinitely
+    if (port > startPort + 100) {
       throw new Error('No available ports found in range');
     }
   }
@@ -137,7 +136,6 @@ async function findAvailablePort(startPort: number): Promise<number> {
 
 let shutdownInProgress = false;
 
-// Convert function declaration to function expression
 const handleShutdown = () => {
   if (shutdownInProgress) return;
   shutdownInProgress = true;
@@ -155,45 +153,50 @@ const handleShutdown = () => {
   }, 5000);
 };
 
-// Start server with port availability check and explicit host binding
+// Start server with explicit readiness signaling
 const startServer = async () => {
   try {
     const port = await findAvailablePort(PORT);
+
+    // Log port change if necessary
     if (port !== PORT) {
       console.log(`Port ${PORT} was in use, using port ${port} instead`);
     }
 
+    // Setup shutdown handlers
     process.on('SIGTERM', handleShutdown);
     process.on('SIGINT', handleShutdown);
 
-    // Create a promise that resolves when the server is listening
-    const serverReady = new Promise<void>((resolve) => {
+    // Wait for server to be ready
+    await new Promise<void>((resolve) => {
       server.listen(port, HOST, () => {
-        const startupMessage = `Server started and ready on http://${HOST}:${port}`;
-        log(startupMessage);
-        console.log('=== Server Configuration ===');
+        // Clear console and print startup banner
+        console.clear();
+        console.log('\n=== Server Starting ===');
+        console.log(`Timestamp: ${new Date().toISOString()}`);
         console.log(`Environment: ${app.get("env")}`);
         console.log(`Port: ${port}`);
         console.log(`Host: ${HOST}`);
-        console.log(`Timestamp: ${new Date().toISOString()}`);
-        console.log('=========================');
-        console.log('Server is now ready to accept connections');
+        console.log(`URL: http://${HOST}:${port}`);
+        console.log('=====================\n');
+
+        // Signal that we're ready for connections
+        console.log(`Server is now listening on port ${port}`);
         resolve();
       });
     });
 
-    // Wait for server to be ready before signaling
-    await serverReady;
-
-    // Signal that the server is ready (for workflow port waiting)
+    // Signal readiness to parent process (for workflow)
     if (process.send) {
       process.send('ready');
       console.log('Sent ready signal to parent process');
     }
+
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
 };
 
+// Start the server
 startServer();
