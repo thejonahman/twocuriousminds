@@ -39,32 +39,25 @@ interface Props {
   initialGroupId?: number;
 }
 
-interface VideoData {
-  title?: string;
-  description?: string;
-}
-
 export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  const { state: pollingState, addMessageHandler } = usePolling(currentGroup?.id);
+  const { state: pollingState } = usePolling(currentGroup?.id);
 
   const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data) => validateApiResponse(groupSchema, data),
     retry: 3,
-    staleTime: 30000,
+    staleTime: 1000,
   });
 
   const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<Group>({
@@ -72,12 +65,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
     select: (data) => validateApiResponse(groupSchema, data),
     retry: 3,
-    staleTime: 30000,
-  });
-
-  const { data: videoData } = useQuery<VideoData>({
-    queryKey: [`/api/videos/${videoId}`],
-    enabled: !!videoId,
+    staleTime: 1000,
   });
 
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[]>({
@@ -85,6 +73,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     enabled: !!currentGroup?.id && !!user,
     select: (data) => validateApiResponse(z.array(messageSchema), data),
     staleTime: 1000,
+    refetchInterval: 3000,
   });
 
   useEffect(() => {
@@ -103,58 +92,17 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         }
       } catch (error) {
         console.error('Error setting active group:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load discussion group",
+          variant: "destructive",
+        });
       }
     };
 
     setActiveGroup();
-  }, [user, videoId, initialGroupId, group, lastActiveGroup, setLocation]);
+  }, [user, videoId, initialGroupId, group, lastActiveGroup, setLocation, toast]);
 
-  useEffect(() => {
-    if (!user || !currentGroup) return;
-
-    const handleNewMessages = async (newMessages: Message[]) => {
-      queryClient.invalidateQueries({
-        queryKey: [`/api/groups/${currentGroup.id}/messages`]
-      });
-
-      if (document.hidden) {
-        setUnreadCount(prev => prev + newMessages.length);
-      } else {
-        try {
-          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          setUnreadCount(0);
-        } catch (error) {
-          console.error('Failed to mark messages as read:', error);
-        }
-      }
-    };
-
-    const cleanup = addMessageHandler(handleNewMessages);
-
-    const handleVisibilityChange = async () => {
-      if (!document.hidden && unreadCount > 0) {
-        try {
-          await fetch(`/api/groups/${currentGroup.id}/mark-read`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          setUnreadCount(0);
-        } catch (error) {
-          console.error('Failed to mark messages as read:', error);
-        }
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      cleanup();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [user, currentGroup, queryClient, addMessageHandler, unreadCount]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -169,7 +117,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
       if (!response.ok) throw new Error('Failed to send message');
 
-      const newMessage = await response.json();
+      await response.json();
       queryClient.invalidateQueries({
         queryKey: [`/api/groups/${currentGroup.id}/messages`]
       });
@@ -186,7 +134,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   };
 
   const handleCreateGroup = async () => {
-    const groupName = groupNameInput.trim() || videoData?.title || "Discussion Group";
+    const groupName = groupNameInput.trim() || "Discussion Group";
     try {
       const response = await fetch('/api/groups', {
         method: 'POST',
@@ -194,7 +142,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         body: JSON.stringify({
           name: groupName,
           videoId,
-          description: `Discussion group for ${videoData?.title || 'video'}`
+          description: `Discussion group for video ${videoId}`
         })
       });
 
@@ -305,11 +253,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
               <>
                 <Users className="h-5 w-5" />
                 {currentGroup.name}
-                {unreadCount > 0 && (
-                  <span className="bg-primary text-primary-foreground rounded-full px-2 py-1 text-xs">
-                    {unreadCount}
-                  </span>
-                )}
               </>
             ) : (
               <>
@@ -323,7 +266,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
               <ShareGroupDialog
                 url={`${window.location.origin}/join-group/${currentGroup.inviteCode}?videoId=${videoId}`}
                 groupName={currentGroup.name}
-                videoTitle={videoData?.title}
+                videoTitle="Video Discussion"
                 memberCount={currentGroup.members?.length ?? 0}
                 messageCount={messages?.length || 0}
               />
@@ -355,7 +298,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                 <Input
                   value={groupNameInput}
                   onChange={(e) => setGroupNameInput(e.target.value)}
-                  placeholder={videoData?.title || "Group name..."}
+                  placeholder="Group name..."
                   className="mb-2"
                 />
                 <DialogFooter>

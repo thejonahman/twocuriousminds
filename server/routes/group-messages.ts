@@ -58,7 +58,7 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
     if (req.user?.id) {
       await db
         .update(groupMembers)
-        .set({ 
+        .set({
           lastReadAt: new Date(),
           unreadCount: 0
         })

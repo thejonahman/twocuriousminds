@@ -28,8 +28,10 @@ export default function JoinGroup() {
       }
 
       try {
+        // Show progress indicator
         setProgress(40);
-        // Join group - the backend will handle user creation/auth if needed
+
+        // Join group in a single request
         const response = await fetch(`/api/groups/invite/${inviteCode}/join`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -66,8 +68,14 @@ export default function JoinGroup() {
       }
     };
 
-    joinGroup();
-  }, [inviteCode, videoId, toast, setLocation]);
+    if (user) {
+      joinGroup();
+    } else {
+      // If user is not logged in, redirect to auth page with return URL
+      const returnUrl = `/join-group/${inviteCode}?videoId=${videoId}`;
+      setLocation(`/auth?returnUrl=${encodeURIComponent(returnUrl)}`);
+    }
+  }, [inviteCode, videoId, toast, setLocation, user]);
 
   return (
     <Card className="max-w-md mx-auto mt-8">
@@ -77,9 +85,9 @@ export default function JoinGroup() {
       <CardContent>
         <Progress value={progress} className="w-full" />
         <p className="text-sm text-muted-foreground mt-2">
-          {progress < 40 && "Verifying invitation link..."}
-          {progress >= 40 && progress < 80 && "Connecting you to the discussion..."}
-          {progress >= 80 && "Almost there..."}
+          {progress < 40 && "Preparing to join..."}
+          {progress >= 40 && progress < 80 && "Joining discussion group..."}
+          {progress >= 80 && "Redirecting to discussion..."}
         </p>
       </CardContent>
     </Card>
