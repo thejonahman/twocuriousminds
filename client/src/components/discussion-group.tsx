@@ -80,12 +80,21 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
     const setActiveGroup = async () => {
       try {
+        console.log('Setting active group:', {
+          initialGroupId,
+          hasGroup: !!group,
+          hasLastActiveGroup: !!lastActiveGroup,
+          userId: user.id
+        });
+
         if (initialGroupId && group) {
+          console.log('Setting current group from initialGroupId:', group.id);
           setCurrentGroup(group);
           return;
         }
 
         if (lastActiveGroup) {
+          console.log('Setting current group from lastActiveGroup:', lastActiveGroup.id);
           setCurrentGroup(lastActiveGroup);
           setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
         }
@@ -196,6 +205,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     if (!currentGroup) return;
 
     try {
+      console.log('Leaving group:', {
+        groupId: currentGroup.id,
+        videoId,
+        userId: user?.id
+      });
+
       const response = await fetch(`/api/groups/${currentGroup.id}/leave`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
@@ -204,6 +219,20 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       if (!response.ok) {
         throw new Error('Failed to leave group');
       }
+
+      // Store leave information in sessionStorage with video-specific prefix
+      const storagePrefix = `video-${videoId}`;
+      sessionStorage.setItem(`${storagePrefix}-lastLeftGroup`, String(currentGroup.id));
+      sessionStorage.setItem(`${storagePrefix}-lastLeftTime`, String(Date.now()));
+
+      // Remove active group from localStorage
+      localStorage.removeItem(`${storagePrefix}-activeGroup`);
+
+      console.log('Successfully left group:', {
+        groupId: currentGroup.id,
+        videoId,
+        storagePrefix
+      });
 
       setCurrentGroup(null);
       setLocation(`/video/${videoId}`);

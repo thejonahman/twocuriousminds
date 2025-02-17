@@ -17,7 +17,6 @@ import { useState, useEffect } from "react";
 import { z } from "zod";
 import { useUser } from "@/hooks/use-user";
 
-
 // Define type for last active group
 const lastActiveGroupSchema = z.object({
   id: z.number(),
@@ -59,7 +58,7 @@ export default function Video() {
   // Update lastActiveGroup query with proper type validation
   const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${id}/last-active-group`],
-    enabled: !!id && !groupId, // Only run if no groupId provided
+    enabled: !!id && !groupId && !!user, // Only run if no groupId provided and user is logged in
     select: (data) => {
       try {
         return lastActiveGroupSchema.parse(data);
@@ -70,35 +69,59 @@ export default function Video() {
     }
   });
 
-  // Update the useEffect for group restoration
+  // Enhanced group restoration logic with logging
   useEffect(() => {
-    if (!user || restorationAttempted) return;
+    if (!user || restorationAttempted || !id) return;
+
+    console.log('Checking group restoration:', {
+      userId: user.id,
+      videoId: id,
+      hasInitialGroupId: !!groupId,
+      hasLastActiveGroup: !!lastActiveGroup
+    });
 
     const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
+    const STORAGE_PREFIX = `video-${id}`;
 
-    const shouldRejoinGroup = (lastLeftGroupId: string | null, lastLeftTime: string | null) => {
-      if (!lastLeftGroupId || !lastLeftTime) return true;
+    const shouldRejoinGroup = (lastLeftTime: string | null) => {
+      if (!lastLeftTime) return true;
       const timeSinceLeft = Date.now() - parseInt(lastLeftTime);
+      console.log('Checking rejoin timeout:', {
+        timeSinceLeft,
+        threshold: REJOIN_TIMEOUT,
+        canRejoin: timeSinceLeft >= REJOIN_TIMEOUT
+      });
       return timeSinceLeft >= REJOIN_TIMEOUT;
     };
 
     if (lastActiveGroup && !groupId) {
-      const lastLeftGroup = sessionStorage.getItem('lastLeftGroup');
-      const lastLeftTime = sessionStorage.getItem('lastLeftTime');
+      const lastLeftTime = sessionStorage.getItem(`${STORAGE_PREFIX}-lastLeftTime`);
+      const lastLeftGroup = sessionStorage.getItem(`${STORAGE_PREFIX}-lastLeftGroup`);
+      const activeGroupId = localStorage.getItem(`${STORAGE_PREFIX}-activeGroup`);
 
-      if (lastLeftGroup !== String(lastActiveGroup.id) || shouldRejoinGroup(lastLeftGroup, lastLeftTime)) {
-        const storedGroupId = localStorage.getItem(`activeGroup-${id}`);
+      console.log('Group restoration state:', {
+        lastActiveGroupId: lastActiveGroup.id,
+        lastLeftGroup,
+        lastLeftTime,
+        activeGroupId,
+        storagePrefix: STORAGE_PREFIX
+      });
 
-        if (!storedGroupId || storedGroupId === String(lastActiveGroup.id)) {
-          setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
-          localStorage.setItem(`activeGroup-${id}`, String(lastActiveGroup.id));
-        }
+      // Check if user hasn't explicitly left or cooldown period has passed
+      if ((!lastLeftGroup || lastLeftGroup !== String(lastActiveGroup.id) || shouldRejoinGroup(lastLeftTime)) &&
+          (!activeGroupId || activeGroupId === String(lastActiveGroup.id))) {
+        console.log('Restoring group participation:', {
+          groupId: lastActiveGroup.id,
+          videoId: id
+        });
+        // Store the active group ID in localStorage for persistence
+        localStorage.setItem(`${STORAGE_PREFIX}-activeGroup`, String(lastActiveGroup.id));
+        setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
       }
     }
 
     setRestorationAttempted(true);
   }, [user, id, groupId, lastActiveGroup, setLocation, restorationAttempted]);
-
 
   // Scroll to top whenever the video ID changes
   useEffect(() => {

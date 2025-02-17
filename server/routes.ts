@@ -875,7 +875,12 @@ export function registerRoutes(app: Express): Server {
         unreadCount: 0,
         reminderCount: 0,
         user: {
-          username: req.user!.username
+          id: req.user!.id,
+          createdAt: new Date(),
+          username: req.user!.username,
+          email: req.user!.email,
+          password: '', // Empty string for security
+          isAdmin: false
         }
       };
 
