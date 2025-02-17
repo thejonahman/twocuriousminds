@@ -41,13 +41,24 @@ export default function JoinGroup() {
           throw new Error('Failed to join group');
         }
 
-        const { group } = await response.json();
-        setLocation(`/video/${videoId}/group/${group.id}`);
+        const data = await response.json();
+        if (!data.group || !data.group.id) {
+          throw new Error('Invalid group data received');
+        }
+        
+        // Fetch full group details after joining
+        const groupResponse = await fetch(`/api/groups/${data.group.id}`);
+        if (!groupResponse.ok) {
+          throw new Error('Failed to fetch group details');
+        }
+        
+        const groupData = await groupResponse.json();
+        setLocation(`/video/${videoId}/group/${groupData.id}`);
       } catch (error) {
         console.error('Error joining group:', error);
         toast({
           title: "Error",
-          description: "Failed to join the group discussion",
+          description: "Failed to join the group discussion. Please try again.",
           variant: "destructive",
         });
         setLocation(`/video/${videoId}`);
