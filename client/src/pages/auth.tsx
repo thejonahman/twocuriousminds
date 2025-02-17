@@ -9,6 +9,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const loginSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
@@ -26,47 +27,73 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [, navigate] = useLocation();
   const { user, loginMutation, registerMutation } = useAuth();
+  const { toast } = useToast();
+  const [isJoining, setIsJoining] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      console.log('User authenticated, checking for redirect data');
+    if (!user) return;
 
-      // First check for complete redirect URL
-      const redirectUrl = sessionStorage.getItem('redirectUrl');
-      if (redirectUrl) {
-        console.log('Found complete redirect URL:', redirectUrl);
-        sessionStorage.removeItem('redirectUrl');
-        window.location.replace(redirectUrl);
-        return;
+    const joinGroup = async (inviteCode: string, videoId: string) => {
+      setIsJoining(true);
+      try {
+        console.log('Attempting to join group:', { inviteCode, videoId });
+        const response = await fetch(`/api/groups/invite/${inviteCode}/join`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoId })
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Join group error response:', errorText);
+          throw new Error(errorText || 'Failed to join group');
+        }
+
+        const data = await response.json();
+        console.log('Join group response:', data);
+
+        if (!data.group?.id) {
+          throw new Error('Invalid response from server: missing group ID');
+        }
+
+        // Clear any stored invite data
+        sessionStorage.removeItem('pendingInvite');
+        navigate(`/video/${videoId}/group/${data.group.id}`);
+      } catch (error) {
+        console.error('Error joining group:', error);
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Could not join the group. Please try again.",
+          variant: "destructive",
+        });
+        navigate(`/video/${videoId}`);
+      } finally {
+        setIsJoining(false);
       }
+    };
 
-      // Fall back to separate parameters if no complete URL
-      const targetType = sessionStorage.getItem('targetType');
-      const targetId = sessionStorage.getItem('targetId');
-      const inviteCode = sessionStorage.getItem('inviteCode');
-
-      console.log('Auth redirect data:', { targetType, targetId, inviteCode });
-
-      if (targetType === 'join-group' && inviteCode) {
-        const destination = `/join-group/${inviteCode}${targetId ? `?videoId=${targetId}` : ''}`;
-        console.log('Redirecting to join group:', destination);
-        window.location.replace(destination);
-      } else if (targetType === 'group' && targetId) {
-        const destination = `/video/${targetId}/group/${targetId}`;
-        console.log('Redirecting to group:', destination);
-        window.location.replace(destination);
-      } else {
-        // No target URL or parameters, go to home
-        console.log('No redirect data found, going to home');
+    // Check for pending invite after successful authentication
+    const pendingInviteStr = sessionStorage.getItem('pendingInvite');
+    if (pendingInviteStr) {
+      try {
+        const { inviteCode, videoId } = JSON.parse(pendingInviteStr);
+        if (inviteCode && videoId) {
+          joinGroup(inviteCode, videoId);
+          return;
+        }
+      } catch (error) {
+        console.error('Error handling pending invite:', error);
+        toast({
+          title: "Error",
+          description: "Invalid invite link data",
+          variant: "destructive",
+        });
         navigate('/');
       }
-
-      // Clean up storage
-      sessionStorage.removeItem('targetType');
-      sessionStorage.removeItem('targetId');
-      sessionStorage.removeItem('inviteCode');
+    } else if (!isJoining) {
+      navigate('/');
     }
-  }, [user, navigate]);
+  }, [user, navigate, toast, isJoining]);
 
   const form = useForm<LoginValues | RegisterValues>({
     resolver: zodResolver(isLogin ? loginSchema : registerSchema),
@@ -78,7 +105,6 @@ export default function Auth() {
   });
 
   const onSubmit = async (values: LoginValues | RegisterValues) => {
-    console.log('Form submitted:', { isLogin, values });
     try {
       if (isLogin) {
         await loginMutation.mutateAsync(values as LoginValues);
@@ -87,9 +113,22 @@ export default function Auth() {
       }
     } catch (error) {
       console.error('Auth error:', error);
-      // Error is handled by the mutation callbacks
+      toast({
+        title: "Authentication Error",
+        description: error instanceof Error ? error.message : "Failed to authenticate",
+        variant: "destructive",
+      });
     }
   };
+
+  if (user && isJoining) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
+        <span className="ml-2">Joining discussion group...</span>
+      </div>
+    );
+  }
 
   if (user) {
     return null;
@@ -102,8 +141,8 @@ export default function Auth() {
           <CardTitle>{isLogin ? "Welcome Back" : "Create Account"}</CardTitle>
           <CardDescription>
             {isLogin
-              ? "Ready to see yourself clearly? Sign in to continue your journey."
-              : "Ready to see yourself clearly? Create an account to start your journey."}
+              ? "Ready to join the discussion? Sign in to continue."
+              : "Ready to join the discussion? Create an account to start participating."}
           </CardDescription>
         </CardHeader>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -175,17 +214,17 @@ export default function Auth() {
         </form>
       </Card>
       <div className="space-y-4">
-        <h2 className="text-3xl font-bold">Two Curious Minds</h2>
+        <h2 className="text-3xl font-bold">Join the Discussion</h2>
         <p className="text-muted-foreground">
-          Ready to see yourself clearly? Join us on a journey of self-discovery and personal growth.
+          Join our community to participate in group discussions, share insights, and connect with others.
         </p>
         <div className="space-y-2">
           <h3 className="text-lg font-semibold">Features</h3>
           <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-            <li>Personalized content recommendations</li>
-            <li>Multi-platform content discovery</li>
-            <li>Smart learning paths</li>
-            <li>Content preferences management</li>
+            <li>Real-time group discussions</li>
+            <li>Share discussions with friends</li>
+            <li>Seamless video integration</li>
+            <li>Rich media sharing</li>
           </ul>
         </div>
       </div>

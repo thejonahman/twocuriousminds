@@ -612,7 +612,15 @@ export function registerRoutes(app: Express): Server {
     const { inviteCode } = req.params;
     const { videoId } = req.body;
 
+    console.log('Received group join request:', {
+      inviteCode,
+      videoId,
+      userId: req.user?.id,
+      timestamp: new Date().toISOString()
+    });
+
     if (!inviteCode || !videoId) {
+      console.error('Missing required parameters:', { inviteCode, videoId });
       return res.status(400).json({ message: "Missing required parameters" });
     }
 
@@ -635,12 +643,22 @@ export function registerRoutes(app: Express): Server {
       });
 
       if (!group) {
+        console.error('Group not found for invite code:', inviteCode);
         return res.status(404).json({ message: "Invalid invite code" });
       }
+
+      console.log('Found group:', {
+        groupId: group.id,
+        memberCount: group.members.length
+      });
 
       // Check if user is already a member
       const existingMember = group.members.find(m => m.userId === req.user?.id);
       if (existingMember) {
+        console.log('User is already a member:', {
+          userId: req.user?.id,
+          groupId: group.id
+        });
         return res.json({ group }); // Already a member, just return the group
       }
 
@@ -657,6 +675,12 @@ export function registerRoutes(app: Express): Server {
           unreadCount: 0
         })
         .returning();
+
+      console.log('Added new member:', {
+        memberId: member.id,
+        groupId: group.id,
+        userId: req.user?.id
+      });
 
       // Get updated group data with the new member
       const updatedGroup = await db.query.discussionGroups.findFirst({
@@ -679,18 +703,18 @@ export function registerRoutes(app: Express): Server {
         throw new Error('Failed to fetch updated group data');
       }
 
-      // Set session data for the group
-      req.session.currentGroupId = group.id;
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err) => {
-          if (err) reject(err);
-          resolve();
-        });
+      console.log('Successfully joined group:', {
+        groupId: updatedGroup.id,
+        memberCount: updatedGroup.members.length
       });
 
       res.json({ group: updatedGroup });
     } catch (error) {
-      console.error('Error joining group:', error);
+      console.error('Error joining group:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
       res.status(500).json({
         message: "Failed to join group",
         error: error instanceof Error ? error.message : "Unknown error"
@@ -1007,7 +1031,7 @@ export function registerRoutes(app: Express): Server {
           updatedAt: new Date()
         }
       })
-            .returning();
+      .returning();
 
     res.json(savedPreferences);
   }));

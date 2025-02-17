@@ -70,8 +70,11 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
 
     res.json(messages.reverse());
   } catch (error) {
-    console.error('Error in group messages:', error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('Error fetching group messages:', error);
+    res.status(500).json({ 
+      error: "Failed to fetch messages",
+      details: error instanceof Error ? error.message : "Unknown error" 
+    });
   }
 });
 
@@ -99,13 +102,27 @@ router.post("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: 
       return res.status(400).json({ error: result.error.format() });
     }
 
-    const [message] = await db.insert(groupMessages).values({
-      groupId: parsedGroupId,
-      userId: req.user.id,
-      content: result.data.content,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }).returning();
+    // First verify user is a member of the group
+    const memberCheck = await db.query.groupMembers.findFirst({
+      where: and(
+        eq(groupMembers.groupId, parsedGroupId),
+        eq(groupMembers.userId, req.user.id)
+      )
+    });
+
+    if (!memberCheck) {
+      return res.status(403).json({ error: "Not a member of this group" });
+    }
+
+    const [message] = await db.insert(groupMessages)
+      .values({
+        groupId: parsedGroupId,
+        userId: req.user.id,
+        content: result.data.content,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      })
+      .returning();
 
     // Get full message details with user info for the response
     const messageWithUser = await db.query.groupMessages.findFirst({
@@ -120,10 +137,18 @@ router.post("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: 
       }
     });
 
+    // Update group's last activity timestamp
+    await db.update(discussionGroups)
+      .set({ updatedAt: new Date() })
+      .where(eq(discussionGroups.id, parsedGroupId));
+
     res.json(messageWithUser);
   } catch (error) {
     console.error('Error posting message:', error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ 
+      error: "Failed to send message",
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
   }
 });
 

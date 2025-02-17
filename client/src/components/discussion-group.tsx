@@ -3,7 +3,6 @@ import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { usePolling } from "@/hooks/use-polling";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Send, MessageSquare, Plus, Users } from "lucide-react";
@@ -32,7 +31,6 @@ import {
 } from "@/lib/api-types";
 import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
-import { env } from "@/lib/env";
 
 interface Props {
   videoId: number;
@@ -50,8 +48,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  const { state: pollingState } = usePolling(currentGroup?.id);
-
+  // Get group details
   const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
@@ -60,6 +57,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     staleTime: 1000,
   });
 
+  // Get last active group if no initialGroupId
   const { data: lastActiveGroup, isLoading: isLastActiveLoading } = useQuery<Group>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId && !currentGroup,
@@ -68,6 +66,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     staleTime: 1000,
   });
 
+  // Get messages with optimistic updates
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery<Message[]>({
     queryKey: [`/api/groups/${currentGroup?.id}/messages`],
     enabled: !!currentGroup?.id && !!user,
@@ -103,10 +102,28 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     setActiveGroup();
   }, [user, videoId, initialGroupId, group, lastActiveGroup, setLocation, toast]);
 
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim() || !currentGroup) return;
+
+    const optimisticMessage: Message = {
+      id: Math.random(),
+      content: messageInput.trim(),
+      userId: user!.id,
+      groupId: currentGroup.id,
+      user: { username: user!.username },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Add optimistic update
+    queryClient.setQueryData(
+      [`/api/groups/${currentGroup.id}/messages`],
+      (old: Message[] = []) => [...old, optimisticMessage]
+    );
+
+    setMessageInput('');
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
 
     try {
       const response = await fetch(`/api/groups/${currentGroup.id}/messages`, {
@@ -115,25 +132,31 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         body: JSON.stringify({ content: messageInput.trim() })
       });
 
-      if (!response.ok) throw new Error('Failed to send message');
+      if (!response.ok) {
+        throw new Error('Failed to send message');
+      }
 
-      await response.json();
+      // Invalidate query to get actual server response
       queryClient.invalidateQueries({
         queryKey: [`/api/groups/${currentGroup.id}/messages`]
       });
-
-      setMessageInput('');
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     } catch (error) {
+      console.error('Error sending message:', error);
+      // Revert optimistic update on error
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${currentGroup.id}/messages`]
+      });
       toast({
         title: "Error",
-        description: "Failed to send message",
+        description: "Failed to send message. Please try again.",
         variant: "destructive",
       });
     }
   };
 
   const handleCreateGroup = async () => {
+    if (!user) return;
+
     const groupName = groupNameInput.trim() || "Discussion Group";
     try {
       const response = await fetch('/api/groups', {
@@ -146,7 +169,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         })
       });
 
-      if (!response.ok) throw new Error('Failed to create group');
+      if (!response.ok) {
+        throw new Error('Failed to create group');
+      }
 
       const newGroup = await response.json();
       setCurrentGroup(newGroup);
@@ -158,9 +183,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
       });
     } catch (error) {
+      console.error('Error creating group:', error);
       toast({
         title: "Error",
-        description: "Failed to create group",
+        description: "Failed to create group. Please try again.",
         variant: "destructive",
       });
     }
@@ -175,7 +201,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         headers: { 'Content-Type': 'application/json' }
       });
 
-      if (!response.ok) throw new Error('Failed to leave group');
+      if (!response.ok) {
+        throw new Error('Failed to leave group');
+      }
 
       setCurrentGroup(null);
       setLocation(`/video/${videoId}`);
@@ -188,6 +216,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: "Successfully left the group",
       });
     } catch (error) {
+      console.error('Error leaving group:', error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to leave group",
@@ -221,23 +250,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           <div className="animate-pulse space-y-4">
             <div className="h-4 bg-muted rounded w-3/4"></div>
             <div className="h-4 bg-muted rounded w-1/2"></div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (pollingState.error) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Discussion</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center gap-4 p-8">
-            <p className="text-sm text-muted-foreground">
-              Connection error. Retrying...
-            </p>
           </div>
         </CardContent>
       </Card>
@@ -340,7 +352,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm font-semibold">{message.user.username}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(message.createdAt).toLocaleTimeString()}
+                      {new Date(message.createdAt || Date.now()).toLocaleTimeString()}
                     </p>
                   </div>
                   <p>{message.content}</p>
