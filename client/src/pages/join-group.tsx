@@ -42,12 +42,12 @@ export default function JoinGroup() {
         }
 
         const data = await response.json();
-        if (!data.id) {
+        if (!data.group || !data.group.id) {
           throw new Error('Invalid group data received');
         }
         
         // Navigate directly to the group after joining
-        setLocation(`/video/${videoId}/group/${data.id}`);
+        setLocation(`/video/${videoId}/group/${data.group.id}`);
       } catch (error) {
         console.error('Error joining group:', error);
         toast({
