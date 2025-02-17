@@ -25,7 +25,7 @@ export function ShareGroupDialog({ url, groupName, videoTitle, memberCount, mess
       setTimeout(() => setCopied(false), 2000);
       toast({
         title: "Link copied! 🎉",
-        description: "Share it with friends to make the discussion more fun!",
+        description: "Share it with friends to join the discussion instantly!",
       });
     } catch (err) {
       toast({
@@ -40,9 +40,9 @@ export function ShareGroupDialog({ url, groupName, videoTitle, memberCount, mess
     const subject = encodeURIComponent(`Join our video discussion: ${groupName} 🎥`);
     const body = encodeURIComponent(
       `Hey! 👋\n\n` +
-      `We're having an interesting discussion about ${videoTitle ? `"${videoTitle}"` : 'this video'} and would love to hear your thoughts!\n\n` +
-      `Already ${memberCount} member${memberCount !== 1 ? 's' : ''} have shared ${messageCount} message${messageCount !== 1 ? 's' : ''}. Join us!\n\n` +
-      `Click here to join the conversation: ${url}`
+      `I've started an interesting discussion about ${videoTitle ? `"${videoTitle}"` : 'this video'} and would love to hear your thoughts!\n\n` +
+      `Already ${memberCount} member${memberCount !== 1 ? 's' : ''} have shared ${messageCount} message${messageCount !== 1 ? 's' : ''}.\n\n` +
+      `Click to join the conversation instantly (no sign-up required): ${url}`
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
@@ -85,10 +85,11 @@ export function ShareGroupDialog({ url, groupName, videoTitle, memberCount, mess
           <div className="flex items-center space-x-2">
             <div className="grid flex-1 gap-2">
               <div 
-                className="bg-muted rounded-md p-3 text-sm break-all relative group"
+                className="bg-muted rounded-md p-3 text-sm break-all relative group cursor-pointer"
                 role="textbox"
                 aria-label="Sharing URL"
                 aria-readonly="true"
+                onClick={handleCopy}
               >
                 {url}
                 <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-md" />

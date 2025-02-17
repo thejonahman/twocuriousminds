@@ -3,9 +3,18 @@ import { db } from "@db";
 import { eq, desc } from "drizzle-orm";
 import { groupMessages } from "@db/schema";
 
+interface TypedRequestUser extends Request {
+  user?: {
+    id: number;
+    username: string;
+    email: string;
+    isAdmin?: boolean;
+  };
+}
+
 export function setupPolling(app: any) {
   // Endpoint to send new messages
-  app.post('/api/messages', async (req: Request, res: Response) => {
+  app.post('/api/messages', async (req: TypedRequestUser, res: Response) => {
     try {
       const { groupId, content } = req.body;
       const userId = req.user?.id;
@@ -20,7 +29,8 @@ export function setupPolling(app: any) {
           groupId,
           userId,
           content,
-          createdAt: new Date()
+          createdAt: new Date(),
+          updatedAt: new Date()
         })
         .returning();
 
@@ -47,7 +57,7 @@ export function setupPolling(app: any) {
   });
 
   // Get messages endpoint with proper sorting
-  app.get('/api/messages', async (req: Request, res: Response) => {
+  app.get('/api/messages', async (req: TypedRequestUser, res: Response) => {
     try {
       const groupId = parseInt(req.query.groupId as string);
 
