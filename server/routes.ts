@@ -412,13 +412,18 @@ export function registerRoutes(app: Express): Server {
     res.json(relatedVideos);
   }));
 
-  // Add this new endpoint near the other video-related endpoints
+  // Update the /api/videos/:videoId/last-active-group endpoint
   app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.videoId);
 
     if (isNaN(videoId)) {
       return res.status(400).json({ message: "Invalid video ID" });
     }
+
+    console.log('Fetching last active group for video:', {
+      videoId,
+      userId: req.user?.id
+    });
 
     // Find the most recently active group for this video where the user is a member
     const lastActiveGroup = await db.query.discussionGroups.findFirst({
@@ -435,7 +440,9 @@ export function registerRoutes(app: Express): Server {
           with: {
             user: {
               columns: {
-                username: true
+                id: true,
+                username: true,
+                email: true
               }
             }
           }
@@ -444,10 +451,7 @@ export function registerRoutes(app: Express): Server {
       orderBy: [desc(discussionGroups.updatedAt)]
     });
 
-    if (!lastActiveGroup) {
-      return res.json(null);
-    }
-
+    console.log('Found last active group:', lastActiveGroup?.id || 'none');
     res.json(lastActiveGroup);
   }));
 
@@ -1003,7 +1007,7 @@ export function registerRoutes(app: Express): Server {
     if (!preferences) {
       return res.status(404).json({
         message: "No preferences found"
-      });
+            });
     }
 
     res.json(preferences);

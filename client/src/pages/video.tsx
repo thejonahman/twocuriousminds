@@ -14,17 +14,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { z } from "zod";
 import { useUser } from "@/hooks/use-user";
-
-// Define type for last active group
-const lastActiveGroupSchema = z.object({
-  id: z.number(),
-  name: z.string(),
-  videoId: z.number().nullable(),
-}).nullable();
-
-type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
+import { validateApiResponse, lastActiveGroupSchema, type LastActiveGroup } from "@/lib/api-types";
 
 export default function Video() {
   const { id, groupId } = useParams();
@@ -32,7 +23,6 @@ export default function Video() {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const { user } = useUser();
-  const [restorationAttempted, setRestorationAttempted] = useState(false);
 
   // Query for video details
   const { data: video, isLoading } = useQuery<{
@@ -55,73 +45,34 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Update lastActiveGroup query with proper type validation
+  // Check for last active group only when needed
   const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${id}/last-active-group`],
     enabled: !!id && !groupId && !!user, // Only run if no groupId provided and user is logged in
-    select: (data) => {
-      try {
-        return lastActiveGroupSchema.parse(data);
-      } catch (error) {
-        console.error('Invalid last active group data:', error);
-        return null;
-      }
-    }
+    select: (data) => validateApiResponse(lastActiveGroupSchema, data),
   });
 
-  // Enhanced group restoration logic with logging
+  // Simple group restoration effect with proper type checking
   useEffect(() => {
-    if (!user || restorationAttempted || !id) return;
-
     console.log('Checking group restoration:', {
-      userId: user.id,
+      userId: user?.id,
       videoId: id,
       hasInitialGroupId: !!groupId,
-      hasLastActiveGroup: !!lastActiveGroup
+      hasLastActiveGroup: !!lastActiveGroup?.id,
+      timestamp: new Date().toISOString()
     });
 
-    const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
-    const STORAGE_PREFIX = `video-${id}`;
+    if (!user || !id || groupId || !lastActiveGroup?.id) return;
 
-    const shouldRejoinGroup = (lastLeftTime: string | null) => {
-      if (!lastLeftTime) return true;
-      const timeSinceLeft = Date.now() - parseInt(lastLeftTime);
-      console.log('Checking rejoin timeout:', {
-        timeSinceLeft,
-        threshold: REJOIN_TIMEOUT,
-        canRejoin: timeSinceLeft >= REJOIN_TIMEOUT
-      });
-      return timeSinceLeft >= REJOIN_TIMEOUT;
-    };
+    console.log('Setting active group:', {
+      groupId: lastActiveGroup.id,
+      groupName: lastActiveGroup.name,
+      userId: user.id,
+      timestamp: new Date().toISOString()
+    });
 
-    if (lastActiveGroup && !groupId) {
-      const lastLeftTime = sessionStorage.getItem(`${STORAGE_PREFIX}-lastLeftTime`);
-      const lastLeftGroup = sessionStorage.getItem(`${STORAGE_PREFIX}-lastLeftGroup`);
-      const activeGroupId = localStorage.getItem(`${STORAGE_PREFIX}-activeGroup`);
-
-      console.log('Group restoration state:', {
-        lastActiveGroupId: lastActiveGroup.id,
-        lastLeftGroup,
-        lastLeftTime,
-        activeGroupId,
-        storagePrefix: STORAGE_PREFIX
-      });
-
-      // Check if user hasn't explicitly left or cooldown period has passed
-      if ((!lastLeftGroup || lastLeftGroup !== String(lastActiveGroup.id) || shouldRejoinGroup(lastLeftTime)) &&
-          (!activeGroupId || activeGroupId === String(lastActiveGroup.id))) {
-        console.log('Restoring group participation:', {
-          groupId: lastActiveGroup.id,
-          videoId: id
-        });
-        // Store the active group ID in localStorage for persistence
-        localStorage.setItem(`${STORAGE_PREFIX}-activeGroup`, String(lastActiveGroup.id));
-        setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
-      }
-    }
-
-    setRestorationAttempted(true);
-  }, [user, id, groupId, lastActiveGroup, setLocation, restorationAttempted]);
+    setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
+  }, [user, id, groupId, lastActiveGroup, setLocation]);
 
   // Scroll to top whenever the video ID changes
   useEffect(() => {
@@ -137,7 +88,6 @@ export default function Video() {
   };
 
   const handleShare = async (type: string) => {
-    // Always include the groupId in the share URL if we're in a group discussion
     const baseUrl = window.location.origin;
     const shareUrl = groupId
       ? `${baseUrl}/video/${id}/group/${groupId}`

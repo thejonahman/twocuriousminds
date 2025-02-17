@@ -45,12 +45,22 @@ export const groupSchema = baseEntitySchema.extend({
   isPrivate: z.boolean(),
   inviteCode: z.string(),
   members: z.array(groupMemberSchema).optional(),
+  updatedAt: z.string().datetime().nullish(),
+});
+
+// Last active group schema
+export const lastActiveGroupSchema = groupSchema.pick({
+  id: true,
+  name: true,
+  videoId: true,
+  updatedAt: true,
 });
 
 // API response types
 export type Message = z.infer<typeof messageSchema>;
 export type Group = z.infer<typeof groupSchema>;
 export type GroupMember = z.infer<typeof groupMemberSchema>;
+export type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
 
 // Utility function to validate API responses
 export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
