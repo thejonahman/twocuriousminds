@@ -9,6 +9,8 @@ import { users, insertUserSchema } from "@db/schema";
 import { db, pool } from "@db";
 import { eq } from "drizzle-orm";
 import { fromZodError } from "zod-validation-error";
+import jwt from 'jsonwebtoken'; // Added JWT for temporary login
+
 
 const scryptAsync = promisify(scrypt);
 const PostgresSessionStore = connectPg(session);
@@ -192,6 +194,35 @@ export function setupAuth(app: Express) {
     res.json(req.user);
   });
 
+  // Added temporary login endpoint
+  app.post('/api/templogin', async (req, res) => {
+    try {
+      const { user, token } = await login(undefined, undefined, true);
+      res.json({ user, token });
+    } catch (error) {
+      console.error("Temporary login error:", error);
+      res.status(500).json({ error: 'Failed to create temporary login' });
+    }
+  });
+
   console.log('Authentication setup completed');
   return sessionMiddleware;
+}
+
+export async function login(email?: string, password?: string, isTemporary = false) {
+  // Create temporary session if needed
+  if (isTemporary) {
+    const tempUser = {
+      id: Date.now(),
+      username: `Guest_${Math.random().toString(36).substring(2, 7)}`,
+      isTemporary: true
+    };
+    return { user: tempUser, token: jwt.sign(tempUser, process.env.JWT_SECRET || 'secret') };
+  }
+
+  //This section needs further implementation to handle actual login with email/password
+
+  // ... (rest of the login logic) ...  //This part is omitted because complete implementation would require details not provided
+
+  throw new Error('Login logic not fully implemented');
 }

@@ -719,8 +719,48 @@ export function registerRoutes(app: Express): Server {
   }));
 
 
-  // Add direct group access endpoint
-  app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Join group via invite
+app.post("/api/groups/invite/:inviteCode/join", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  const { inviteCode } = req.params;
+  const { videoId } = req.body;
+
+  if (!inviteCode || !videoId) {
+    return res.status(400).json({ message: "Missing required parameters" });
+  }
+
+  // Get group by invite code
+  const group = await db.query.discussionGroups.findFirst({
+    where: eq(discussionGroups.inviteCode, inviteCode),
+  });
+
+  if (!group) {
+    return res.status(404).json({ message: "Group not found" });
+  }
+
+  // Add user to group if not already a member
+  if (req.user) {
+    const existingMember = await db.query.groupMembers.findFirst({
+      where: and(
+        eq(groupMembers.groupId, group.id),
+        eq(groupMembers.userId, req.user.id)
+      ),
+    });
+
+    if (!existingMember) {
+      await db.insert(groupMembers).values({
+        groupId: group.id,
+        userId: req.user.id,
+        role: "member",
+        joinedAt: new Date(),
+      });
+    }
+  }
+
+  res.json({ group });
+}));
+
+// Add direct group access endpoint
+app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
       return res.status(400).json({ message: "Invalid group ID" });
