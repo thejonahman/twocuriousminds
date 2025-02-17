@@ -1,9 +1,9 @@
+
 import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 
 export default function JoinGroup() {
@@ -11,7 +11,6 @@ export default function JoinGroup() {
   const { user, login } = useAuth();
   const [, setLocation] = useLocation();
 
-  // Extract invite code and videoId from URL
   const inviteCode = window.location.pathname.split('/join-group/')[1];
   const videoId = new URLSearchParams(window.location.search).get('videoId');
 
@@ -20,7 +19,7 @@ export default function JoinGroup() {
       if (!inviteCode || !videoId) {
         toast({
           title: "Invalid Link",
-          description: "The invite link is invalid or incomplete.",
+          description: "The invite link appears to be invalid.",
           variant: "destructive",
         });
         setLocation('/');
@@ -28,31 +27,35 @@ export default function JoinGroup() {
       }
 
       try {
-        // If not logged in, create a temporary session
+        // Ensure user is logged in
         if (!user) {
           await login({ isTemporary: true });
         }
 
-        const response = await apiRequest('POST', `/api/groups/invite/${inviteCode}/join`, {
-          videoId
+        const response = await fetch(`/api/groups/invite/${inviteCode}/join`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ videoId })
         });
 
         if (!response.ok) {
           throw new Error('Failed to join group');
         }
 
-        const data = await response.json();
-        if (!data.group || !data.group.id) {
-          throw new Error('Invalid group data received');
-        }
+        const { group } = await response.json();
         
-        // Navigate directly to the group after joining
-        setLocation(`/video/${videoId}/group/${data.group.id}`);
+        if (!group?.id) {
+          throw new Error('Invalid response from server');
+        }
+
+        setLocation(`/video/${videoId}/group/${group.id}`);
       } catch (error) {
         console.error('Error joining group:', error);
         toast({
           title: "Error",
-          description: "Failed to join the group discussion. Please try again.",
+          description: "Could not join the group. Please try again.",
           variant: "destructive",
         });
         setLocation(`/video/${videoId}`);
@@ -70,7 +73,7 @@ export default function JoinGroup() {
       <CardContent>
         <Progress value={40} className="w-full" />
         <p className="text-sm text-muted-foreground mt-2">
-          Please wait while we connect you to the group discussion...
+          Connecting you to the discussion...
         </p>
       </CardContent>
     </Card>

@@ -724,7 +724,7 @@ app.post("/api/groups/invite/:inviteCode/join", asyncHandler(async (req: Authent
   const { inviteCode } = req.params;
   const { videoId } = req.body;
 
-  if (!inviteCode || !videoId) {
+  if (!inviteCode || !videoId || !req.user?.id) {
     return res.status(400).json({ message: "Missing required parameters" });
   }
 
@@ -738,25 +738,22 @@ app.post("/api/groups/invite/:inviteCode/join", asyncHandler(async (req: Authent
   }
 
   // Add user to group if not already a member
-  if (req.user) {
-    const existingMember = await db.query.groupMembers.findFirst({
-      where: and(
-        eq(groupMembers.groupId, group.id),
-        eq(groupMembers.userId, req.user.id)
-      ),
-    });
+  const [member] = await db.insert(groupMembers)
+    .values({
+      groupId: group.id,
+      userId: req.user.id,
+      role: "member",
+      joinedAt: new Date(),
+    })
+    .onConflictDoNothing()
+    .returning();
 
-    if (!existingMember) {
-      await db.insert(groupMembers).values({
-        groupId: group.id,
-        userId: req.user.id,
-        role: "member",
-        joinedAt: new Date(),
-      });
+  res.json({ 
+    group: {
+      ...group,
+      currentMember: member
     }
-  }
-
-  res.json({ group });
+  });
 }));
 
 // Add direct group access endpoint
