@@ -771,11 +771,7 @@ app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: Authentica
       with: {
         members: {
           with: {
-            user: {
-              columns: {
-                username: true
-              }
-            }
+            user: true
           }
         }
       }
@@ -1008,8 +1004,7 @@ app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: Authentica
 
     // Update lastReadAt for the member
     await db
-      .update(groupMembers)
-      .set({
+      .update(groupMembers)      .set({
         lastReadAt: new Date(),
         unreadCount: 0
       })
