@@ -3,9 +3,9 @@ import { useParams, useLocation } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
-import DiscussionGroupComponent from "@/components/discussion-group";
+import { DiscussionGroup } from "@/components/discussion-group";
 import { Button } from "@/components/ui/button";
-import { Share2, Copy, Check, Mail, AlertTriangle } from "lucide-react";
+import { Share2, Copy, Check, Mail } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,69 +16,67 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { z } from "zod";
 import { useUser } from "@/hooks/use-user";
-import { ErrorBoundary } from "@/components/error-boundary";
-import { Video, ApiResponse } from "@/lib/types";
 
-// Update type for last active group with strict schema
+
+// Define type for last active group
 const lastActiveGroupSchema = z.object({
   id: z.number(),
   name: z.string(),
-  inviteCode: z.string(),
   videoId: z.number().nullable(),
-  members: z.array(z.object({
-    id: z.number(),
-    username: z.string(),
-    userId: z.number(),
-  })),
-});
+}).nullable();
 
 type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
-type ShareType = 'copy' | 'email' | 'twitter' | 'linkedin';
 
-function VideoPage() {
-  const { id, groupId } = useParams<{ id: string; groupId?: string }>();
+export default function Video() {
+  const { id, groupId } = useParams();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const { user } = useUser();
   const [restorationAttempted, setRestorationAttempted] = useState(false);
 
-  const { 
-    data: video, 
-    isLoading: isVideoLoading, 
-    error: videoError 
-  } = useQuery<Video, Error>({
-    queryKey: [`/api/videos/${id}`] as const,
-    retry: 3,
-    refetchOnWindowFocus: false,
-    refetchOnMount: true
+  // Query for video details
+  const { data: video, isLoading } = useQuery<{
+    id: number;
+    title: string;
+    description: string;
+    url: string;
+    platform: string;
+    categoryId: number;
+    category: {
+      id: number;
+      name: string;
+    };
+    subcategoryId: number | undefined;
+    subcategory: {
+      id: number;
+      name: string;
+    } | null;
+  }>({
+    queryKey: [`/api/videos/${id}`],
   });
 
-  const { data: lastActiveGroupResponse } = useQuery<ApiResponse<LastActiveGroup>, Error>({
-    queryKey: [`/api/videos/${id}/last-active-group`] as const,
-    enabled: !!id && !groupId,
-    select: (data: ApiResponse<unknown>) => {
+  // Update lastActiveGroup query with proper type validation
+  const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
+    queryKey: [`/api/videos/${id}/last-active-group`],
+    enabled: !!id && !groupId, // Only run if no groupId provided
+    select: (data) => {
       try {
-        return {
-          ...data,
-          data: lastActiveGroupSchema.parse(data.data)
-        };
+        return lastActiveGroupSchema.parse(data);
       } catch (error) {
         console.error('Invalid last active group data:', error);
-        return { ...data, data: null };
+        return null;
       }
-    },
-    retry: 3,
+    }
   });
 
-  const lastActiveGroup = lastActiveGroupResponse?.data;
-
+  // Update the useEffect for group restoration
   useEffect(() => {
     if (!user || restorationAttempted) return;
 
     const REJOIN_TIMEOUT = 5 * 60 * 1000; // 5 minutes cooldown
 
-    const shouldRejoinGroup = (lastLeftGroupId: string | null, lastLeftTime: string | null): boolean => {
+    const shouldRejoinGroup = (lastLeftGroupId: string | null, lastLeftTime: string | null) => {
       if (!lastLeftGroupId || !lastLeftTime) return true;
       const timeSinceLeft = Date.now() - parseInt(lastLeftTime);
       return timeSinceLeft >= REJOIN_TIMEOUT;
@@ -101,6 +99,7 @@ function VideoPage() {
     setRestorationAttempted(true);
   }, [user, id, groupId, lastActiveGroup, setLocation, restorationAttempted]);
 
+
   // Scroll to top whenever the video ID changes
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -114,7 +113,8 @@ function VideoPage() {
     }
   };
 
-  const handleShare = async (type: ShareType) => {
+  const handleShare = async (type: string) => {
+    // Always include the groupId in the share URL if we're in a group discussion
     const baseUrl = window.location.origin;
     const shareUrl = groupId
       ? `${baseUrl}/video/${id}/group/${groupId}`
@@ -142,7 +142,7 @@ function VideoPage() {
         window.location.href = `mailto:?subject=Check out this video discussion&body=I thought you might like this video discussion: ${shareUrl}`;
         break;
       case 'twitter':
-        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this video discussion: ${video?.title || ''}`)}`);
+        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this video discussion: ${video?.title}`)}`);
         break;
       case 'linkedin':
         window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`);
@@ -150,7 +150,7 @@ function VideoPage() {
     }
   };
 
-  if (isVideoLoading) {
+  if (isLoading) {
     return (
       <div className="container mx-auto py-6">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,300px] gap-6">
@@ -164,23 +164,10 @@ function VideoPage() {
     );
   }
 
-  if (videoError || !video) {
+  if (!video) {
     return (
-      <div className="container mx-auto py-6 space-y-4">
-        <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="h-5 w-5" />
-            <h2 className="text-lg font-semibold">
-              {videoError ? 'Error loading video' : 'Video not found'}
-            </h2>
-          </div>
-          <p className="mt-2 text-sm">
-            {videoError instanceof Error ? videoError.message : "The requested video could not be found."}
-          </p>
-        </div>
-        <Button onClick={() => setLocation('/')} variant="outline">
-          Return to Home
-        </Button>
+      <div className="container mx-auto py-6 text-center">
+        <p className="text-muted-foreground">Video not found</p>
       </div>
     );
   }
@@ -222,7 +209,7 @@ function VideoPage() {
             <VideoPlayer video={video} />
             <div className="mt-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">{video.title}</h1>
+                <h1 className="text-2xl font-bold">{video?.title}</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="icon" className="ml-2">
@@ -257,30 +244,26 @@ function VideoPage() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <p className="text-muted-foreground">{video.description}</p>
+              <p className="text-muted-foreground">{video?.description}</p>
             </div>
           </div>
 
           <div className="rounded-xl border bg-card shadow-sm">
-            <ErrorBoundary>
-              <DiscussionGroupComponent
-                videoId={video.id}
-                initialGroupId={groupId ? parseInt(groupId) : undefined}
-              />
-            </ErrorBoundary>
+            <DiscussionGroup
+              videoId={video?.id}
+              initialGroupId={groupId ? parseInt(groupId) : undefined}
+            />
           </div>
         </div>
 
         <div className="lg:sticky lg:top-4 space-y-4">
           <RecommendationSidebar
-            currentVideoId={video.id}
-            categoryId={video.categoryId}
-            subcategoryId={video.subcategoryId}
+            currentVideoId={video?.id}
+            categoryId={video?.categoryId}
+            subcategoryId={video?.subcategoryId}
           />
         </div>
       </div>
     </div>
   );
 }
-
-export default VideoPage;

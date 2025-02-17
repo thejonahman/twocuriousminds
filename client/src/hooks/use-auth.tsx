@@ -44,7 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     retry: 3, // Increase retries for auth state
     staleTime: 30000, // Consider data fresh for 30 seconds
     refetchInterval: 300000, // Refetch every 5 minutes
-    select: (data) => data ?? null, // Convert undefined to null
   });
 
   const loginMutation = useMutation({
@@ -142,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider
       value={{
-        user: user ?? null, // Ensure we never pass undefined
+        user,
         isLoading,
         error,
         loginMutation,

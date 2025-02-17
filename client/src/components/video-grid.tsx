@@ -5,84 +5,83 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2, Loader2, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Youtube, Instagram, Image, Pencil, Trash2, Loader2 } from "lucide-react";
 import { SiTiktok } from "react-icons/si";
 import { useState, useCallback, useRef, memo } from "react";
 import { EditVideoForm } from "./edit-video-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Video, ApiResponse, isApiError } from "@/lib/types";
-import { withErrorBoundary } from "@/components/error-boundary";
-
-interface VideoGridProps {
-  videos: Video[];
-  showEditButton?: boolean;
-  highlightVideoId?: number;
-}
-
-interface PlatformIconProps {
-  platform: string;
-}
+import { Video } from "@/lib/types";
+import { ErrorBoundary } from "./error-boundary";
 
 // Platform icon component with increased size for better visibility
-const PlatformIcon = memo<PlatformIconProps>(({ platform }) => {
-  const iconSize = "h-12 w-12";
+const PlatformIcon = memo(({ platform }: { platform: string }) => {
+  const size = "h-12 w-12"; // Increased size for better visibility
   switch (platform.toLowerCase()) {
     case 'youtube':
-      return <Youtube className={`${iconSize} text-red-500`} />;
+      return <Youtube className={`${size} text-red-500`} />;
     case 'tiktok':
-      return <SiTiktok className={`${iconSize} text-black dark:text-white`} />;
+      return <SiTiktok className={`${size} text-black dark:text-white`} />;
     case 'instagram':
-      return <Instagram className={`${iconSize} text-pink-500`} />;
+      return <Instagram className={`${size} text-pink-500`} />;
     default:
-      return <Image className={`${iconSize} text-muted-foreground`} />;
+      return <Image className={`${size} text-muted-foreground`} />;
   }
 });
-PlatformIcon.displayName = 'PlatformIcon';
 
-function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }: VideoGridProps) {
+export function VideoGrid({ videos, showEditButton = false, highlightVideoId }: VideoGridProps) {
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deletingVideoId, setDeletingVideoId] = useState<number | null>(null);
   const scrollPositionRef = useRef(0);
   const queryClient = useQueryClient();
 
-  const deleteMutation = useMutation<ApiResponse<void>, Error, number>({
+  const deleteMutation = useMutation({
     mutationFn: async (videoId: number) => {
+      console.log('[Delete] Starting delete mutation for video:', videoId);
       setDeletingVideoId(videoId);
 
       try {
         const response = await apiRequest("DELETE", `/api/videos/${videoId}`);
+        console.log('[Delete] API Response:', { status: response.status });
+
         if (!response.ok) {
-          throw new Error(`Failed to delete video: ${response.statusText}`);
+          throw new Error('Failed to delete video');
         }
-        return await response.json();
+
+        const data = await response.json();
+        console.log('[Delete] Success response:', data);
+        return data;
       } catch (error) {
-        console.error('Delete mutation error:', error);
-        throw error instanceof Error ? error : new Error('Failed to delete video');
+        console.error('[Delete] Error in mutation:', error);
+        throw error;
       }
     },
-    onSuccess: (_, videoId) => {
+    onSuccess: (data, videoId) => {
+      console.log('[Delete] Successfully deleted video:', videoId);
       queryClient.invalidateQueries({ queryKey: ["/api/videos"] });
       toast({
-        title: "Video deleted",
-        description: "The video has been successfully removed.",
+        title: "Success",
+        description: "Video deleted successfully",
       });
     },
-    onError: (error: Error) => {
+    onError: (error) => {
+      console.error('[Delete] Delete mutation error:', error);
       toast({
-        title: "Failed to delete video",
-        description: error.message || "Please try again later.",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete video",
         variant: "destructive",
       });
     },
     onSettled: () => {
+      console.log('[Delete] Mutation settled, clearing state');
       setDeletingVideoId(null);
     },
   });
 
   const handleDelete = useCallback((videoId: number) => {
+    console.log('[Delete] handleDelete called for video:', videoId);
     deleteMutation.mutate(videoId);
   }, [deleteMutation]);
 
@@ -92,10 +91,12 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
     setDialogOpen(true);
   }, []);
 
-  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+  const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const img = e.currentTarget;
-    console.warn('Image failed to load:', {
+    console.log('[VideoGrid] Image failed to load:', {
       src: img.src,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
       error: e
     });
 
@@ -103,130 +104,124 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
     const container = img.parentElement;
     if (container) {
       const fallback = container.querySelector('.fallback-icon');
-      if (fallback instanceof HTMLElement) {
+      if (fallback) {
         fallback.classList.remove('hidden');
       }
     }
   }, []);
 
-  if (!videos || videos.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-muted-foreground">No videos found</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-      {videos.map((video) => (
-        <Card
-          key={video.id}
-          className={`overflow-hidden bg-card hover:shadow-xl transition-all duration-300 ${
-            video.id === highlightVideoId ? 'ring-2 ring-primary ring-offset-2' : ''
-          }`}
-        >
-          <Link href={`/video/${video.id}`} className="block group">
-            <AspectRatio ratio={16 / 9}>
-              <div className="w-full h-full bg-muted/50 relative">
-                {video.thumbnailUrl && (
-                  <img
-                    src={video.thumbnailUrl}
-                    alt={video.title}
-                    className="w-full h-full object-cover absolute inset-0 transition-opacity duration-200"
-                    onError={handleImageError}
-                    loading="lazy"
-                  />
-                )}
-                <div className={`fallback-icon absolute inset-0 flex items-center justify-center bg-muted/20 ${video.thumbnailUrl ? 'hidden' : ''}`}>
-                  <PlatformIcon platform={video.platform} />
+    <ErrorBoundary>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {videos.map((video) => (
+          <Card
+            key={video.id}
+            className={`overflow-hidden bg-card hover:shadow-xl transition-all duration-300 ${
+              video.id === highlightVideoId ? 'ring-2 ring-primary ring-offset-2' : ''
+            }`}
+          >
+            <Link href={`/video/${video.id}`} className="block group">
+              <AspectRatio ratio={16 / 9}>
+                <div className="w-full h-full bg-muted/50 relative">
+                  {video.thumbnailUrl && (
+                    <img
+                      src={video.thumbnailUrl}
+                      alt={video.title}
+                      className="w-full h-full object-cover absolute inset-0 transition-opacity duration-200"
+                      onError={handleImageError}
+                      loading="lazy"
+                    />
+                  )}
+                  <div className={`fallback-icon absolute inset-0 flex items-center justify-center bg-muted/20 ${video.thumbnailUrl ? 'hidden' : ''}`}>
+                    <PlatformIcon platform={video.platform} />
+                  </div>
+                  <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 </div>
-                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-              </div>
-            </AspectRatio>
-          </Link>
+              </AspectRatio>
+            </Link>
 
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary" className="capitalize bg-primary/10">
-                  {video.category.name}
-                </Badge>
-                {video.subcategory && (
-                  <Badge variant="outline" className="border-accent/20">
-                    {video.subcategory.name}
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary" className="capitalize bg-primary/10">
+                    {video.category.name}
                   </Badge>
-                )}
-              </div>
+                  {video.subcategory && (
+                    <Badge variant="outline" className="border-accent/20">
+                      {video.subcategory.name}
+                    </Badge>
+                  )}
+                </div>
 
-              {showEditButton && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleDialogOpen(video)}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </Button>
+                {showEditButton && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleDialogOpen(video)}
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
 
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive/90"
-                        disabled={deletingVideoId === video.id}
-                      >
-                        {deletingVideoId === video.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </AlertDialogTrigger>
-
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete Video</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          Are you sure you want to delete "{video.title}"? This action cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-destructive hover:bg-destructive/90"
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-destructive hover:text-destructive/90"
                           disabled={deletingVideoId === video.id}
-                          onClick={() => handleDelete(video.id)}
                         >
                           {deletingVideoId === video.id ? (
-                            <div className="flex items-center">
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              <span>Deleting...</span>
-                            </div>
+                            <Loader2 className="h-4 w-4 animate-spin" />
                           ) : (
-                            'Delete'
+                            <Trash2 className="h-4 w-4" />
                           )}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              )}
-            </div>
+                        </Button>
+                      </AlertDialogTrigger>
 
-            <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
-              <Link href={`/video/${video.id}`} className="hover:text-primary transition-colors duration-200">
-                {video.title}
-              </Link>
-            </h3>
-          </CardContent>
-        </Card>
-      ))}
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete Video</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Are you sure you want to delete "{video.title}"? This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive hover:bg-destructive/90"
+                            disabled={deletingVideoId === video.id}
+                            onClick={() => handleDelete(video.id)}
+                          >
+                            {deletingVideoId === video.id ? (
+                              <div className="flex items-center">
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                <span>Deleting...</span>
+                              </div>
+                            ) : (
+                              'Delete'
+                            )}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
+              </div>
+
+              <h3 className="font-semibold tracking-tight line-clamp-2 text-sm sm:text-base">
+                <Link href={`/video/${video.id}`} className="hover:text-primary transition-colors duration-200">
+                  {video.title}
+                </Link>
+              </h3>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto p-4">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit Video</DialogTitle>
           </DialogHeader>
@@ -242,29 +237,12 @@ function VideoGridComponent({ videos, showEditButton = false, highlightVideoId }
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </ErrorBoundary>
   );
 }
 
-// Export the wrapped component with error boundary
-export const VideoGrid = withErrorBoundary<VideoGridProps>(
-  VideoGridComponent,
-  (error, reset) => (
-    <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive space-y-4">
-      <div className="flex items-center gap-2">
-        <AlertTriangle className="h-5 w-5" />
-        <h2 className="text-lg font-semibold">Failed to load videos</h2>
-      </div>
-      <p className="text-sm">
-        {error.message || "There was an error loading the video grid. Please try again."}
-      </p>
-      <Button
-        variant="destructive"
-        onClick={reset}
-        className="w-full justify-center"
-      >
-        Try Again
-      </Button>
-    </div>
-  )
-);
+interface VideoGridProps {
+  videos: Video[];
+  showEditButton?: boolean;
+  highlightVideoId?: number;
+}

@@ -7,23 +7,18 @@ const baseEntitySchema = z.object({
 });
 
 // User schema for group members
-export const groupMemberSchema = z.object({
-  id: z.number(),
-  username: z.string().optional(),
-  userId: z.number(),
-});
-
-// User schema for messages
-const messageUserSchema = z.object({
+const groupMemberSchema = z.object({
   id: z.number(),
   username: z.string(),
 });
 
-// Message schemas with strict typing
+// Message schemas
 export const messageSchema = baseEntitySchema.extend({
   content: z.string(),
   userId: z.number(),
-  user: messageUserSchema,
+  user: z.object({
+    username: z.string(),
+  }),
 });
 
 export const videoMessageSchema = messageSchema.extend({
@@ -35,39 +30,22 @@ export const groupMessageSchema = messageSchema.extend({
 });
 
 // Group schemas
-export const discussionGroupSchema = baseEntitySchema.extend({
+export const groupSchema = baseEntitySchema.extend({
   name: z.string(),
   description: z.string().nullable(),
   videoId: z.number().nullable(),
-  inviteCode: z.string(),
   creatorId: z.number(),
   isPrivate: z.boolean(),
-  members: z.array(groupMemberSchema).optional().default([]),
-  messages: z.array(groupMessageSchema).optional().default([]),
+  inviteCode: z.string(),
+  messages: z.array(groupMessageSchema).optional(),
+  members: z.array(groupMemberSchema).optional(),
 });
 
-// Types exported from schemas
-export type Message = z.infer<typeof messageSchema>;
-export type VideoMessage = z.infer<typeof videoMessageSchema>;
-export type GroupMessage = z.infer<typeof groupMessageSchema>;
-export type GroupMember = z.infer<typeof groupMemberSchema>;
-export type DiscussionGroup = z.infer<typeof discussionGroupSchema>;
-
-// Utility function to validate API responses with better error handling
-export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
-  try {
-    return schema.parse(data);
-  } catch (error) {
-    console.error('API Response validation error:', error);
-    throw new Error('Invalid API response format');
-  }
-}
-
-// WebSocket message schemas with discriminated unions
+// Input message schemas (for sending to WebSocket)
 export const wsInputMessageSchema = z.discriminatedUnion("type", [
   z.object({
-    type: z.literal("new_message"),
-    groupId: z.number(),
+    type: z.literal("message"),
+    videoId: z.number(),
     content: z.string(),
   }),
   z.object({
@@ -91,15 +69,19 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("new_message"),
+    data: videoMessageSchema,
+  }),
+  z.object({
+    type: z.literal("new_group_message"),
     data: groupMessageSchema,
   }),
   z.object({
     type: z.literal("group_created"),
-    data: discussionGroupSchema,
+    data: groupSchema,
   }),
   z.object({
     type: z.literal("group_joined"),
-    data: discussionGroupSchema,
+    data: groupSchema,
   }),
   z.object({
     type: z.literal("error"),
@@ -107,19 +89,25 @@ export const wsMessageSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
+// API response types
+export type Message = z.infer<typeof messageSchema>;
+export type VideoMessage = z.infer<typeof videoMessageSchema>;
+export type GroupMessage = z.infer<typeof groupMessageSchema>;
+export type Group = z.infer<typeof groupSchema>;
 export type WSMessage = z.infer<typeof wsMessageSchema>;
 export type WSInputMessage = z.infer<typeof wsInputMessageSchema>;
 
-// Utility functions to validate WebSocket messages with better error handling
-export function validateWSMessage(data: unknown): WSMessage {
+// Utility function to validate API responses
+export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
   try {
-    return wsMessageSchema.parse(data);
+    return schema.parse(data);
   } catch (error) {
-    console.error('WebSocket message validation error:', error);
-    throw new Error('Invalid WebSocket message format');
+    console.error('API Response validation error:', error);
+    throw new Error('Invalid API response format');
   }
 }
 
+// Utility function to validate WebSocket input messages
 export function validateWSInput(data: unknown): WSInputMessage {
   try {
     return wsInputMessageSchema.parse(data);

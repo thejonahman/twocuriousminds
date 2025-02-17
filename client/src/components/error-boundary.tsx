@@ -1,11 +1,10 @@
 import React, { Component, ErrorInfo } from 'react';
 import { toast } from "@/hooks/use-toast";
 import { AlertTriangle } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 interface Props {
   children: React.ReactNode;
-  fallback?: React.ReactNode | ((error: Error, reset: () => void) => React.ReactNode);
+  fallback?: React.ReactNode;
 }
 
 interface State {
@@ -33,6 +32,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    // Log error details with timestamp and component stack
     console.error('ErrorBoundary caught an error:', {
       timestamp: new Date().toISOString(),
       error: error.message,
@@ -46,6 +46,7 @@ export class ErrorBoundary extends Component<Props, State> {
       errorInfo
     });
 
+    // Show toast notification for better user feedback
     toast({
       title: "An error occurred",
       description: "We've logged the error and are working to fix it.",
@@ -53,24 +54,9 @@ export class ErrorBoundary extends Component<Props, State> {
     });
   }
 
-  resetErrorBoundary = () => {
-    this.setState({
-      hasError: false,
-      error: null,
-      errorInfo: null
-    });
-  };
-
   render() {
     if (this.state.hasError) {
-      if (this.props.fallback) {
-        if (typeof this.props.fallback === 'function') {
-          return this.props.fallback(this.state.error!, this.resetErrorBoundary);
-        }
-        return this.props.fallback;
-      }
-
-      return (
+      return this.props.fallback || (
         <div className="p-6 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive space-y-4">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5" />
@@ -84,30 +70,16 @@ export class ErrorBoundary extends Component<Props, State> {
               </pre>
             )}
           </div>
-          <Button 
-            variant="destructive"
-            onClick={this.resetErrorBoundary}
-            className="w-full justify-center"
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-sm bg-destructive text-destructive-foreground rounded-md hover:bg-destructive/90 transition-colors"
           >
-            Try Again
-          </Button>
+            Reload page
+          </button>
         </div>
       );
     }
 
     return this.props.children;
   }
-}
-
-export function withErrorBoundary<P extends object>(
-  Component: React.ComponentType<P>,
-  fallback?: React.ReactNode | ((error: Error, reset: () => void) => React.ReactNode)
-) {
-  return function WithErrorBoundary(props: P) {
-    return (
-      <ErrorBoundary fallback={fallback}>
-        <Component {...props} />
-      </ErrorBoundary>
-    );
-  };
 }

@@ -135,65 +135,55 @@ async function findAvailablePort(startPort: number): Promise<number> {
   return port;
 }
 
-let shutdownInProgress = false;
-
-// Convert function declaration to function expression
-const handleShutdown = () => {
-  if (shutdownInProgress) return;
-  shutdownInProgress = true;
-
-  console.log('Shutting down server...');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
-  });
-
-  // Force exit if graceful shutdown takes too long
-  setTimeout(() => {
-    console.error('Forcing server shutdown');
-    process.exit(1);
-  }, 5000);
-};
-
 // Start server with port availability check and explicit host binding
-const startServer = async () => {
+async function startServer() {
   try {
     const port = await findAvailablePort(PORT);
     if (port !== PORT) {
       console.log(`Port ${PORT} was in use, using port ${port} instead`);
     }
 
+    // Setup server shutdown handling
+    let shutdownInProgress = false;
+
+    function handleShutdown() {
+      if (shutdownInProgress) return;
+      shutdownInProgress = true;
+
+      console.log('Shutting down server...');
+      server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+      });
+
+      // Force exit if graceful shutdown takes too long
+      setTimeout(() => {
+        console.error('Forcing server shutdown');
+        process.exit(1);
+      }, 5000);
+    }
+
     process.on('SIGTERM', handleShutdown);
     process.on('SIGINT', handleShutdown);
 
-    // Create a promise that resolves when the server is listening
-    const serverReady = new Promise<void>((resolve) => {
-      server.listen(port, HOST, () => {
-        const startupMessage = `Server started and ready on http://${HOST}:${port}`;
-        log(startupMessage);
-        console.log('=== Server Configuration ===');
-        console.log(`Environment: ${app.get("env")}`);
-        console.log(`Port: ${port}`);
-        console.log(`Host: ${HOST}`);
-        console.log(`Timestamp: ${new Date().toISOString()}`);
-        console.log('=========================');
-        console.log('Server is now ready to accept connections');
-        resolve();
-      });
+    server.listen(port, HOST, () => {
+      const startupMessage = `Server started and ready on http://${HOST}:${port}`;
+      log(startupMessage);
+      console.log('=== Server Configuration ===');
+      console.log(`Environment: ${app.get("env")}`);
+      console.log(`Port: ${port}`);
+      console.log(`Host: ${HOST}`);
+      console.log(`Timestamp: ${new Date().toISOString()}`);
+      console.log('=========================');
+      console.log('Server is now ready to accept connections');
+
+      // Signal that the server is ready (for workflow port waiting)
+      process.send?.('ready');
     });
-
-    // Wait for server to be ready before signaling
-    await serverReady;
-
-    // Signal that the server is ready (for workflow port waiting)
-    if (process.send) {
-      process.send('ready');
-      console.log('Sent ready signal to parent process');
-    }
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
-};
+}
 
 startServer();
