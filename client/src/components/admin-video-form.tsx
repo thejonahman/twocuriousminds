@@ -98,9 +98,9 @@ export function AdminVideoForm() {
         console.log('Starting video submission:', data);
 
         // Handle thumbnail upload if provided
-        const thumbnailUrl = data.thumbnailFile 
+        let thumbnailUrl = data.thumbnailFile 
           ? await uploadThumbnail(data.thumbnailFile)
-          : getVideoThumbnail(data.url, data.platform);
+          : data.thumbnailUrl || getVideoThumbnail(data.url, data.platform);
 
         console.log('Generated/Uploaded thumbnail URL:', thumbnailUrl);
 
@@ -109,7 +109,7 @@ export function AdminVideoForm() {
           categoryId: parseInt(data.categoryId),
           subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
           thumbnailUrl,
-          customThumbnail: !!data.thumbnailFile
+          customThumbnail: !!data.thumbnailFile || !!data.thumbnailUrl
         };
 
         // Remove the file from the payload as it's already uploaded

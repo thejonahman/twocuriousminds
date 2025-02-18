@@ -173,6 +173,18 @@ export function registerRoutes(app: Express): Server {
     }
   });
 
+  // Add global API request logging middleware
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    console.log(`[API Request] ${req.method} ${req.path}`, {
+      body: req.body,
+      query: req.query,
+      params: req.params,
+      userId: (req as AuthenticatedRequest).user?.id,
+      timestamp: new Date().toISOString()
+    });
+    next();
+  });
+
   // Global middleware to ensure JSON responses for all /api routes
   app.use('/api', (req, res, next) => {
     // Set JSON content type header for all API routes
@@ -986,8 +998,7 @@ export function registerRoutes(app: Express): Server {
 
     console.log('Found group with', group.members?.length || 0, 'members');
 
-    // Check if user is already a member
-    const existingMember = group.members.find(member => member.userId === req.user!.id);
+    // Check if user is already a member    const existingMember = group.members.find(member => member.userId === req.user!.id);
 
     if (!existingMember) {
       const newMember = {
@@ -999,8 +1010,7 @@ export function registerRoutes(app: Express): Server {
         lastReadAt: new Date(),
         notificationsEnabled: true,
         emailNotifications: false,
-        unreadCount: 0,
-        reminderCount: 0,
+        unreadCount: 0,        reminderCount: 0,
         isDeleted: false,
         user: {
           id: req.user!.id,
@@ -1731,6 +1741,191 @@ export function registerRoutes(app: Express): Server {
       }
 
       throw error;
+    }
+  }));
+
+  // Add PATCH endpoint for updating videos with enhanced logging
+  app.patch("/api/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const videoId = parseInt(req.params.id);
+    const updates = req.body;
+
+    console.log('[VideoUpdate] Starting video update:', {
+      videoId,
+      updates,
+      userId: req.user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+    if (isNaN(videoId)) {
+      console.error('[VideoUpdate] Invalid video ID:', req.params.id);
+      return res.status(400).json({ message: "Invalid video ID" });
+    }
+
+    try {
+      // Validate request body
+      if (!updates || typeof updates !== 'object') {
+        throw new Error('Invalid update data');
+      }
+
+      // Verify video exists and isn't deleted
+      const existingVideo = await db.query.videos.findFirst({
+        where: and(
+          eq(videos.id, videoId),
+          eq(videos.isDeleted, false)
+        )
+      });
+
+      if (!existingVideo) {
+        console.error('[VideoUpdate] Video not found:', videoId);
+        return res.status(404).json({ message: "Video not found" });
+      }
+
+      console.log('[VideoUpdate] Found existing video:', {
+        videoId: existingVideo.id,
+        currentTitle: existingVideo.title
+      });
+
+      // Type validation for numeric fields
+      const categoryId = parseInt(updates.categoryId);
+      if (isNaN(categoryId)) {
+        throw new Error('Invalid category ID');
+      }
+
+      const subcategoryId = updates.subcategoryId ? parseInt(updates.subcategoryId) : null;
+      if (updates.subcategoryId && isNaN(subcategoryId)) {
+        throw new Error('Invalid subcategory ID');
+      }
+
+      // Update the video with validated data
+      const [updatedVideo] = await db.update(videos)
+        .set({
+          title: updates.title,
+          description: updates.description || null,
+          url: updates.url,
+          platform: updates.platform,
+          categoryId,
+          subcategoryId,
+          thumbnailUrl: updates.thumbnailUrl,
+          customThumbnail: updates.customThumbnail,
+          updatedAt: new Date()
+        })
+        .where(eq(videos.id, videoId))
+        .returning();
+
+      console.log('[VideoUpdate] Successfully updated video:', {
+        videoId: updatedVideo.id,
+        newTitle: updatedVideo.title,
+        timestamp: new Date().toISOString()
+      });
+
+      // Fetch the updated video with related data
+      const videoWithRelations = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId),
+        with: {
+          category: true,
+          subcategory: true
+        }
+      });
+
+      res.json(videoWithRelations);
+    } catch (error) {
+      console.error('[VideoUpdate] Error updating video:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        videoId,
+        timestamp: new Date().toISOString()
+      });
+
+      // Send appropriate error response
+      res.status(400).json({
+        message: "Failed to update video",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  }));
+
+  // Add POST endpoint for creating new videos with enhanced validation and logging
+  app.post("/api/videos", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const videoData = req.body;
+
+    console.log('[VideoCreate] Starting video creation:', {
+      data: {
+        ...videoData,
+        thumbnailUrl: videoData.thumbnailUrl ? '[PRESENT]' : '[NOT PRESENT]',
+        customThumbnail: videoData.customThumbnail
+      },
+      userId: req.user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+    try {
+      // Validate request body
+      if (!videoData || typeof videoData !== 'object') {
+        throw new Error('Invalid video data');
+      }
+
+      // Type validation for numeric fields
+      const categoryId = parseInt(videoData.categoryId);
+      if (isNaN(categoryId)) {
+        throw new Error('Invalid category ID');
+      }
+
+      const subcategoryId = videoData.subcategoryId ? parseInt(videoData.subcategoryId) : null;
+      if (videoData.subcategoryId && isNaN(subcategoryId)) {
+        throw new Error('Invalid subcategory ID');
+      }
+
+      // Validate thumbnail URL if present
+      if (videoData.thumbnailUrl && typeof videoData.thumbnailUrl !== 'string') {
+        throw new Error('Invalid thumbnail URL');
+      }
+
+      // Create the video with validated data
+      const [newVideo] = await db.insert(videos)
+        .values({
+          title: videoData.title,
+          description: videoData.description || null,
+          url: videoData.url,
+          platform: videoData.platform,
+          categoryId,
+          subcategoryId,
+          thumbnailUrl: videoData.thumbnailUrl || null,
+          customThumbnail: !!videoData.customThumbnail,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isDeleted: false
+        })
+        .returning();
+
+      console.log('[VideoCreate] Successfully created video:', {
+        videoId: newVideo.id,
+        title: newVideo.title,
+        hasThumbnail: !!newVideo.thumbnailUrl,
+        isCustomThumbnail: newVideo.customThumbnail,
+        timestamp: new Date().toISOString()
+      });
+
+      // Fetch the created video with related data
+      const videoWithRelations = await db.query.videos.findFirst({
+        where: eq(videos.id, newVideo.id),
+        with: {
+          category: true,
+          subcategory: true
+        }
+      });
+
+      res.status(201).json(videoWithRelations);
+    } catch (error) {
+      console.error('[VideoCreate] Error creating video:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+
+      res.status(400).json({
+        message: "Failed to create video",
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }));
 
