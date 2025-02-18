@@ -420,39 +420,80 @@ export function registerRoutes(app: Express): Server {
       return res.status(400).json({ message: "Invalid video ID" });
     }
 
-    console.log('Fetching last active group for video:', {
+    console.log('[LastActiveGroup] Request received:', {
       videoId,
-      userId: req.user?.id
+      userId: req.user?.id,
+      timestamp: new Date().toISOString()
     });
 
-    // Find the most recently active group for this video where the user is a member
-    const lastActiveGroup = await db.query.discussionGroups.findFirst({
-      where: and(
-        eq(discussionGroups.videoId, videoId),
-        sql`exists (
-          select 1 from ${groupMembers}
-          where ${groupMembers.groupId} = ${discussionGroups.id}
-          and ${groupMembers.userId} = ${req.user!.id}
-        )`
-      ),
-      with: {
-        members: {
-          with: {
-            user: {
-              columns: {
-                id: true,
-                username: true,
-                email: true
+    try {
+      // Find the most recently active group for this video where the user is a member
+      const lastActiveGroup = await db.query.discussionGroups.findFirst({
+        where: and(
+          eq(discussionGroups.videoId, videoId),
+          sql`exists (
+            select 1 from ${groupMembers}
+            where ${groupMembers.groupId} = ${discussionGroups.id}
+            and ${groupMembers.userId} = ${req.user!.id}
+          )`
+        ),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  id: true,
+                  username: true,
+                  email: true
+                }
               }
             }
           }
-        }
-      },
-      orderBy: [desc(discussionGroups.updatedAt)]
-    });
+        },
+        orderBy: [desc(discussionGroups.updatedAt)]
+      });
 
-    console.log('Found last active group:', lastActiveGroup?.id || 'none');
-    res.json(lastActiveGroup);
+      console.log('[LastActiveGroup] Query result:', {
+        foundGroup: lastActiveGroup ? {
+          id: lastActiveGroup.id,
+          name: lastActiveGroup.name,
+          videoId: lastActiveGroup.videoId,
+          memberCount: lastActiveGroup.members?.length
+        } : null,
+        timestamp: new Date().toISOString()
+      });
+
+      if (!lastActiveGroup) {
+        console.log('[LastActiveGroup] No active group found');
+        return res.json(null);
+      }
+
+      // Return only the fields defined in lastActiveGroupSchema
+      const response = {
+        id: lastActiveGroup.id,
+        name: lastActiveGroup.name,
+        videoId: lastActiveGroup.videoId,
+        updatedAt: lastActiveGroup.updatedAt
+      };
+
+      console.log('[LastActiveGroup] Sending response:', {
+        ...response,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(response);
+    } catch (error) {
+      console.error('[LastActiveGroup] Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Unknown error',
+        success: false,
+        timestamp: new Date().toISOString()
+      });
+    }
   }));
 
   // Add video submission endpoint
@@ -984,7 +1025,7 @@ export function registerRoutes(app: Express): Server {
         videoId: videoId
       });
     } catch (error) {
-      console.error('Error soft deleting video:', {
+      console.error('Error softdeleting video:', {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
@@ -1007,7 +1048,7 @@ export function registerRoutes(app: Express): Server {
     if (!preferences) {
       return res.status(404).json({
         message: "No preferences found"
-            });
+      });
     }
 
     res.json(preferences);

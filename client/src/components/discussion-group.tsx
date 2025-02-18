@@ -47,11 +47,46 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
+  // Debug logging for group state
+  useEffect(() => {
+    console.log('[DiscussionGroup] Group state:', {
+      initialGroupId,
+      videoId,
+      userId: user?.id,
+      timestamp: new Date().toISOString()
+    });
+  }, [initialGroupId, videoId, user?.id]);
+
   // Get group details if we have an initialGroupId
-  const { data: group, isLoading: isGroupLoading } = useQuery<Group>({
+  const { data: group } = useQuery<Group>({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data) => validateApiResponse(groupSchema, data),
+    onSuccess: (data) => {
+      console.log('[DiscussionGroup] Group loaded successfully:', {
+        groupId: data.id,
+        name: data.name,
+        timestamp: new Date().toISOString()
+      });
+
+      // Update last active group when successfully joining/loading a group
+      const lastActiveGroupData = {
+        id: data.id,
+        name: data.name,
+        videoId: data.videoId,
+        updatedAt: data.updatedAt
+      };
+
+      console.log('[DiscussionGroup] Updating last active group cache:', {
+        ...lastActiveGroupData,
+        timestamp: new Date().toISOString()
+      });
+
+      queryClient.setQueryData(
+        [`/api/videos/${videoId}/last-active-group`],
+        lastActiveGroupData
+      );
+    }
   });
 
   // Get messages for current group
@@ -61,16 +96,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     select: (data) => validateApiResponse(z.array(messageSchema), data),
     refetchInterval: 3000,
   });
-
-  // Debug logging for group state
-  useEffect(() => {
-    console.log('Setting active group:', {
-      initialGroupId,
-      hasGroup: !!group,
-      hasLastActiveGroup: false,
-      userId: user?.id
-    });
-  }, [initialGroupId, group, user?.id]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,7 +134,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         queryKey: [`/api/groups/${initialGroupId}/messages`]
       });
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('[DiscussionGroup] Error sending message:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        groupId: initialGroupId,
+        timestamp: new Date().toISOString()
+      });
       queryClient.invalidateQueries({
         queryKey: [`/api/groups/${initialGroupId}/messages`]
       });
@@ -123,6 +152,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
   const handleCreateGroup = async () => {
     if (!user) return;
+
+    console.log('[DiscussionGroup] Creating group:', {
+      videoId,
+      userId: user.id,
+      timestamp: new Date().toISOString()
+    });
 
     const groupName = groupNameInput.trim() || "Discussion Group";
     try {
@@ -142,6 +177,34 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
       const newGroup = await response.json();
       setIsCreateGroupOpen(false);
+
+      console.log('[DiscussionGroup] Group created successfully:', {
+        groupId: newGroup.id,
+        name: newGroup.name,
+        videoId: newGroup.videoId,
+        timestamp: new Date().toISOString()
+      });
+
+      // Immediately update the last active group in the cache
+      const lastActiveGroupData = {
+        id: newGroup.id,
+        name: newGroup.name,
+        videoId: newGroup.videoId,
+        updatedAt: newGroup.updatedAt
+      };
+
+      console.log('[DiscussionGroup] Updating last active group cache:', {
+        ...lastActiveGroupData,
+        timestamp: new Date().toISOString()
+      });
+
+      // Update the cache before navigation
+      queryClient.setQueryData(
+        [`/api/videos/${videoId}/last-active-group`],
+        lastActiveGroupData
+      );
+
+      // Navigate to the new group
       setLocation(`/video/${videoId}/group/${newGroup.id}`);
 
       toast({
@@ -149,7 +212,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
       });
     } catch (error) {
-      console.error('Error creating group:', error);
+      console.error('[DiscussionGroup] Error creating group:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
       toast({
         title: "Error",
         description: "Failed to create group. Please try again.",
@@ -161,6 +228,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const handleLeaveGroup = async () => {
     if (!initialGroupId) return;
 
+    console.log('[DiscussionGroup] Leaving group:', {
+      groupId: initialGroupId,
+      userId: user?.id,
+      timestamp: new Date().toISOString()
+    });
+
     try {
       const response = await fetch(`/api/groups/${initialGroupId}/leave`, {
         method: 'POST',
@@ -171,10 +244,16 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error('Failed to leave group');
       }
 
-      // Update queries to reflect the change
-      queryClient.invalidateQueries({
-        queryKey: [`/api/videos/${videoId}/last-active-group`]
+      console.log('[DiscussionGroup] Successfully left group:', {
+        groupId: initialGroupId,
+        timestamp: new Date().toISOString()
       });
+
+      // Clear the last active group data when leaving
+      queryClient.setQueryData(
+        [`/api/videos/${videoId}/last-active-group`],
+        null
+      );
 
       setLocation(`/video/${videoId}`);
 
@@ -183,7 +262,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: "Successfully left the group",
       });
     } catch (error) {
-      console.error('Error leaving group:', error);
+      console.error('[DiscussionGroup] Error leaving group:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        groupId: initialGroupId,
+        timestamp: new Date().toISOString()
+      });
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to leave group",
@@ -202,22 +285,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           <p className="text-center text-muted-foreground">
             Please sign in to participate in discussions
           </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (isGroupLoading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Loading discussion...</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="animate-pulse space-y-4">
-            <div className="h-4 bg-muted rounded w-3/4"></div>
-            <div className="h-4 bg-muted rounded w-1/2"></div>
-          </div>
         </CardContent>
       </Card>
     );

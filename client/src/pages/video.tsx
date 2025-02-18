@@ -45,34 +45,66 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Check for last active group only when needed
-  const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
+  // Check for last active group with improved caching
+  const { data: lastActiveGroup, isLoading: isLastActiveGroupLoading } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${id}/last-active-group`],
-    enabled: !!id && !groupId && !!user, // Only run if no groupId provided and user is logged in
-    select: (data) => validateApiResponse(lastActiveGroupSchema, data),
+    enabled: !!id && !!user, // Only require video ID and user to be present
+    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
+    cacheTime: 30 * 60 * 1000, // Keep in cache for 30 minutes
+    select: (data) => {
+      console.log('[LastActiveGroup] Processing query response:', {
+        hasData: !!data,
+        data: data ? {
+          id: data.id,
+          name: data.name,
+          videoId: data.videoId
+        } : null,
+        timestamp: new Date().toISOString()
+      });
+      return data ? validateApiResponse(lastActiveGroupSchema, data) : null;
+    },
+    retry: false // Don't retry if we get null response
   });
 
-  // Simple group restoration effect with proper type checking
+  // Group restoration effect with improved error handling and validation
   useEffect(() => {
-    console.log('Checking group restoration:', {
-      userId: user?.id,
-      videoId: id,
-      hasInitialGroupId: !!groupId,
-      hasLastActiveGroup: !!lastActiveGroup?.id,
-      timestamp: new Date().toISOString()
-    });
+    if (!user?.id || !id) {
+      console.log('[GroupRestoration] Missing required data:', {
+        hasUser: !!user?.id,
+        hasVideoId: !!id,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
 
-    if (!user || !id || groupId || !lastActiveGroup?.id) return;
+    // Skip if we're already in a group or loading
+    if (groupId || isLastActiveGroupLoading) {
+      console.log('[GroupRestoration] Skip - already in group or loading:', {
+        hasGroupId: !!groupId,
+        isLoading: isLastActiveGroupLoading,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
 
-    console.log('Setting active group:', {
-      groupId: lastActiveGroup.id,
-      groupName: lastActiveGroup.name,
-      userId: user.id,
-      timestamp: new Date().toISOString()
-    });
+    // Only proceed if we have a valid last active group
+    if (lastActiveGroup?.id && lastActiveGroup.videoId === parseInt(id)) {
+      console.log('[GroupRestoration] Restoring group:', {
+        groupId: lastActiveGroup.id,
+        groupName: lastActiveGroup.name,
+        videoId: lastActiveGroup.videoId,
+        timestamp: new Date().toISOString()
+      });
 
-    setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
-  }, [user, id, groupId, lastActiveGroup, setLocation]);
+      setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
+    } else if (lastActiveGroup) {
+      console.log('[GroupRestoration] Skip - video ID mismatch:', {
+        lastActiveGroupVideoId: lastActiveGroup.videoId,
+        currentVideoId: parseInt(id),
+        timestamp: new Date().toISOString()
+      });
+    }
+  }, [user, id, groupId, lastActiveGroup, isLastActiveGroupLoading, setLocation]);
 
   // Scroll to top whenever the video ID changes
   useEffect(() => {
