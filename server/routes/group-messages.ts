@@ -242,4 +242,71 @@ router.post("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res:
   }
 }) as RequestHandler);
 
+// Add this new endpoint after the other routes
+router.post("/api/groups/:groupId/touch", (async (req: TypedRequestUser, res: TypedResponse) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const { groupId } = req.params;
+    const parsedGroupId = parseInt(groupId);
+
+    if (isNaN(parsedGroupId)) {
+      return res.status(400).json({ error: "Invalid group ID" });
+    }
+
+    console.log('[GroupTouch] Processing request:', {
+      groupId: parsedGroupId,
+      userId: req.user.id,
+      timestamp: new Date().toISOString()
+    });
+
+    await db.transaction(async (tx) => {
+      // Update member's lastReadAt
+      const updateResult = await tx.update(groupMembers)
+        .set({
+          lastReadAt: new Date(),
+          unreadCount: 0
+        })
+        .where(and(
+          eq(groupMembers.groupId, parsedGroupId),
+          eq(groupMembers.userId, req.user!.id),
+          eq(groupMembers.isDeleted, false)
+        ))
+        .returning();
+
+      if (!updateResult.length) {
+        throw new Error('Member not found or deleted');
+      }
+
+      // Update group's activity timestamp
+      await tx.update(discussionGroups)
+        .set({ updatedAt: new Date() })
+        .where(and(
+          eq(discussionGroups.id, parsedGroupId),
+          eq(discussionGroups.isDeleted, false)
+        ));
+
+      console.log('[GroupTouch] Successfully updated timestamps:', {
+        groupId: parsedGroupId,
+        userId: req.user.id,
+        timestamp: new Date().toISOString()
+      });
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[GroupTouch] Error:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      timestamp: new Date().toISOString()
+    });
+    res.status(500).json({ 
+      error: "Failed to update group activity",
+      details: error instanceof Error ? error.message : "Unknown error"
+    });
+  }
+}) as RequestHandler);
+
 export default router;

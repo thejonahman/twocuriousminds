@@ -21,6 +21,11 @@ export interface AuthenticatedRequest extends Request {
   };
 }
 
+// Wrap all route handlers to ensure proper error handling
+const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
+  return Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 export function registerRoutes(app: Express): Server {
   // Create HTTP server first
   const httpServer = createServer(app);
@@ -170,13 +175,142 @@ export function registerRoutes(app: Express): Server {
   });
 
 
+  // Update the last-active-group endpoint with enhanced debugging and persistence
+  app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const videoId = parseInt(req.params.videoId);
+    const userId = req.user?.id;
+
+    console.log('[LastActiveGroup] Starting request:', {
+      videoId,
+      userId,
+      path: req.path,
+      timestamp: new Date().toISOString()
+    });
+
+    if (isNaN(videoId)) {
+      console.error('[LastActiveGroup] Invalid videoId:', videoId);
+      return res.status(400).json({ message: "Invalid video ID" });
+    }
+
+    try {
+      const result = await db.transaction(async (tx) => {
+        // Find all active groups for this video that the user is a member of
+        // Modified query to ensure we get the most recently active group
+        const groupsQuery = await tx.query.discussionGroups.findMany({
+          where: and(
+            eq(discussionGroups.videoId, videoId),
+            eq(discussionGroups.isDeleted, false),
+            sql`exists (
+              select 1 from ${groupMembers}
+              where ${groupMembers.groupId} = ${discussionGroups.id}
+              and ${groupMembers.userId} = ${userId}
+              and ${groupMembers.isDeleted} = false
+              and ${groupMembers.lastReadAt} > current_timestamp - interval '7 days'
+            )`
+          ),
+          with: {
+            members: {
+              where: eq(groupMembers.isDeleted, false),
+              with: {
+                user: {
+                  columns: {
+                    id: true,
+                    username: true,
+                    email: true
+                  }
+                }
+              }
+            },
+            video: {
+              columns: {
+                id: true,
+                title: true
+              }
+            }
+          },
+          orderBy: [desc(discussionGroups.updatedAt)]
+        });
+
+        console.log('[LastActiveGroup] Found groups:', {
+          count: groupsQuery.length,
+          groups: groupsQuery.map(g => ({
+            id: g.id,
+            name: g.name,
+            memberCount: g.members?.length || 0,
+            updatedAt: g.updatedAt,
+            isDeleted: g.isDeleted
+          })),
+          timestamp: new Date().toISOString()
+        });
+
+        if (!groupsQuery.length) {
+          console.log('[LastActiveGroup] No active groups found');
+          return null;
+        }
+
+        const mostRecentGroup = groupsQuery[0];
+        const now = new Date();
+
+        // Update member's lastReadAt and reset unread count
+        const [updatedMember] = await tx.update(groupMembers)
+          .set({
+            lastReadAt: now,
+            unreadCount: 0
+          })
+          .where(and(
+            eq(groupMembers.groupId, mostRecentGroup.id),
+            eq(groupMembers.userId, userId),
+            eq(groupMembers.isDeleted, false)
+          ))
+          .returning();
+
+        console.log('[LastActiveGroup] Updated member status:', {
+          groupId: mostRecentGroup.id,
+          userId,
+          member: updatedMember,
+          timestamp: now.toISOString()
+        });
+
+        // Update group's activity timestamp
+        const [updatedGroup] = await tx.update(discussionGroups)
+          .set({ updatedAt: now })
+          .where(and(
+            eq(discussionGroups.id, mostRecentGroup.id),
+            eq(discussionGroups.isDeleted, false)
+          ))
+          .returning();
+
+        console.log('[LastActiveGroup] Updated group:', {
+          groupId: updatedGroup.id,
+          updatedAt: updatedGroup.updatedAt,
+          timestamp: now.toISOString()
+        });
+
+        return mostRecentGroup;
+      });
+
+      console.log('[LastActiveGroup] Final response:', {
+        hasGroup: !!result,
+        groupId: result?.id,
+        memberCount: result?.members?.length || 0,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error('[LastActiveGroup] Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        query: { videoId, userId },
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    }
+  }));
+
   // Register the group messages router after auth is set up
   app.use(groupMessagesRouter);
 
-  // Wrap all route handlers to ensure proper error handling
-  const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
-    return Promise.resolve(fn(req, res, next)).catch(next);
-  };
 
   // Public endpoints - no auth required
   app.get("/api/categories", asyncHandler(async (req: Request, res: Response) => {
@@ -448,233 +582,6 @@ export function registerRoutes(app: Express): Server {
     next();
   });
 
-  // Update the last-active-group endpoint with enhanced debugging
-  app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const videoId = parseInt(req.params.videoId);
-    const userId = req.user?.id;
-
-    console.log('[LastActiveGroup] Starting request:', {
-      videoId,
-      userId,
-      timestamp: new Date().toISOString(),
-      path: req.path,
-      query: req.query,
-      method: req.method,
-      headers: req.headers
-    });
-
-    if (isNaN(videoId)) {
-      console.error('[LastActiveGroup] Invalid videoId:', videoId);
-      return res.status(400).json({ message: "Invalid video ID" });
-    }
-
-    try {
-      console.log('[LastActiveGroup] Finding active group for video:', {
-        videoId,
-        userId,
-        timestamp: new Date().toISOString()
-      });
-
-      const result = await db.transaction(async (tx) => {
-        // Find the most recent active group membership
-        const activeGroup = await tx.query.discussionGroups.findFirst({
-          where: and(
-            eq(discussionGroups.videoId, videoId),
-            eq(discussionGroups.isDeleted, false),
-            sql`exists (
-              select 1 from ${groupMembers}
-              where ${groupMembers.groupId} = ${discussionGroups.id}
-              and ${groupMembers.userId} = ${userId}
-              and ${groupMembers.isDeleted} = false
-            )`
-          ),
-          with: {
-            members: {
-              where: and(
-                eq(groupMembers.isDeleted, false)
-              ),
-              with: {
-                user: {
-                  columns: {
-                    id: true,
-                    username: true,
-                    email: true
-                  }
-                }
-              }
-            },
-            video: {
-              columns: {
-                id: true,
-                title: true
-              }
-            }
-          },
-          orderBy: [desc(discussionGroups.updatedAt)]
-        });
-
-        if (!activeGroup) {
-          console.log('[LastActiveGroup] No active group found:', {
-            videoId,
-            userId,
-            timestamp: new Date().toISOString()
-          });
-          return null;
-        }
-
-        console.log('[LastActiveGroup] Found active group:', {
-          groupId: activeGroup.id,
-          memberCount: activeGroup.members?.length || 0,
-          updatedAt: activeGroup.updatedAt,
-          timestamp: new Date().toISOString()
-        });
-
-        // Update member's lastReadAt and reset unread count
-        await tx.update(groupMembers)
-          .set({
-            lastReadAt: new Date(),
-            unreadCount: 0
-          })
-          .where(and(
-            eq(groupMembers.groupId, activeGroup.id),
-            eq(groupMembers.userId, userId),
-            eq(groupMembers.isDeleted, false)
-          ));
-
-        // Update group's activity timestamp
-        await tx.update(discussionGroups)
-          .set({ updatedAt: new Date() })
-          .where(eq(discussionGroups.id, activeGroup.id));
-
-        return activeGroup;
-      });
-
-      console.log('[LastActiveGroup] Response prepared:', {
-        hasGroup: !!result,
-        groupId: result?.id,
-        timestamp: new Date().toISOString()
-      });
-
-      res.json(result);
-    } catch (error) {
-      console.error('[LastActiveGroup] Error:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        query: { videoId, userId },
-        timestamp: new Date().toISOString()
-      });
-      throw error;
-    }
-  }));
-
-  // Add video submission endpoint
-  app.post("/api/videos", asyncHandler(async (req: Request, res: Response) => {
-    const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
-
-    if (!title || !url || !categoryId || !platform) {
-      return res.status(400).json({
-        message: "Missing required fields",
-        required: ["title", "url", "categoryId", "platform"]
-      });
-    }
-
-    // Validate category exists
-    const category = await db.query.categories.findFirst({
-      where: eq(categories.id, categoryId)
-    });
-
-    if (!category) {
-      return res.status(400).json({ message: "Invalid category" });
-    }
-
-    // If subcategoryId provided, validate it exists and belongs to category
-    if (subcategoryId) {
-      const subcategory = await db.query.subcategories.findFirst({
-        where: and(
-          eq(subcategories.id, subcategoryId),
-          eq(subcategories.categoryId, categoryId)
-        )
-      });
-
-      if (!subcategory) {
-        return res.status(400).json({ message: "Invalid subcategory for the selected category" });
-      }
-    }
-
-    // Insert the video with the custom thumbnail URL if provided
-    const [newVideo] = await db.insert(videos)
-      .values({
-        title,
-        url,
-        description,
-        categoryId,
-        subcategoryId: subcategoryId || null,
-        platform,
-        thumbnailUrl,
-        customThumbnail: customThumbnail || false,
-        createdAt: new Date(),
-        isDeleted: false
-      })
-      .returning();
-
-    // Return the created video with related data
-    const videoWithDetails = await db.query.videos.findFirst({
-      where: eq(videos.id, newVideo.id),
-      with: {
-        category: true,
-        subcategory: true
-      }
-    });
-
-    res.status(201).json(videoWithDetails);
-  }));
-
-  // Update video endpoint - ensure thumbnailUrl is properly handled
-  app.patch("/api/videos/:id", asyncHandler(async (req: Request, res: Response) => {
-    const videoId = parseInt(req.params.id);
-    const { title, url, description, categoryId, subcategoryId, platform, thumbnailUrl, customThumbnail } = req.body;
-
-    if (isNaN(videoId)) {
-      return res.status(400).json({ message: "Invalid video ID" });
-    }
-
-    // Validate video exists
-    const existingVideo = await db.query.videos.findFirst({
-      where: eq(videos.id, videoId)
-    });
-
-    if (!existingVideo) {
-      return res.status(404).json({ message: "Video not found" });
-    }
-
-    // Update the video with thumbnail information
-    const [updatedVideo] = await db.update(videos)
-      .set({
-        title,
-        url,
-        description,
-        categoryId,
-        subcategoryId,
-        platform,
-        thumbnailUrl,
-        customThumbnail: customThumbnail || false,
-        updatedAt: new Date()
-      })
-      .where(eq(videos.id, videoId))
-      .returning();
-
-    // Fetch and return updated video with related data
-    const videoWithDetails = await db.query.videos.findFirst({
-      where: eq(videos.id, videoId),
-      with: {
-        category: true,
-        subcategory: true
-      }
-    });
-
-    res.json(videoWithDetails);
-  }));
-
   // Add REST endpoint for group invites
   app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const inviteCode = req.params.code;
@@ -767,12 +674,12 @@ export function registerRoutes(app: Express): Server {
     res.json(updatedGroup);
   }));
 
-  // Update the join endpoint for better persistence
+  // Update the join endpoint to prevent duplicates
   app.post("/api/groups/invite/:inviteCode/join", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { inviteCode } = req.params;
     const { videoId } = req.body;
 
-    console.log('Received group join request:', {
+    console.log('[Join] Processing join request:', {
       inviteCode,
       videoId,
       userId: req.user?.id,
@@ -780,115 +687,122 @@ export function registerRoutes(app: Express): Server {
     });
 
     if (!inviteCode || !videoId) {
-      console.error('Missing required parameters:', { inviteCode, videoId });
       return res.status(400).json({ message: "Missing required parameters" });
     }
 
     try {
-      // Find group by invite code
-      const group = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.inviteCode, inviteCode),
-        with: {
-          members: {
-            with: {
-              user: {
-                columns: {
-                  id: true,
-                  username: true
+      const result = await db.transaction(async (tx) => {
+        // First, clean up any existing duplicate entries
+        await tx.execute(
+          sql`WITH ranked_members AS (
+            SELECT id,
+              ROW_NUMBER() OVER (
+                PARTITION BY group_id, user_id
+                ORDER BY last_read_at DESC
+              ) as rn
+            FROM ${groupMembers}
+            WHERE user_id = ${req.user!.id}
+          )
+          UPDATE ${groupMembers}
+          SET is_deleted = true
+          WHERE id IN (
+            SELECT id FROM ranked_members WHERE rn > 1
+          )`
+        );
+
+        // Find group by invite code
+        const group = await tx.query.discussionGroups.findFirst({
+          where: eq(discussionGroups.inviteCode, inviteCode),
+          with: {
+            members: {
+              where: and(
+                eq(groupMembers.isDeleted, false),
+                eq(groupMembers.userId, req.user!.id)
+              ),
+              with: {
+                user: {
+                  columns: {
+                    id: true,
+                    username: true
+                  }
                 }
               }
             }
           }
+        });
+
+        if (!group) {
+          throw new Error("Invalid invite code");
         }
-      });
 
-      if (!group) {
-        console.error('Group not found for invite code:', inviteCode);
-        return res.status(404).json({ message: "Invalid invite code" });
-      }
+        // Check for existing active membership
+        const existingMember = group.members[0];
 
-      console.log('Found group:', {
-        groupId: group.id,
-        memberCount: group.members.length
-      });
+        if (existingMember) {
+          // Update lastReadAt to extend persistence
+          const [updatedMember] = await tx.update(groupMembers)
+            .set({
+              lastReadAt: new Date(),
+              notificationsEnabled: true
+            })
+            .where(eq(groupMembers.id, existingMember.id))
+            .returning();
 
-      // Check if user is already a member
-      const existingMember = group.members.find(m => m.userId === req.user?.id);
-      if (existingMember) {
-        // Update lastReadAt to ensure persistence
-        await db.update(groupMembers)
-          .set({
+          console.log('[Join] Updated existing member:', {
+            memberId: updatedMember.id,
+            groupId: group.id,
+            userId: req.user?.id,
+            timestamp: new Date().toISOString()
+          });
+
+          return { group };
+        }
+
+        // Add new member with proper persistence
+        const [newMember] = await tx.insert(groupMembers)
+          .values({
+            groupId: group.id,
+            userId: req.user!.id,
+            role: 'member',
+            joinedAt: new Date(),
             lastReadAt: new Date(),
-            notificationsEnabled: true
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0,
+            isDeleted: false
           })
-          .where(and(
-            eq(groupMembers.groupId, group.id),
-            eq(groupMembers.userId, req.user!.id)
-          ));
+          .returning();
 
-        console.log('Updated existing member:', {
-          userId: req.user?.id,
+        // Update group's activity timestamp
+        await tx.update(discussionGroups)
+          .set({ updatedAt: new Date() })
+          .where(eq(discussionGroups.id, group.id));
+
+        console.log('[Join] Added new member:', {
+          memberId: newMember.id,
           groupId: group.id,
+          userId: req.user?.id,
           timestamp: new Date().toISOString()
         });
 
-        return res.json({ group });
-      }
+        return { group };
+      });
 
-      // Add user to group with immediate persistence
-      const [member] = await db.insert(groupMembers)
-        .values({
-          groupId: group.id,
-          userId: req.user!.id,
-          role: 'member',
-          joinedAt: new Date(), // Fixed typo here
-          lastReadAt: new Date(),
-          notificationsEnabled: true,
-          emailNotifications: false,
-          unreadCount: 0,
-          isDeleted: false
-        })
-        .returning();
-
-      console.log('Added new member:', {
-        memberId: member.id,
-        groupId: group.id,
+      res.json(result);
+    } catch (error) {
+      console.error('[Join] Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        inviteCode,
         userId: req.user?.id,
         timestamp: new Date().toISOString()
       });
 
-      // Get updated group data
-      const updatedGroup = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.id, group.id),
-        with: {
-          members: {
-            with: {
-              user: {
-                columns: {
-                  id: true,
-                  username: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!updatedGroup) {
-        throw new Error('Failed to fetch updated group data');
+      if (error instanceof Error && error.message === "Invalid invite code") {
+        return res.status(404).json({ message: "Invalid invite code" });
       }
 
-      res.json({ group: updatedGroup });
-    } catch (error) {
-      console.error('Error joining group:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
-      });
-      res.status(500).json({
-        message: "Failed to join group",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
+      throw error;
     }
   }));
 
@@ -1096,17 +1010,42 @@ export function registerRoutes(app: Express): Server {
       return res.status(400).json({ message: "Invalid group ID" });
     }
 
-    // Delete the group membership
-    await db
-      .delete(groupMembers)
-      .where(
-        and(
-          eq(groupMembers.groupId, groupId),
-          eq(groupMembers.userId, req.user!.id)
-        )
-      );
+    try {
+      // First mark the member as deleted
+      await db.update(groupMembers)
+        .set({
+          isDeleted: true,
+          lastReadAt: new Date() // Update timestamp for tracking
+        })
+        .where(
+          and(
+            eq(groupMembers.groupId, groupId),
+            eq(groupMembers.userId, req.user!.id)
+          )
+        );
 
-    res.json({ message: "Successfully left the group" });
+      // Update group's last activity
+      await db.update(discussionGroups)
+        .set({ updatedAt: new Date() })
+        .where(eq(discussionGroups.id, groupId));
+
+      console.log('[LeaveGroup] Member left group:', {
+        groupId,
+        userId: req.user!.id,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json({ message: "Successfully left group" });
+    } catch (error) {
+      console.error('[LeaveGroup] Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        groupId,
+        userId: req.user!.id,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    }
   }));
 
   // Update the delete endpoint with proper error handling and response

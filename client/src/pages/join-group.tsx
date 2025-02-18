@@ -46,14 +46,15 @@ export default function JoinGroup() {
         });
 
         if (!response.ok) {
-          throw new Error('Failed to join group');
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || 'Failed to join group');
         }
 
         const { group } = await response.json();
         console.log('Successfully joined group:', group);
 
-        // Initialize group persistence immediately
-        const touchResponse = await fetch(`/api/groups/${group.id}/members/${user.id}/touch`, {
+        // Initialize group persistence immediately after joining
+        const touchResponse = await fetch(`/api/groups/${group.id}/touch`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -75,9 +76,10 @@ export default function JoinGroup() {
 
         toast({
           title: "Welcome!",
-          description: "You've successfully joined the discussion group.",
+          description: `You've successfully joined the discussion group "${group.name}".`,
         });
 
+        // Redirect to group page
         setLocation(`/video/${videoId}/group/${group.id}`);
       } catch (error) {
         console.error('Error joining group:', error);

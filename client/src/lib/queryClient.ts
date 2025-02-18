@@ -55,24 +55,33 @@ export async function apiRequest(
     config.body = isFormData ? data as FormData : JSON.stringify(data);
   }
 
-  console.log(`Making ${method} request to ${apiUrl}`, { 
+  console.log(`[API] Making ${method} request to ${apiUrl}`, { 
     headers: requestHeaders, 
     body: data,
-    isFormData 
+    isFormData,
+    timestamp: new Date().toISOString()
   });
 
   try {
     const res = await fetch(apiUrl, config);
-    console.log(`Response status: ${res.status}`, {
-      contentType: res.headers.get('content-type'),
+    console.log(`[API] Response received:`, {
+      url: apiUrl,
       status: res.status,
-      statusText: res.statusText
+      statusText: res.statusText,
+      contentType: res.headers.get('content-type'),
+      timestamp: new Date().toISOString()
     });
 
     await throwIfResNotOk(res);
     return res;
   } catch (error) {
-    console.error('API request error:', error);
+    console.error('[API] Request error:', {
+      url: apiUrl,
+      method,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      timestamp: new Date().toISOString()
+    });
     throw error;
   }
 }
@@ -88,6 +97,12 @@ export const getQueryFn: <T>(options: {
     const apiUrl = url.startsWith('/api/') ? url : `/api${url}`;
 
     try {
+      console.log('[Query] Starting request:', {
+        url: apiUrl,
+        queryKey,
+        timestamp: new Date().toISOString()
+      });
+
       const res = await fetch(apiUrl, {
         credentials: "include",
         headers: {
@@ -96,14 +111,36 @@ export const getQueryFn: <T>(options: {
         }
       });
 
+      console.log('[Query] Response received:', {
+        url: apiUrl,
+        status: res.status,
+        contentType: res.headers.get('content-type'),
+        timestamp: new Date().toISOString()
+      });
+
       if (unauthorizedBehavior === "returnNull" && res.status === 401) {
         return null;
       }
 
       await throwIfResNotOk(res);
-      return await res.json();
+      const data = await res.json();
+
+      console.log('[Query] Data received:', {
+        url: apiUrl,
+        dataType: typeof data,
+        hasData: !!data,
+        timestamp: new Date().toISOString()
+      });
+
+      return data;
     } catch (error) {
-      console.error('Query error:', error);
+      console.error('[Query] Error:', {
+        url: apiUrl,
+        queryKey,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
       throw error;
     }
   };
@@ -116,6 +153,7 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       staleTime: 0,
       retry: false,
+      gcTime: 5 * 60 * 1000, // Keep unused data in cache for 5 minutes
     },
     mutations: {
       retry: false,
