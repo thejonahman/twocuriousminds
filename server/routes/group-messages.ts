@@ -2,8 +2,9 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@db";
 import { groupMessages, groupMembers, discussionGroups } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
-import { Router } from "express";
-import type { Request, Response } from "express";
+import { Router, Request, Response, RequestHandler } from "express";
+import type {Request as TypedRequest, Response as TypedResponse} from "express";
+
 
 const router = Router();
 
@@ -17,7 +18,7 @@ interface TypedRequestUser extends Request {
 }
 
 // Get messages for a group
-router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: Response) => {
+router.get("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res: TypedResponse) => {
   try {
     const { groupId } = req.params;
     const parsedGroupId = parseInt(groupId);
@@ -107,10 +108,10 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
       details: error instanceof Error ? error.message : "Unknown error" 
     });
   }
-});
+}) as RequestHandler);
 
 // Post a new message to a group
-router.post("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: Response) => {
+router.post("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res: TypedResponse) => {
   if (!req.user?.id) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -181,6 +182,6 @@ router.post("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: 
       details: error instanceof Error ? error.message : "Unknown error"
     });
   }
-});
+}) as RequestHandler);
 
 export default router;

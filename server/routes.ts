@@ -437,18 +437,11 @@ export function registerRoutes(app: Express): Server {
             and ${groupMembers.userId} = ${req.user!.id}
           )`
         ),
-        with: {
-          members: {
-            with: {
-              user: {
-                columns: {
-                  id: true,
-                  username: true,
-                  email: true
-                }
-              }
-            }
-          }
+        columns: {
+          id: true,
+          name: true,
+          videoId: true,
+          updatedAt: true
         },
         orderBy: [desc(discussionGroups.updatedAt)]
       });
@@ -458,7 +451,7 @@ export function registerRoutes(app: Express): Server {
           id: lastActiveGroup.id,
           name: lastActiveGroup.name,
           videoId: lastActiveGroup.videoId,
-          memberCount: lastActiveGroup.members?.length
+          updatedAt: lastActiveGroup.updatedAt
         } : null,
         timestamp: new Date().toISOString()
       });
@@ -468,7 +461,7 @@ export function registerRoutes(app: Express): Server {
         return res.json(null);
       }
 
-      // Return only the fields defined in lastActiveGroupSchema
+      // Return the minimal required fields
       const response = {
         id: lastActiveGroup.id,
         name: lastActiveGroup.name,
@@ -1014,26 +1007,475 @@ export function registerRoutes(app: Express): Server {
         .where(eq(videos.id, videoId))
         .returning();
 
-      console.log(`Video ${videoId} soft deleted successfully`, {
-        timestamp: new Date().toISOString(),
-        updatedVideo: updated
+      if (!updated) {
+        console.error('Failed to update video:', videoId);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to delete video"
+        });
+      }
+
+      console.log('Successfully deleted video:', {
+        videoId: updated.id,
+        title: updated.title,
+        timestamp: new Date().toISOString()
       });
 
       res.json({
         success: true,
-        message: "Video deleted successfully",
-        videoId: videoId
+        message: "Video deleted successfully"
       });
     } catch (error) {
-      console.error('Error softdeleting video:', {
+      console.error('Error deleting video:', {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
       });
-
       res.status(500).json({
         success: false,
-        message: "Error deleting video",
+        message: "Failed to delete video",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }));
+
+  // Add REST endpoint for group invites
+  app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const inviteCode = req.params.code;
+    console.log('Fetching group for invite code:', inviteCode);
+
+    // Find group by invite code
+    const group = await db.query.discussionGroups.findFirst({
+      where: eq(discussionGroups.inviteCode, inviteCode),
+      with: {
+        members: {
+          with: {
+            user: {
+              columns: {
+                username: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!group) {
+      console.log('Group not found for invite code:', inviteCode);
+      return res.status(404).json({ message: "Invalid invite code" });
+    }
+
+    // Check if user is already a member
+    const existingMember = group.members.find(member => member.userId === req.user!.id);
+
+    if (!existingMember) {
+      // Add user as member
+      await db.insert(groupMembers)
+        .values({
+          userId: req.user!.id,
+          groupId: group.id,
+          role: 'member'
+        });
+
+      console.log('Added new member to group:', {
+        userId: req.user!.id,
+        groupId: group.id
+      });
+    }
+
+    console.log('Successfully joined group:', group.id);
+    res.json(group);
+  }));
+
+  // Update the join endpoint for better error handling and session management
+  app.post("/api/groups/invite/:inviteCode/join", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { inviteCode } = req.params;
+    const { videoId } = req.body;
+
+    console.log('Received group join request:', {
+      inviteCode,
+      videoId,
+      userId: req.user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!inviteCode || !videoId) {
+      console.error('Missing required parameters:', { inviteCode, videoId });
+      return res.status(400).json({ message: "Missing required parameters" });
+    }
+
+    try {
+      // Find group by invite code
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.inviteCode, inviteCode),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  id: true,
+                  username: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!group) {
+        console.error('Group not found for invite code:', inviteCode);
+        return res.status(404).json({ message: "Invalid invite code" });
+      }
+
+      console.log('Found group:', {
+        groupId: group.id,
+        memberCount: group.members.length
+      });
+
+      // Check if user is already a member
+      const existingMember = group.members.find(m => m.userId === req.user?.id);
+      if (existingMember) {
+        console.log('User is already a member:', {
+          userId: req.user?.id,
+          groupId: group.id
+        });
+        return res.json({ group }); // Already a member, just return the group
+      }
+
+      // Add user to group with proper error handling
+      const [member] = await db.insert(groupMembers)
+        .values({
+          groupId: group.id,
+          userId: req.user!.id,
+          role: 'member',
+          joinedAt: new Date(),
+          lastReadAt: new Date(),
+          notificationsEnabled: true,
+          emailNotifications: false,
+          unreadCount: 0
+        })
+        .returning();
+
+      console.log('Added new member:', {
+        memberId: member.id,
+        groupId: group.id,
+        userId: req.user?.id
+      });
+
+      // Get updated group data with the new member
+      const updatedGroup = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, group.id),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  id: true,
+                  username: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!updatedGroup) {
+        throw new Error('Failed to fetch updated group data');
+      }
+
+      console.log('Successfully joined group:', {
+        groupId: updatedGroup.id,
+        memberCount: updatedGroup.members.length
+      });
+
+      res.json({ group: updatedGroup });
+    } catch (error) {
+      console.error('Error joining group:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      res.status(500).json({
+        message: "Failed to join group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }));
+
+  // Update the group creation endpoint
+  app.post("/api/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { name, videoId, description } = req.body;
+    const userId = req.user?.id;
+
+    console.log('Creating new group:', {
+      name,
+      videoId,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!userId || !videoId || !name) {
+      console.error('Missing required fields:', {
+        hasUserId: !!userId,
+        hasVideoId: !!videoId,
+        hasName: !!name
+      });
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // Generate a random invite code
+    const inviteCode = Math.random().toString(36).substring(2, 15);
+
+    try {
+      // Create the group and add creator as member in a single transaction
+      const [group] = await db.transaction(async (tx) => {
+        // Create the group with all required fields
+        const [newGroup] = await tx
+          .insert(discussionGroups)
+          .values({
+            name, // Changed from groupName to name to match schema
+            description: description || `Discussion group for video ${videoId}`,
+            videoId,
+            creatorId: userId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            inviteCode,
+            isPrivate: false
+          })
+          .returning();
+
+        // Add the creator as a member and admin
+        await tx
+          .insert(groupMembers)
+          .values({
+            userId,
+            groupId: newGroup.id,
+            role: 'admin',
+            joinedAt: new Date(),
+            lastReadAt: new Date(),
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0
+          });
+
+        console.log('Successfully created group:', {
+          groupId: newGroup.id,
+          creatorId: userId,
+          timestamp: new Date().toISOString()
+        });
+
+        return [newGroup];
+      });
+
+      // Update the group response to include username
+      const groupWithDetails = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, group.id),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true,
+                  id: true,
+                  email: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!groupWithDetails) {
+        throw new Error('Failed to create group');
+      }
+
+      // Transform the response to match the expected schema
+      const response = {
+        ...groupWithDetails,
+        members: groupWithDetails.members.map(member => ({
+          ...member,
+          username: member.user.username,
+          userId: member.user.id,
+          email: member.user.email
+        }))
+      };
+
+      res.status(201).json(response);
+    } catch (error) {
+      console.error('Error creating group:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      throw error; // Let the global error handler handle it
+    }
+  }));
+
+  // Add direct group access endpoint
+  app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const groupId = parseInt(req.params.groupId);
+    if (isNaN(groupId)) {
+      return res.status(400).json({ message: "Invalid group ID" });
+    }
+
+    console.log('Fetching group:', groupId, 'for user:', req.user?.id);
+
+    // Get group with members and messages
+    const group = await db.query.discussionGroups.findFirst({
+      where: eq(discussionGroups.id, groupId),
+      with: {
+        members: {
+          with: {
+            user: true
+          }
+        }
+      }
+    });
+
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    // Remove messages length check since messages are queried separately
+    console.log('Found group with', group.members?.length || 0, 'members');
+
+    // Check if user is already a member
+    const existingMember = group.members.find(member => member.userId === req.user!.id);
+
+    if (!existingMember) {
+      const newMember = {
+        id: -1, // Temporary ID for UI purposes
+        userId: req.user!.id,
+        groupId: group.id,
+        role: 'member',
+        joinedAt: new Date(),
+        lastReadAt: new Date(),
+        notificationsEnabled: true,
+        emailNotifications: false,
+        unreadCount: 0,
+        reminderCount: 0,
+        user: {
+          id: req.user!.id,
+          createdAt: new Date(),
+          username: req.user!.username,
+          email: req.user!.email,
+          password: '', // Empty string for security
+          isAdmin: false
+        }
+      };
+
+      // Add user as member in database
+      await db.insert(groupMembers)
+        .values({
+          userId: req.user!.id,
+          groupId: group.id,
+          role: 'member',
+          joinedAt: new Date(),
+          lastReadAt: new Date(),
+          notificationsEnabled: true,
+          emailNotifications: false,
+          unreadCount: 0
+        });
+
+      group.members.push(newMember);
+    }
+
+    res.json(group);
+  }));
+
+  // Add this new endpoint after the other group-related endpoints
+  app.post("/api/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const groupId = parseInt(req.params.groupId);
+    if (isNaN(groupId)) {
+      return res.status(400).json({ message: "Invalid group ID" });
+    }
+
+    // Delete the group membership
+    await db
+      .delete(groupMembers)
+      .where(
+        and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user!.id)
+        )
+      );
+
+    res.json({ message: "Successfully left the group" });
+  }));
+
+  // Update the delete endpoint with proper error handling and response
+  app.delete("/api/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const videoId = parseInt(req.params.id);
+    console.log(`[DELETE] Attempting to delete video ${videoId}`, {
+      timestamp: new Date().toISOString(),
+      userId: req.user?.id
+    });
+
+    if (isNaN(videoId)) {
+      console.error('Invalid video ID provided:', req.params.id);
+      return res.status(400).json({
+        success: false,
+        message: "Invalid video ID"
+      });
+    }
+
+    try {
+      // Get the video first to check if it exists
+      const video = await db.query.videos.findFirst({
+        where: eq(videos.id, videoId)
+      });
+
+      if (!video) {
+        console.error('Video not found:', videoId);
+        return res.status(404).json({
+          success: false,
+          message: "Video not found"
+        });
+      }
+
+      console.log(`Found video to delete:`, {
+        videoId: video.id,
+        title: video.title,
+        currentlyDeleted: video.isDeleted
+      });
+
+      // Perform soft delete
+      const [updated] = await db
+        .update(videos)
+        .set({
+          isDeleted: true,
+          updatedAt: new Date()
+        })
+        .where(eq(videos.id, videoId))
+        .returning();
+
+      if (!updated) {
+        console.error('Failed to update video:', videoId);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to delete video"
+        });
+      }
+
+      console.log('Successfully deleted video:', {
+        videoId: updated.id,
+        title: updated.title,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json({
+        success: true,
+        message: "Video deleted successfully"
+      });
+    } catch (error) {
+      console.error('Error deleting video:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      res.status(500).json({
+        success: false,
+        message: "Failed to delete video",
         error: error instanceof Error ? error.message : "Unknown error"
       });
     }

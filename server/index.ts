@@ -136,7 +136,7 @@ async function findAvailablePort(startPort: number): Promise<number> {
 }
 
 // Start server with port availability check and explicit host binding
-async function startServer() {
+const startServer = async () => {
   try {
     const port = await findAvailablePort(PORT);
     if (port !== PORT) {
@@ -166,24 +166,31 @@ async function startServer() {
     process.on('SIGTERM', handleShutdown);
     process.on('SIGINT', handleShutdown);
 
-    server.listen(port, HOST, () => {
-      const startupMessage = `Server started and ready on http://${HOST}:${port}`;
-      log(startupMessage);
-      console.log('=== Server Configuration ===');
-      console.log(`Environment: ${app.get("env")}`);
-      console.log(`Port: ${port}`);
-      console.log(`Host: ${HOST}`);
-      console.log(`Timestamp: ${new Date().toISOString()}`);
-      console.log('=========================');
-      console.log('Server is now ready to accept connections');
+    // Start listening on the port
+    await new Promise<void>((resolve) => {
+      server.listen(port, HOST, () => {
+        const startupMessage = `Server started and ready on http://${HOST}:${port}`;
+        log(startupMessage);
+        console.log('=== Server Configuration ===');
+        console.log(`Environment: ${app.get("env")}`);
+        console.log(`Port: ${port}`);
+        console.log(`Host: ${HOST}`);
+        console.log(`Timestamp: ${new Date().toISOString()}`);
+        console.log('=========================');
+        console.log('Server is now ready to accept connections');
 
-      // Signal that the server is ready (for workflow port waiting)
-      process.send?.('ready');
+        // Signal that the server is ready
+        if (process.send) {
+          process.send('ready');
+        }
+        resolve();
+      });
     });
+
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
   }
-}
+};
 
 startServer();
