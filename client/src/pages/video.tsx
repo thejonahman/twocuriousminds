@@ -45,11 +45,11 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Improved type definition for lastActiveGroup query
-  const { data: lastActiveGroup, isLoading: isLastActiveGroupLoading } = useQuery<LastActiveGroup | null>({
+  // Enhanced type definition for group membership state
+  const { data: lastActiveGroup } = useQuery<LastActiveGroup | null>({
     queryKey: [`/api/videos/${id}/last-active-group`],
     enabled: !!id && !!user && !groupId, // Only fetch if we have video ID, user is logged in, and not already in a group
-    gcTime: 30 * 60 * 1000, // Keep in cache for 30 minutes (renamed from cacheTime)
+    gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours for better persistence
     staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
     select: (data: unknown) => {
       if (!data) return null;
@@ -62,14 +62,29 @@ export default function Video() {
     }
   });
 
-  // Enhanced group restoration effect
+  // Enhanced group restoration effect with priority to URL groupId
   useEffect(() => {
-    if (!user?.id || !id || isLastActiveGroupLoading) {
-      return;
-    }
+    if (!user?.id || !id) return;
 
-    // If we're already in a group, skip restoration
+    // If we have a groupId in the URL, ensure membership
     if (groupId) {
+      console.log('Processing group from URL:', {
+        groupId,
+        videoId: id,
+        userId: user.id,
+        timestamp: new Date().toISOString()
+      });
+
+      // Call the new membership endpoint to ensure persistence
+      fetch(`/api/groups/${groupId}/members`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      }).catch(error => {
+        console.error('Failed to process group membership:', error);
+      });
+
       return;
     }
 
@@ -80,13 +95,14 @@ export default function Video() {
         groupName: lastActiveGroup.name,
         videoId: lastActiveGroup.videoId,
         currentVideoId: id,
+        userId: user.id,
         timestamp: new Date().toISOString()
       });
 
       // Redirect to the group URL
       setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
     }
-  }, [user, id, groupId, lastActiveGroup, isLastActiveGroupLoading, setLocation]);
+  }, [user, id, groupId, lastActiveGroup, setLocation]);
 
   // Scroll to top whenever the video ID changes
   useEffect(() => {

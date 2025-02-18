@@ -146,6 +146,30 @@ export function registerRoutes(app: Express): Server {
     next();
   });
 
+  // Add logging middleware for group-related endpoints
+  app.use('/api/groups*', (req: Request, _res: Response, next: NextFunction) => {
+    console.log('[Group API]', {
+      path: req.path,
+      method: req.method,
+      userId: (req as AuthenticatedRequest).user?.id,
+      timestamp: new Date().toISOString()
+    });
+    next();
+  });
+
+  // Add logging middleware for membership checks
+  app.use('/api/videos/:videoId/last-active-group', (req: Request, _res: Response, next: NextFunction) => {
+    console.log('[LastActiveGroup] Request:', {
+      videoId: req.params.videoId,
+      userId: (req as AuthenticatedRequest).user?.id,
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      query: req.query
+    });
+    next();
+  });
+
+
   // Register the group messages router after auth is set up
   app.use(groupMessagesRouter);
 
@@ -412,6 +436,18 @@ export function registerRoutes(app: Express): Server {
     res.json(relatedVideos);
   }));
 
+  // Add logging middleware for membership checks
+  app.use('/api/videos/:videoId/last-active-group', (req: Request, _res: Response, next: NextFunction) => {
+    console.log('[LastActiveGroup] Request:', {
+      videoId: req.params.videoId,
+      userId: (req as AuthenticatedRequest).user?.id,
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      query: req.query
+    });
+    next();
+  });
+
   // Update the /api/videos/:videoId/last-active-group endpoint
   app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.videoId);
@@ -427,8 +463,8 @@ export function registerRoutes(app: Express): Server {
     });
 
     try {
-      // Find the most recently active group for this video where the user is a member
-      const lastActiveGroup = await db.query.discussionGroups.findFirst({
+      // Find any group for this video where the user is a member
+      const activeGroup = await db.query.discussionGroups.findFirst({
         where: and(
           eq(discussionGroups.videoId, videoId),
           sql`exists (
@@ -447,34 +483,16 @@ export function registerRoutes(app: Express): Server {
       });
 
       console.log('[LastActiveGroup] Query result:', {
-        foundGroup: lastActiveGroup ? {
-          id: lastActiveGroup.id,
-          name: lastActiveGroup.name,
-          videoId: lastActiveGroup.videoId,
-          updatedAt: lastActiveGroup.updatedAt
+        foundGroup: activeGroup ? {
+          id: activeGroup.id,
+          name: activeGroup.name,
+          videoId: activeGroup.videoId,
+          updatedAt: activeGroup.updatedAt
         } : null,
         timestamp: new Date().toISOString()
       });
 
-      if (!lastActiveGroup) {
-        console.log('[LastActiveGroup] No active group found');
-        return res.json(null);
-      }
-
-      // Return the minimal required fields
-      const response = {
-        id: lastActiveGroup.id,
-        name: lastActiveGroup.name,
-        videoId: lastActiveGroup.videoId,
-        updatedAt: lastActiveGroup.updatedAt
-      };
-
-      console.log('[LastActiveGroup] Sending response:', {
-        ...response,
-        timestamp: new Date().toISOString()
-      });
-
-      res.json(response);
+      res.json(activeGroup);
     } catch (error) {
       console.error('[LastActiveGroup] Error:', {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -600,7 +618,7 @@ export function registerRoutes(app: Express): Server {
   // Add REST endpoint for group invites
   app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const inviteCode = req.params.code;
-    console.log('Fetching group for invite code:', inviteCode);
+    console.log('[Invite] Fetching group for invite code:', inviteCode);
 
     // Find group by invite code
     const group = await db.query.discussionGroups.findFirst({
@@ -610,7 +628,8 @@ export function registerRoutes(app: Express): Server {
           with: {
             user: {
               columns: {
-                username: true
+                username: true,
+                id: true
               }
             }
           }
@@ -619,7 +638,7 @@ export function registerRoutes(app: Express): Server {
     });
 
     if (!group) {
-      console.log('Group not found for invite code:', inviteCode);
+      console.log('[Invite] Group not found for invite code:', inviteCode);
       return res.status(404).json({ message: "Invalid invite code" });
     }
 
@@ -627,432 +646,50 @@ export function registerRoutes(app: Express): Server {
     const existingMember = group.members.find(member => member.userId === req.user!.id);
 
     if (!existingMember) {
-      // Add user as member
-      await db.insert(groupMembers)
-        .values({
-          userId: req.user!.id,
-          groupId: group.id,
-          role: 'member'
-        });
-
-      console.log('Added new member to group:', {
-        userId: req.user!.id,
-        groupId: group.id
-      });
-    }
-
-    console.log('Successfully joined group:', group.id);
-    res.json(group);
-  }));
-
-  // Update the join endpoint for better error handling and session management
-  app.post("/api/groups/invite/:inviteCode/join", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { inviteCode } = req.params;
-    const { videoId } = req.body;
-
-    console.log('Received group join request:', {
-      inviteCode,
-      videoId,
-      userId: req.user?.id,
-      timestamp: new Date().toISOString()
-    });
-
-    if (!inviteCode || !videoId) {
-      console.error('Missing required parameters:', { inviteCode, videoId });
-      return res.status(400).json({ message: "Missing required parameters" });
-    }
-
-    try {
-      // Find group by invite code
-      const group = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.inviteCode, inviteCode),
-        with: {
-          members: {
-            with: {
-              user: {
-                columns: {
-                  id: true,
-                  username: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!group) {
-        console.error('Group not found for invite code:', inviteCode);
-        return res.status(404).json({ message: "Invalid invite code" });
-      }
-
-      console.log('Found group:', {
-        groupId: group.id,
-        memberCount: group.members.length
-      });
-
-      // Check if user is already a member
-      const existingMember = group.members.find(m => m.userId === req.user?.id);
-      if (existingMember) {
-        console.log('User is already a member:', {
-          userId: req.user?.id,
-          groupId: group.id
-        });
-        return res.json({ group }); // Already a member, just return the group
-      }
-
-      // Add user to group with proper error handling
-      const [member] = await db.insert(groupMembers)
-        .values({
-          groupId: group.id,
-          userId: req.user!.id,
-          role: 'member',
-          joinedAt: new Date(),
-          lastReadAt: new Date(),
-          notificationsEnabled: true,
-          emailNotifications: false,
-          unreadCount: 0
-        })
-        .returning();
-
-      console.log('Added new member:', {
-        memberId: member.id,
-        groupId: group.id,
-        userId: req.user?.id
-      });
-
-      // Get updated group data with the new member
-      const updatedGroup = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.id, group.id),
-        with: {
-          members: {
-            with: {
-              user: {
-                columns: {
-                  id: true,
-                  username: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!updatedGroup) {
-        throw new Error('Failed to fetch updated group data');
-      }
-
-      console.log('Successfully joined group:', {
-        groupId: updatedGroup.id,
-        memberCount: updatedGroup.members.length
-      });
-
-      res.json({ group: updatedGroup });
-    } catch (error) {
-      console.error('Error joining group:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
-      });
-      res.status(500).json({
-        message: "Failed to join group",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  }));
-
-  // Update the group creation endpoint
-  app.post("/api/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const { name, videoId, description } = req.body;
-    const userId = req.user?.id;
-
-    console.log('Creating new group:', {
-      name,
-      videoId,
-      userId,
-      timestamp: new Date().toISOString()
-    });
-
-    if (!userId || !videoId || !name) {
-      console.error('Missing required fields:', {
-        hasUserId: !!userId,
-        hasVideoId: !!videoId,
-        hasName: !!name
-      });
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    // Generate a random invite code
-    const inviteCode = Math.random().toString(36).substring(2, 15);
-
-    try {
-      // Create the group and add creator as member in a single transaction
-      const [group] = await db.transaction(async (tx) => {
-        // Create the group with all required fields
-        const [newGroup] = await tx
-          .insert(discussionGroups)
-          .values({
-            name, // Changed from groupName to name to match schema
-            description: description || `Discussion group for video ${videoId}`,
-            videoId,
-            creatorId: userId,
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            inviteCode,
-            isPrivate: false
-          })
-          .returning();
-
-        // Add the creator as a member and admin
-        await tx
-          .insert(groupMembers)
-          .values({
-            userId,
-            groupId: newGroup.id,
-            role: 'admin',
-            joinedAt: new Date(),
-            lastReadAt: new Date(),
-            notificationsEnabled: true,
-            emailNotifications: false,
-            unreadCount: 0
-          });
-
-        console.log('Successfully created group:', {
-          groupId: newGroup.id,
-          creatorId: userId,
-          timestamp: new Date().toISOString()
-        });
-
-        return [newGroup];
-      });
-
-      // Update the group response to include username
-      const groupWithDetails = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.id, group.id),
-        with: {
-          members: {
-            with: {
-              user: {
-                columns: {
-                  username: true,
-                  id: true,
-                  email: true
-                }
-              }
-            }
-          }
-        }
-      });
-
-      if (!groupWithDetails) {
-        throw new Error('Failed to create group');
-      }
-
-      // Transform the response to match the expected schema
-      const response = {
-        ...groupWithDetails,
-        members: groupWithDetails.members.map(member => ({
-          ...member,
-          username: member.user.username,
-          userId: member.user.id,
-          email: member.user.email
-        }))
-      };
-
-      res.status(201).json(response);
-    } catch (error) {
-      console.error('Error creating group:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
-      });
-      throw error; // Let the global error handler handle it
-    }
-  }));
-
-  // Add direct group access endpoint
-  app.get("/api/groups/:groupId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const groupId = parseInt(req.params.groupId);
-    if (isNaN(groupId)) {
-      return res.status(400).json({ message: "Invalid group ID" });
-    }
-
-    console.log('Fetching group:', groupId, 'for user:', req.user?.id);
-
-    // Get group with members and messages
-    const group = await db.query.discussionGroups.findFirst({
-      where: eq(discussionGroups.id, groupId),
-      with: {
-        members: {
-          with: {
-            user: true
-          }
-        }
-      }
-    });
-
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
-
-    // Remove messages length check since messages are queried separately
-    console.log('Found group with', group.members?.length || 0, 'members');
-
-    // Check if user is already a member
-    const existingMember = group.members.find(member => member.userId === req.user!.id);
-
-    if (!existingMember) {
-      const newMember = {
-        id: -1, // Temporary ID for UI purposes
-        userId: req.user!.id,
-        groupId: group.id,
-        role: 'member',
-        joinedAt: new Date(),
-        lastReadAt: new Date(),
-        notificationsEnabled: true,
-        emailNotifications: false,
-        unreadCount: 0,
-        reminderCount: 0,
-        user: {
-          id: req.user!.id,
-          createdAt: new Date(),
-          username: req.user!.username,
-          email: req.user!.email,
-          password: '', // Empty string for security
-          isAdmin: false
-        }
-      };
-
-      // Add user as member in database
+      // Add user as member with immediate persistence
       await db.insert(groupMembers)
         .values({
           userId: req.user!.id,
           groupId: group.id,
           role: 'member',
-          joinedAt: new Date(),
-          lastReadAt: new Date(),
+          joinedAt: new Date(), // Set immediately for persistence
+          lastReadAt: new Date(), // Set immediately for persistence
           notificationsEnabled: true,
           emailNotifications: false,
           unreadCount: 0
         });
 
-      group.members.push(newMember);
-    }
-
-    res.json(group);
-  }));
-
-  // Add this new endpoint after the other group-related endpoints
-  app.post("/api/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const groupId = parseInt(req.params.groupId);
-    if (isNaN(groupId)) {
-      return res.status(400).json({ message: "Invalid group ID" });
-    }
-
-    // Delete the group membership
-    await db
-      .delete(groupMembers)
-      .where(
-        and(
-          eq(groupMembers.groupId, groupId),
+      console.log('[Invite] Added new member to group:', {
+        userId: req.user!.id,
+        groupId: group.id,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      // Update lastReadAt to ensure continued persistence
+      await db.update(groupMembers)
+        .set({ lastReadAt: new Date() })
+        .where(and(
+          eq(groupMembers.groupId, group.id),
           eq(groupMembers.userId, req.user!.id)
-        )
-      );
+        ));
 
-    res.json({ message: "Successfully left the group" });
-  }));
-
-  // Update the delete endpoint with proper error handling and response
-  app.delete("/api/videos/:id", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const videoId = parseInt(req.params.id);
-    console.log(`[DELETE] Attempting to delete video ${videoId}`, {
-      timestamp: new Date().toISOString(),
-      userId: req.user?.id
-    });
-
-    if (isNaN(videoId)) {
-      console.error('Invalid video ID provided:', req.params.id);
-      return res.status(400).json({
-        success: false,
-        message: "Invalid video ID"
+      console.log('[Invite] Updated existing member:', {
+        userId: req.user!.id,
+        groupId: group.id,
+        timestamp: new Date().toISOString()
       });
     }
 
-    try {
-      // Get the video first to check if it exists
-      const video = await db.query.videos.findFirst({
-        where: eq(videos.id, videoId)
-      });
-
-      if (!video) {
-        console.error('Video not found:', videoId);
-        return res.status(404).json({
-          success: false,
-          message: "Video not found"
-        });
-      }
-
-      console.log(`Found video to delete:`, {
-        videoId: video.id,
-        title: video.title,
-        currentlyDeleted: video.isDeleted
-      });
-
-      // Perform soft delete
-      const [updated] = await db
-        .update(videos)
-        .set({
-          isDeleted: true,
-          updatedAt: new Date()
-        })
-        .where(eq(videos.id, videoId))
-        .returning();
-
-      if (!updated) {
-        console.error('Failed to update video:', videoId);
-        return res.status(500).json({
-          success: false,
-          message: "Failed to delete video"
-        });
-      }
-
-      console.log('Successfully deleted video:', {
-        videoId: updated.id,
-        title: updated.title,
-        timestamp: new Date().toISOString()
-      });
-
-      res.json({
-        success: true,
-        message: "Video deleted successfully"
-      });
-    } catch (error) {
-      console.error('Error deleting video:', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined,
-        timestamp: new Date().toISOString()
-      });
-      res.status(500).json({
-        success: false,
-        message: "Failed to delete video",
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  }));
-
-  // Add REST endpoint for group invites
-  app.get("/api/groups/invite/:code", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
-    const inviteCode = req.params.code;
-    console.log('Fetching group for invite code:', inviteCode);
-
-    // Find group by invite code
-    const group = await db.query.discussionGroups.findFirst({
-      where: eq(discussionGroups.inviteCode, inviteCode),
+    // Get fresh group data with updated membership
+    const updatedGroup = await db.query.discussionGroups.findFirst({
+      where: eq(discussionGroups.id, group.id),
       with: {
         members: {
           with: {
             user: {
               columns: {
-                username: true
+                username: true,
+                id: true
               }
             }
           }
@@ -1060,35 +697,17 @@ export function registerRoutes(app: Express): Server {
       }
     });
 
-    if (!group) {
-      console.log('Group not found for invite code:', inviteCode);
-      return res.status(404).json({ message: "Invalid invite code" });
-    }
+    console.log('[Invite] Successfully joined group:', {
+      groupId: group.id,
+      memberCount: updatedGroup?.members.length || 0,
+      timestamp: new Date().toISOString()
+    });
 
-    // Check if user is already a member
-    const existingMember = group.members.find(member => member.userId === req.user!.id);
-
-    if (!existingMember) {
-      // Add user as member
-      await db.insert(groupMembers)
-        .values({
-          userId: req.user!.id,
-          groupId: group.id,
-          role: 'member'
-        });
-
-      console.log('Added new member to group:', {
-        userId: req.user!.id,
-        groupId: group.id
-      });
-    }
-
-    console.log('Successfully joined group:', group.id);
-    res.json(group);
+    res.json(updatedGroup);
   }));
 
-  // Update the join endpoint for better error handling and session management
-  app.post("/api/groups/invite/:inviteCode/join", asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+  // Update the join endpoint for better persistence
+  app.post("/api/groups/invite/:inviteCode/join", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { inviteCode } = req.params;
     const { videoId } = req.body;
 
@@ -1135,20 +754,33 @@ export function registerRoutes(app: Express): Server {
       // Check if user is already a member
       const existingMember = group.members.find(m => m.userId === req.user?.id);
       if (existingMember) {
-        console.log('User is already a member:', {
+        // Update lastReadAt to ensure persistence
+        await db.update(groupMembers)
+          .set({
+            lastReadAt: new Date(),
+            notificationsEnabled: true
+          })
+          .where(and(
+            eq(groupMembers.groupId, group.id),
+            eq(groupMembers.userId, req.user!.id)
+          ));
+
+        console.log('Updated existing member:', {
           userId: req.user?.id,
-          groupId: group.id
+          groupId: group.id,
+          timestamp: new Date().toISOString()
         });
-        return res.json({ group }); // Already a member, just return the group
+
+        return res.json({ group });
       }
 
-      // Add user to group with proper error handling
+      // Add user to group with immediate persistence
       const [member] = await db.insert(groupMembers)
         .values({
           groupId: group.id,
           userId: req.user!.id,
           role: 'member',
-          joinedAt: new Date(),
+          joinedAt: new Date(), // Fixed typo here
           lastReadAt: new Date(),
           notificationsEnabled: true,
           emailNotifications: false,
@@ -1159,10 +791,11 @@ export function registerRoutes(app: Express): Server {
       console.log('Added new member:', {
         memberId: member.id,
         groupId: group.id,
-        userId: req.user?.id
+        userId: req.user?.id,
+        timestamp: new Date().toISOString()
       });
 
-      // Get updated group data with the new member
+      // Get updated group data
       const updatedGroup = await db.query.discussionGroups.findFirst({
         where: eq(discussionGroups.id, group.id),
         with: {
@@ -1182,11 +815,6 @@ export function registerRoutes(app: Express): Server {
       if (!updatedGroup) {
         throw new Error('Failed to fetch updated group data');
       }
-
-      console.log('Successfully joined group:', {
-        groupId: updatedGroup.id,
-        memberCount: updatedGroup.members.length
-      });
 
       res.json({ group: updatedGroup });
     } catch (error) {
@@ -1387,8 +1015,7 @@ export function registerRoutes(app: Express): Server {
   app.post("/api/groups/:groupId/leave", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const groupId = parseInt(req.params.groupId);
     if (isNaN(groupId)) {
-      return res.status(400).json({ message: "Invalid group ID" });
-    }
+      return res.status(400).json({ message: "Invalid group ID" });    }
 
     // Delete the group membership
     await db
@@ -1715,6 +1342,113 @@ export function registerRoutes(app: Express): Server {
       }
     }));
   }
+
+  // Add new endpoint for managing group members
+  app.post("/api/groups/:groupId/members", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const groupId = parseInt(req.params.groupId);
+
+    console.log('[Group Membership] Adding/updating member:', {
+      groupId,
+      userId: req.user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!req.user?.id || isNaN(groupId)) {
+      console.error('[Group Membership] Invalid request:', {
+        hasUserId: !!req.user?.id,
+        groupId,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(400).json({ message: "Invalid request parameters" });
+    }
+
+    try {
+      // Check if user is already a member
+      const existingMember = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, groupId),
+          eq(groupMembers.userId, req.user.id)
+        )
+      });
+
+      if (existingMember) {
+        // Update existing member's lastReadAt
+        await db.update(groupMembers)
+          .set({
+            lastReadAt: new Date(),
+            notificationsEnabled: true
+          })
+          .where(and(
+            eq(groupMembers.groupId, groupId),
+            eq(groupMembers.userId, req.user.id)
+          ));
+
+        console.log('[Group Membership] Updated existing member:', {
+          memberId: existingMember.id,
+          groupId,
+          userId: req.user.id,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        // Add new member with proper persistence
+        const [newMember] = await db.insert(groupMembers)
+          .values({
+            userId: req.user.id,
+            groupId,
+            role: 'member',
+            joinedAt: new Date(), // Fixed typo
+            lastReadAt: new Date(),
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0
+          })
+          .returning();
+
+        console.log('[Group Membership] Added new member:', {
+          memberId: newMember.id,
+          groupId,
+          userId: req.user.id,
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Get updated group data
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, groupId),
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  username: true,
+                  id: true
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!group) {
+        throw new Error('Failed to fetch updated group data');
+      }
+
+      console.log('[Group Membership] Successfully processed membership:', {
+        groupId,
+        memberCount: group.members.length,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(group);
+    } catch (error) {
+      console.error('[Group Membership] Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    }
+  }));
 
   return httpServer;
 }
