@@ -32,10 +32,33 @@ export function registerRoutes(app: Express): Server {
   const PORT = process.env.PORT || 3000;
 
   // Add logging for server startup
-  httpServer.listen(PORT, '0.0.0.0', () => {
-    console.log(`[Server] HTTP server listening on port ${PORT}`);
-    console.log('[Server] Binding address:', httpServer.address());
+  const startServer = () => {
+    try {
+      httpServer.listen(PORT, '0.0.0.0', () => {
+        console.log(`[Server] HTTP server listening on port ${PORT}`);
+        console.log('[Server] Binding address:', httpServer.address());
+      });
+    } catch (error) {
+      console.error('[Server] Failed to start server:', error);
+      process.exit(1); // Exit if we can't bind to the port
+    }
+  };
+
+  // Handle server errors
+  httpServer.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE') {
+      console.log('[Server] Port is in use, retrying in 1 second...');
+      setTimeout(() => {
+        httpServer.close();
+        startServer();
+      }, 1000);
+    } else {
+      console.error('[Server] Server error:', error);
+      process.exit(1);
+    }
   });
+
+  startServer();
 
   // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
@@ -202,7 +225,6 @@ export function registerRoutes(app: Express): Server {
     try {
       const result = await db.transaction(async (tx) => {
         // Find all active groups for this video that the user is a member of
-        // Using correct column names and adding more detailed conditions
         const groupsQuery = await tx.query.discussionGroups.findMany({
           where: and(
             eq(discussionGroups.videoId, videoId),
@@ -981,7 +1003,7 @@ export function registerRoutes(app: Express): Server {
         }
       };
 
-      // Add user as member in database with proper persistence
+      // Add user as member indatabase with proper persistence
       await db.insert(groupMembers)
         .values({
           userId: req.user!.id,

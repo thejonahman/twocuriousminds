@@ -43,11 +43,14 @@ const lastActiveGroupSchema = groupSchema.nullable();
 type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
 
 // Helper function to normalize URLs
-function normalizeUrl(base: string, ...parts: string[]): string {
-  // Remove any leading/trailing slashes from parts
-  const cleanParts = parts.map(part => part.replace(/^\/+|\/+$/g, ''));
-  // Join with single slashes and ensure no double slashes
-  return `/${cleanParts.join('/')}`.replace(/\/+/g, '/');
+function normalizeUrl(...parts: string[]): string {
+  // Remove any leading/trailing slashes and empty segments
+  const cleanParts = parts
+    .map(part => part.replace(/^\/+|\/+$/g, ''))
+    .filter(Boolean);
+
+  // Join with single slashes and ensure a leading slash
+  return '/' + cleanParts.join('/');
 }
 
 export function DiscussionGroup({ videoId, initialGroupId }: Props) {
