@@ -56,6 +56,7 @@ export default function Auth() {
           throw new Error('Invalid response from server: missing group ID');
         }
 
+        // Clear any stored invite data
         sessionStorage.removeItem('pendingInvite');
         navigate(`/video/${videoId}/group/${data.group.id}`);
       } catch (error) {
@@ -71,6 +72,7 @@ export default function Auth() {
       }
     };
 
+    // Check for pending invite after successful authentication
     const pendingInviteStr = sessionStorage.getItem('pendingInvite');
     if (pendingInviteStr) {
       try {

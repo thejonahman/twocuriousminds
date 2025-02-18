@@ -3,11 +3,13 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     try {
+      // First try to get JSON error
       const contentType = res.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const errorJson = await res.json();
         throw new Error(errorJson.message || errorJson.error || `${res.status}: ${res.statusText}`);
       }
+      // Fallback to text error
       const text = (await res.text()) || res.statusText;
       throw new Error(`${res.status}: ${text}`);
     } catch (error) {
@@ -30,7 +32,7 @@ export async function apiRequest(
 ): Promise<Response> {
   const { headers = {}, isFormData = false } = options;
 
-  // Always ensure URL has /api prefix
+  // Ensure url starts with /api/
   const apiUrl = url.startsWith('/api/') ? url : `/api${url}`;
 
   const requestHeaders: Record<string, string> = {
@@ -38,6 +40,7 @@ export async function apiRequest(
     ...headers
   };
 
+  // Only set Content-Type for non-FormData requests
   if (!isFormData && data) {
     requestHeaders["Content-Type"] = "application/json";
   }
@@ -52,44 +55,24 @@ export async function apiRequest(
     config.body = isFormData ? data as FormData : JSON.stringify(data);
   }
 
-  console.log(`[API] Making ${method} request to ${apiUrl}`, {
-    headers: requestHeaders,
-    body: data ? (isFormData ? '(FormData)' : JSON.stringify(data)) : undefined,
+  console.log(`Making ${method} request to ${apiUrl}`, { 
+    headers: requestHeaders, 
+    body: data,
+    isFormData 
   });
 
   try {
     const res = await fetch(apiUrl, config);
-    console.log(`[API] Response from ${apiUrl}:`, {
-      status: res.status,
-      statusText: res.statusText,
+    console.log(`Response status: ${res.status}`, {
       contentType: res.headers.get('content-type'),
-      url: res.url
+      status: res.status,
+      statusText: res.statusText
     });
 
-    if (!res.ok) {
-      const contentType = res.headers.get('content-type');
-      let errorMessage;
-
-      if (contentType?.includes('application/json')) {
-        const errorJson = await res.json();
-        errorMessage = errorJson.message || errorJson.error;
-      } else {
-        errorMessage = await res.text();
-      }
-
-      console.error(`[API] Error response from ${apiUrl}:`, {
-        status: res.status,
-        message: errorMessage
-      });
-    }
-
+    await throwIfResNotOk(res);
     return res;
   } catch (error) {
-    console.error('[API] Request error:', {
-      url: apiUrl,
-      method,
-      error
-    });
+    console.error('API request error:', error);
     throw error;
   }
 }
@@ -102,11 +85,9 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const url = queryKey[0] as string;
-    // Always ensure URL has /api prefix
     const apiUrl = url.startsWith('/api/') ? url : `/api${url}`;
 
     try {
-      console.log(`[Query] Fetching ${apiUrl}`);
       const res = await fetch(apiUrl, {
         credentials: "include",
         headers: {
@@ -115,22 +96,14 @@ export const getQueryFn: <T>(options: {
         }
       });
 
-      if (res.status === 401) {
-        console.log(`[Query] 401 response for ${apiUrl}, behavior:`, unauthorizedBehavior);
-        if (unauthorizedBehavior === "returnNull") {
-          return null;
-        }
+      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
+        return null;
       }
 
       await throwIfResNotOk(res);
-      const data = await res.json();
-      console.log(`[Query] Success response from ${apiUrl}:`, {
-        status: res.status,
-        dataType: typeof data
-      });
-      return data;
+      return await res.json();
     } catch (error) {
-      console.error(`[Query] Error for ${apiUrl}:`, error);
+      console.error('Query error:', error);
       throw error;
     }
   };

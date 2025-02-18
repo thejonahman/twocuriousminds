@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
@@ -14,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useUser } from "@/hooks/use-user";
 import { validateApiResponse, lastActiveGroupSchema, type LastActiveGroup } from "@/lib/api-types";
 
@@ -77,45 +76,16 @@ export default function Video() {
         timestamp: new Date().toISOString()
       });
 
-      // Enhanced membership setup with retries and better error handling
-      const setupMembership = async () => {
-        try {
-          const response = await fetch(`/api/groups/${groupId}/members`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              notificationsEnabled: true,
-              emailNotifications: true
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to setup group membership');
-          }
-
-          // Invalidate and prefetch relevant queries
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: [`/api/groups/${groupId}`] }),
-            queryClient.invalidateQueries({ queryKey: [`/api/groups/${groupId}/messages`] }),
-            queryClient.prefetchQuery({ 
-              queryKey: [`/api/videos/${id}`],
-            })
-          ]);
-
-          console.log('Successfully setup group membership');
-        } catch (error) {
-          console.error('Failed to setup group membership:', error);
-          toast({
-            title: "Error",
-            description: "Failed to join the discussion group. Please try again.",
-            variant: "destructive",
-          });
+      // Call the new membership endpoint to ensure persistence
+      fetch(`/api/groups/${groupId}/members`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
         }
-      };
+      }).catch(error => {
+        console.error('Failed to process group membership:', error);
+      });
 
-      setupMembership();
       return;
     }
 
@@ -133,7 +103,7 @@ export default function Video() {
       // Redirect to the group URL
       setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
     }
-  }, [user, id, groupId, lastActiveGroup, setLocation, queryClient, toast]);
+  }, [user, id, groupId, lastActiveGroup, setLocation]);
 
   // Scroll to top whenever the video ID changes
   useEffect(() => {

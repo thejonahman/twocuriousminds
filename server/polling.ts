@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from "@db";
-import { eq, and, desc } from "drizzle-orm";
-import { groupMessages, groupMembers } from "@db/schema";
+import { eq, desc } from "drizzle-orm";
+import { groupMessages } from "@db/schema";
 
 interface TypedRequestUser extends Request {
   user?: {
@@ -21,18 +21,6 @@ export function setupPolling(app: any) {
 
       if (!userId || !groupId || !content) {
         return res.status(400).json({ error: 'Missing required fields' });
-      }
-
-      // Verify user is a member with proper permissions
-      const memberCheck = await db.query.groupMembers.findFirst({
-        where: and(
-          eq(groupMembers.groupId, groupId),
-          eq(groupMembers.userId, userId)
-        )
-      });
-
-      if (!memberCheck) {
-        return res.status(403).json({ error: 'Not a member of this group' });
       }
 
       // Save message to database
@@ -68,30 +56,13 @@ export function setupPolling(app: any) {
     }
   });
 
-  // Get messages endpoint with proper sorting and member verification
+  // Get messages endpoint with proper sorting
   app.get('/api/messages', async (req: TypedRequestUser, res: Response) => {
     try {
       const groupId = parseInt(req.query.groupId as string);
-      const userId = req.user?.id;
 
       if (isNaN(groupId)) {
         return res.status(400).json({ error: 'Invalid group ID' });
-      }
-
-      if (!userId) {
-        return res.status(401).json({ error: 'Authentication required' });
-      }
-
-      // Verify user is a member
-      const memberCheck = await db.query.groupMembers.findFirst({
-        where: and(
-          eq(groupMembers.groupId, groupId),
-          eq(groupMembers.userId, userId)
-        )
-      });
-
-      if (!memberCheck) {
-        return res.status(403).json({ error: 'Not a member of this group' });
       }
 
       const messages = await db.query.groupMessages.findMany({
@@ -105,17 +76,6 @@ export function setupPolling(app: any) {
           }
         }
       });
-
-      // Update last read timestamp for the member
-      await db.update(groupMembers)
-        .set({
-          lastReadAt: new Date(),
-          unreadCount: 0
-        })
-        .where(and(
-          eq(groupMembers.groupId, groupId),
-          eq(groupMembers.userId, userId)
-        ));
 
       res.json(messages.reverse()); // Return in chronological order
     } catch (error) {

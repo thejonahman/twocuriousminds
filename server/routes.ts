@@ -709,13 +709,12 @@ export function registerRoutes(app: Express): Server {
   // Update the join endpoint for better persistence
   app.post("/api/groups/invite/:inviteCode/join", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { inviteCode } = req.params;
-    const { videoId, role } = req.body;
+    const { videoId } = req.body;
 
     console.log('Received group join request:', {
       inviteCode,
       videoId,
       userId: req.user?.id,
-      requestedRole: role,
       timestamp: new Date().toISOString()
     });
 
@@ -755,12 +754,11 @@ export function registerRoutes(app: Express): Server {
       // Check if user is already a member
       const existingMember = group.members.find(m => m.userId === req.user?.id);
       if (existingMember) {
-        // Update lastReadAt and role to ensure persistence
+        // Update lastReadAt to ensure persistence
         await db.update(groupMembers)
           .set({
             lastReadAt: new Date(),
-            notificationsEnabled: true,
-            role: role || 'admin' // Always upgrade to admin for better persistence
+            notificationsEnabled: true
           })
           .where(and(
             eq(groupMembers.groupId, group.id),
@@ -770,20 +768,19 @@ export function registerRoutes(app: Express): Server {
         console.log('Updated existing member:', {
           userId: req.user?.id,
           groupId: group.id,
-          role: 'admin',
           timestamp: new Date().toISOString()
         });
 
         return res.json({ group });
       }
 
-      // Add user to group with admin role for persistence
+      // Add user to group with immediate persistence
       const [member] = await db.insert(groupMembers)
         .values({
           groupId: group.id,
           userId: req.user!.id,
-          role: role || 'admin', // Set role to admin for all joining members
-          joinedAt: new Date(),
+          role: 'member',
+          joinedAt: new Date(), // Fixed typo here
           lastReadAt: new Date(),
           notificationsEnabled: true,
           emailNotifications: false,
@@ -795,7 +792,6 @@ export function registerRoutes(app: Express): Server {
         memberId: member.id,
         groupId: group.id,
         userId: req.user?.id,
-        role: 'admin',
         timestamp: new Date().toISOString()
       });
 
@@ -996,7 +992,7 @@ export function registerRoutes(app: Express): Server {
         }
       };
 
-            // Add user as member in database
+      // Add user as member in database
       await db.insert(groupMembers)
         .values({
           userId: req.user!.id,

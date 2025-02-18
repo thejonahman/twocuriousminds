@@ -31,12 +31,12 @@ export const messageSchema = baseEntitySchema.extend({
   updatedAt: z.string().datetime().nullish(),
 });
 
-// Group member schema with role validation
+// Group member schema
 export const groupMemberSchema = z.object({
   id: z.number(),
   userId: z.number(),
   groupId: z.number(),
-  role: z.enum(["admin", "member"]).default("admin"),
+  role: z.string(),
   joinedAt: z.string().datetime().nullish(),
   lastReadAt: z.string().datetime().nullish(),
   user: z.object({

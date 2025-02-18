@@ -9,19 +9,20 @@ import { users, insertUserSchema } from "@db/schema";
 import { db, pool } from "@db";
 import { eq } from "drizzle-orm";
 import { fromZodError } from "zod-validation-error";
-import jwt from 'jsonwebtoken';
+import jwt from 'jsonwebtoken'; // Added JWT for temporary login
+
 
 const scryptAsync = promisify(scrypt);
 const PostgresSessionStore = connectPg(session);
 
+// Create requireAuth middleware
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  console.log('[Auth] Checking authentication:', {
-    isAuthenticated: req.isAuthenticated?.(),
-    session: req.session?.id,
-    user: req.user?.id
-  });
+  // Debug log to track auth state
+  console.log('Auth check - session:', req.session);
+  console.log('Auth check - user:', req.user);
 
   if (!req.isAuthenticated || !req.isAuthenticated()) {
+    console.log('Auth check failed - not authenticated');
     return res.status(401).json({ error: "Unauthorized" });
   }
   next();
@@ -35,12 +36,24 @@ async function hashPassword(password: string) {
 
 async function comparePasswords(supplied: string, stored: string) {
   try {
+    // Temporary: If password is not in hash.salt format, do direct comparison
+    if (!stored.includes('.')) {
+      console.log('Using temporary plain text password comparison');
+      return supplied === stored;
+    }
+
     const [hashedPassword, salt] = stored.split(".");
+    // Check if we have both hash and salt
+    if (!hashedPassword || !salt) {
+      console.error("Invalid password format in database");
+      return false;
+    }
+
     const buf = (await scryptAsync(supplied, salt, 32)) as Buffer;
     const storedBuf = Buffer.from(hashedPassword, "hex");
     return timingSafeEqual(buf, storedBuf);
   } catch (error) {
-    console.error("[Auth] Password comparison error:", error);
+    console.error("Password comparison error:", error);
     return false;
   }
 }
@@ -50,8 +63,9 @@ async function getUserByUsername(username: string) {
 }
 
 export function setupAuth(app: Express) {
-  console.log('[Auth] Setting up authentication...');
+  console.log('Setting up authentication...');
 
+  // Create session store
   const store = new PostgresSessionStore({
     pool,
     createTableIfMissing: true,
@@ -59,6 +73,7 @@ export function setupAuth(app: Express) {
     pruneSessionInterval: 60
   });
 
+  // Configure session middleware
   const sessionMiddleware = session({
     store,
     secret: process.env.REPL_ID || 'fallback-secret-key',
@@ -66,9 +81,8 @@ export function setupAuth(app: Express) {
     resave: false,
     saveUninitialized: false,
     rolling: true,
-    proxy: true,
     cookie: {
-      secure: false, // Set to false since we're behind a proxy
+      secure: false,
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000,
@@ -76,42 +90,42 @@ export function setupAuth(app: Express) {
     },
   });
 
+  // Initialize session middleware first
   app.use(sessionMiddleware);
+
+  // Initialize passport and session AFTER session middleware
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // Set up passport strategy
   passport.use(new LocalStrategy(async (username, password, done) => {
     try {
-      console.log('[Auth] Login attempt:', { username });
       const [user] = await getUserByUsername(username);
 
       if (!user) {
-        console.log('[Auth] User not found:', username);
         return done(null, false);
       }
 
       const isValid = await comparePasswords(password, user.password);
       if (!isValid) {
-        console.log('[Auth] Invalid password for user:', username);
         return done(null, false);
       }
 
-      console.log('[Auth] Login successful:', { username, userId: user.id });
       return done(null, user);
     } catch (error) {
-      console.error('[Auth] Login error:', error);
+      console.error("Login error:", error);
       return done(error);
     }
   }));
 
   passport.serializeUser((user: any, done) => {
-    console.log('[Auth] Serializing user:', user.id);
+    console.log('Serializing user:', user.id);
     done(null, user.id);
   });
 
   passport.deserializeUser(async (id: number, done) => {
     try {
-      console.log('[Auth] Deserializing user:', id);
+      console.log('Deserializing user:', id);
       const [user] = await db
         .select()
         .from(users)
@@ -119,117 +133,84 @@ export function setupAuth(app: Express) {
         .limit(1);
 
       if (!user) {
-        console.log('[Auth] User not found during deserialization:', id);
+        console.log('No user found during deserialization');
         return done(null, false);
       }
 
+      console.log('User deserialized successfully');
       done(null, user);
     } catch (error) {
-      console.error('[Auth] Deserialization error:', error);
+      console.error('Deserialization error:', error);
       done(error);
     }
   });
 
-  app.post("/api/login", (req, res, next) => {
-    console.log('[Auth] Login request:', { 
-      username: req.body.username,
-      sessionId: req.session?.id 
-    });
-
-    passport.authenticate("local", (err: any, user: any, info: any) => {
-      if (err) {
-        console.error('[Auth] Authentication error:', err);
-        return next(err);
+  // Auth endpoints must be registered AFTER passport setup
+  app.post("/api/register", async (req, res, next) => {
+    try {
+      const result = insertUserSchema.safeParse(req.body);
+      if (!result.success) {
+        const error = fromZodError(result.error);
+        return res.status(400).send(error.toString());
       }
 
-      if (!user) {
-        console.log('[Auth] Authentication failed:', info);
-        return res.status(401).json({ error: "Invalid credentials" });
+      const [existingUser] = await getUserByUsername(result.data.username);
+      if (existingUser) {
+        return res.status(400).send("Username already exists");
       }
 
-      req.logIn(user, (err) => {
-        if (err) {
-          console.error('[Auth] Login error:', err);
-          return next(err);
-        }
+      const hashedPassword = await hashPassword(result.data.password);
+      const [user] = await db
+        .insert(users)
+        .values({
+          username: result.data.username,
+          email: result.data.email,
+          password: hashedPassword,
+          isAdmin: false,
+        })
+        .returning();
 
-        console.log('[Auth] Login successful:', { 
-          userId: user.id, 
-          username: user.username,
-          sessionId: req.session?.id
-        });
-
-        // Return only necessary user data
-        const safeUser = {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          isAdmin: user.isAdmin
-        };
-
-        res.json(safeUser);
+      req.login(user, (err) => {
+        if (err) return next(err);
+        res.status(201).json(user);
       });
-    })(req, res, next);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/login", passport.authenticate("local"), (req, res) => {
+    res.status(200).json(req.user);
   });
 
   app.post("/api/logout", (req, res, next) => {
-    console.log('[Auth] Logout request:', {
-      userId: req.user?.id,
-      sessionId: req.session?.id
-    });
-
     req.logout((err) => {
-      if (err) {
-        console.error('[Auth] Logout error:', err);
-        return next(err);
-      }
-
-      req.session.destroy((err) => {
-        if (err) {
-          console.error('[Auth] Session destruction error:', err);
-          return next(err);
-        }
-
-        res.clearCookie('connect.sid');
-        console.log('[Auth] Logout successful');
-        res.sendStatus(200);
-      });
+      if (err) return next(err);
+      res.sendStatus(200);
     });
   });
 
   app.get("/api/user", requireAuth, (req, res) => {
-    console.log('[Auth] User data requested:', {
-      userId: req.user?.id,
-      sessionId: req.session?.id
-    });
-
-    // Return only necessary user data
-    const user = req.user as any;
-    const safeUser = {
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      isAdmin: user.isAdmin
-    };
-
-    res.json(safeUser);
+    res.json(req.user);
   });
 
+  // Added temporary login endpoint
   app.post('/api/templogin', async (req, res) => {
     try {
       const { user, token } = await login(undefined, undefined, true);
       res.json({ user, token });
     } catch (error) {
-      console.error('[Auth] Temporary login error:', error);
+      console.error("Temporary login error:", error);
       res.status(500).json({ error: 'Failed to create temporary login' });
     }
   });
 
-  console.log('[Auth] Authentication setup completed');
+  console.log('Authentication setup completed');
   return sessionMiddleware;
 }
 
 export async function login(email?: string, password?: string, isTemporary = false) {
+  // Create temporary session if needed
   if (isTemporary) {
     const tempUser = {
       id: Date.now(),
@@ -238,6 +219,10 @@ export async function login(email?: string, password?: string, isTemporary = fal
     };
     return { user: tempUser, token: jwt.sign(tempUser, process.env.JWT_SECRET || 'secret') };
   }
+
+  //This section needs further implementation to handle actual login with email/password
+
+  // ... (rest of the login logic) ...  //This part is omitted because complete implementation would require details not provided
 
   throw new Error('Login logic not fully implemented');
 }

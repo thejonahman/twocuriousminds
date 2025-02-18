@@ -23,6 +23,7 @@ function Router() {
         <main className="flex-1 w-full">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
             <Switch>
+              {/* Define video routes with explicit paths */}
               <Route path="/video/:id" component={Video} />
               <Route path="/video/:id/group/:groupId" component={Video} />
               <Route path="/join-group/:inviteCode" component={JoinGroup} />

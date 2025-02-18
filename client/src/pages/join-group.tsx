@@ -12,147 +12,90 @@ export default function JoinGroup() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
+  const inviteCode = window.location.pathname.split('/join-group/')[1];
+  const videoId = new URLSearchParams(window.location.search).get('videoId');
 
   useEffect(() => {
-    // Enhanced getInviteInfo with better error handling and validation
-    const getInviteInfo = () => {
+    if (!inviteCode || !videoId) {
+      console.error('Invalid join link parameters:', { inviteCode, videoId });
+      toast({
+        title: "Invalid Link",
+        description: "The invite link appears to be invalid.",
+        variant: "destructive",
+      });
+      setLocation('/');
+      return;
+    }
+
+    if (!user) {
+      console.log('User not logged in, storing invite info');
+      // Store invite info and redirect to auth
+      sessionStorage.setItem('pendingInvite', JSON.stringify({ inviteCode, videoId }));
+      setLocation('/auth');
+      return;
+    }
+
+    // Process group join with enhanced persistence
+    const joinGroup = async () => {
       try {
-        console.log('[JoinGroup] Starting invite info extraction from URL:', window.location.href);
-
-        const urlPath = window.location.pathname;
-        const urlParams = new URLSearchParams(window.location.search);
-
-        const inviteCode = urlPath.split('/join-group/')[1];
-        const videoId = urlParams.get('videoId');
-
-        console.log('[JoinGroup] Extracted parameters:', { inviteCode, videoId, path: urlPath });
-
-        if (!inviteCode || !videoId) {
-          console.error('[JoinGroup] Missing required parameters:', { inviteCode, videoId });
-          toast({
-            title: "Invalid Invite Link",
-            description: "The invite link is missing required information. Please check the URL.",
-            variant: "destructive",
-          });
-          setLocation('/');
-          return null;
-        }
-
-        return { inviteCode, videoId };
-      } catch (error) {
-        console.error('[JoinGroup] Error extracting invite info:', error);
-        toast({
-          title: "Error",
-          description: "Failed to process the invite link. Please try again.",
-          variant: "destructive",
-        });
-        setLocation('/');
-        return null;
-      }
-    };
-
-    const processInviteAndJoin = async (inviteInfo: { inviteCode: string; videoId: string }) => {
-      try {
-        console.log('[JoinGroup] Starting join process:', {
-          inviteCode: inviteInfo.inviteCode,
-          videoId: inviteInfo.videoId,
-          userId: user?.id,
-          timestamp: new Date().toISOString()
-        });
-
-        // First verify if the group exists and is valid
-        const verifyResponse = await fetch(`/api/groups/invite/${inviteInfo.inviteCode}/verify`);
-        if (!verifyResponse.ok) {
-          const errorText = await verifyResponse.text();
-          console.error('[JoinGroup] Group verification failed:', errorText);
-          throw new Error('Invalid or expired invite link');
-        }
-
-        // Join the group
-        const joinResponse = await fetch(`/api/groups/invite/${inviteInfo.inviteCode}/join`, {
+        console.log('Joining group with invite code:', inviteCode);
+        const response = await fetch(`/api/groups/invite/${inviteCode}/join`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            videoId: inviteInfo.videoId,
-            role: 'admin'  // Set role to admin for persistence
-          })
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ videoId })
         });
 
-        if (!joinResponse.ok) {
-          const errorText = await joinResponse.text();
-          console.error('[JoinGroup] Join failed:', errorText);
+        if (!response.ok) {
           throw new Error('Failed to join group');
         }
 
-        const { group } = await joinResponse.json();
+        const group = await response.json();
+        console.log('Successfully joined group:', group);
 
-        console.log('[JoinGroup] Successfully joined group:', {
-          groupId: group.id,
-          videoId: inviteInfo.videoId,
-          timestamp: new Date().toISOString()
-        });
-
-        // Invalidate and prefetch relevant queries
+        // Invalidate existing queries to ensure fresh data
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}`] }),
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] }),
-          queryClient.prefetchQuery({ 
-            queryKey: [`/api/videos/${inviteInfo.videoId}`],
-          })
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] })
         ]);
 
-        // Store target location before navigation
-        const targetLocation = `/video/${inviteInfo.videoId}/group/${group.id}`;
-        console.log('[JoinGroup] Preparing to navigate to:', targetLocation);
+        // Set up persistence by calling the members endpoint
+        const memberResponse = await fetch(`/api/groups/${group.id}/members`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            notificationsEnabled: true,
+            emailNotifications: true
+          })
+        });
 
-        // Show success message
+        if (!memberResponse.ok) {
+          console.warn('Member persistence setup failed:', await memberResponse.text());
+        }
+
         toast({
           title: "Welcome!",
           description: "You've successfully joined the discussion group.",
         });
 
-        // Return location for controlled navigation
-        return targetLocation;
+        // Redirect to the video page with the group
+        setLocation(`/video/${videoId}/group/${group.id}`);
       } catch (error) {
-        console.error('[JoinGroup] Error in join process:', error);
+        console.error('Error joining group:', error);
         toast({
           title: "Error",
           description: error instanceof Error ? error.message : "Failed to join the group. Please try again.",
           variant: "destructive",
         });
-        return `/video/${inviteInfo.videoId}`;
+        setLocation(`/video/${videoId}`);
       }
     };
 
-    const initializeJoinProcess = async () => {
-      console.log('[JoinGroup] Initializing join process');
-
-      // First, try to get invite info from URL
-      const inviteInfo = getInviteInfo();
-      if (!inviteInfo) {
-        console.log('[JoinGroup] No valid invite info found');
-        return;
-      }
-
-      // If no user, store invite info and redirect to auth
-      if (!user) {
-        console.log('[JoinGroup] User not logged in, storing invite info');
-        sessionStorage.setItem('pendingInvite', JSON.stringify(inviteInfo));
-        setLocation('/auth');
-        return;
-      }
-
-      // Process the join request and handle navigation
-      const targetLocation = await processInviteAndJoin(inviteInfo);
-      if (targetLocation) {
-        console.log('[JoinGroup] Navigating to target location:', targetLocation);
-        setLocation(targetLocation);
-      }
-    };
-
-    // Start the join process
-    initializeJoinProcess();
-  }, [toast, setLocation, user, queryClient]);
+    joinGroup();
+  }, [inviteCode, videoId, toast, setLocation, user, queryClient]);
 
   return (
     <Card className="max-w-md mx-auto mt-8">
