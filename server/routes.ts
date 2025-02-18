@@ -448,35 +448,61 @@ export function registerRoutes(app: Express): Server {
     next();
   });
 
-  // Update the last-active-group endpoint with proper error handling and logging
+  // Update the last-active-group endpoint with enhanced debugging
   app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.videoId);
     const userId = req.user?.id;
 
+    console.log('[LastActiveGroup] Starting request:', {
+      videoId,
+      userId,
+      timestamp: new Date().toISOString(),
+      path: req.path,
+      query: req.query,
+      method: req.method,
+      headers: req.headers
+    });
+
     if (isNaN(videoId)) {
+      console.error('[LastActiveGroup] Invalid videoId:', videoId);
       return res.status(400).json({ message: "Invalid video ID" });
     }
 
-    console.log('[LastActiveGroup] Checking group for:', {
-      videoId,
-      userId,
-      timestamp: new Date().toISOString()
-    });
-
     try {
+      console.log('[LastActiveGroup] Finding active group for video:', {
+        videoId,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+
       const result = await db.transaction(async (tx) => {
-        // First find the most recent active group
+        // Find the most recent active group membership
         const activeGroup = await tx.query.discussionGroups.findFirst({
           where: and(
             eq(discussionGroups.videoId, videoId),
+            eq(discussionGroups.isDeleted, false),
             sql`exists (
               select 1 from ${groupMembers}
               where ${groupMembers.groupId} = ${discussionGroups.id}
               and ${groupMembers.userId} = ${userId}
+              and ${groupMembers.isDeleted} = false
             )`
           ),
           with: {
-            members: true,
+            members: {
+              where: and(
+                eq(groupMembers.isDeleted, false)
+              ),
+              with: {
+                user: {
+                  columns: {
+                    id: true,
+                    username: true,
+                    email: true
+                  }
+                }
+              }
+            },
             video: {
               columns: {
                 id: true,
@@ -488,17 +514,22 @@ export function registerRoutes(app: Express): Server {
         });
 
         if (!activeGroup) {
-          console.log('[LastActiveGroup] No active group found');
+          console.log('[LastActiveGroup] No active group found:', {
+            videoId,
+            userId,
+            timestamp: new Date().toISOString()
+          });
           return null;
         }
 
-        console.log('[LastActiveGroup] Found group:', {
+        console.log('[LastActiveGroup] Found active group:', {
           groupId: activeGroup.id,
-          name: activeGroup.name,
-          memberCount: activeGroup.members?.length || 0
+          memberCount: activeGroup.members?.length || 0,
+          updatedAt: activeGroup.updatedAt,
+          timestamp: new Date().toISOString()
         });
 
-        // Update the member's lastReadAt timestamp and reset unread count
+        // Update member's lastReadAt and reset unread count
         await tx.update(groupMembers)
           .set({
             lastReadAt: new Date(),
@@ -506,28 +537,31 @@ export function registerRoutes(app: Express): Server {
           })
           .where(and(
             eq(groupMembers.groupId, activeGroup.id),
-            eq(groupMembers.userId, userId)
+            eq(groupMembers.userId, userId),
+            eq(groupMembers.isDeleted, false)
           ));
 
-        console.log('[LastActiveGroup] Updated membership timestamp');
-
-        // Update the group's updatedAt timestamp to maintain persistence
+        // Update group's activity timestamp
         await tx.update(discussionGroups)
           .set({ updatedAt: new Date() })
           .where(eq(discussionGroups.id, activeGroup.id));
 
-        console.log('[LastActiveGroup] Updated group timestamp');
-
-        // Return the group with updated timestamps
         return activeGroup;
       });
 
-      // Send a 200 response with either the group data or null
+      console.log('[LastActiveGroup] Response prepared:', {
+        hasGroup: !!result,
+        groupId: result?.id,
+        timestamp: new Date().toISOString()
+      });
+
       res.json(result);
     } catch (error) {
       console.error('[LastActiveGroup] Error:', {
         error: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
+        stack: error instanceof Error ? error.stack : undefined,
+        query: { videoId, userId },
+        timestamp: new Date().toISOString()
       });
       throw error;
     }
@@ -682,7 +716,8 @@ export function registerRoutes(app: Express): Server {
           lastReadAt: new Date(), // Set immediately for persistence
           notificationsEnabled: true,
           emailNotifications: false,
-          unreadCount: 0
+          unreadCount: 0,
+          isDeleted: false
         });
 
       console.log('[Invite] Added new member to group:', {
@@ -810,7 +845,8 @@ export function registerRoutes(app: Express): Server {
           lastReadAt: new Date(),
           notificationsEnabled: true,
           emailNotifications: false,
-          unreadCount: 0
+          unreadCount: 0,
+          isDeleted: false
         })
         .returning();
 
@@ -894,7 +930,8 @@ export function registerRoutes(app: Express): Server {
             createdAt: new Date(),
             updatedAt: new Date(),
             inviteCode,
-            isPrivate: false
+            isPrivate: false,
+            isDeleted: false
           })
           .returning();
 
@@ -909,7 +946,8 @@ export function registerRoutes(app: Express): Server {
             lastReadAt: new Date(),
             notificationsEnabled: true,
             emailNotifications: true,
-            unreadCount: 0
+            unreadCount: 0,
+            isDeleted: false
           })
           .returning();
 
@@ -1005,7 +1043,7 @@ export function registerRoutes(app: Express): Server {
 
     console.log('Found group with', group.members?.length || 0, 'members');
 
-    // Check if user isalready a member
+    // Check if user is already a member
     const existingMember = group.members.find(member => member.userId === req.user!.id);
 
     if (!existingMember) {
@@ -1020,6 +1058,7 @@ export function registerRoutes(app: Express): Server {
         emailNotifications: false,
         unreadCount: 0,
         reminderCount: 0,
+        isDeleted: false,
         user: {
           id: req.user!.id,
           createdAt: new Date(),
@@ -1040,7 +1079,8 @@ export function registerRoutes(app: Express): Server {
           lastReadAt: new Date(),
           notificationsEnabled: true,
           emailNotifications: false,
-          unreadCount: 0
+          unreadCount: 0,
+          isDeleted: false
         });
 
       group.members.push(newMember);
@@ -1439,7 +1479,8 @@ export function registerRoutes(app: Express): Server {
             lastReadAt: new Date(),
             notificationsEnabled: true,
             emailNotifications: false,
-            unreadCount: 0
+            unreadCount: 0,
+            isDeleted: false
           })
           .returning();
 
@@ -1572,7 +1613,9 @@ export function registerRoutes(app: Express): Server {
             lastReadAt: new Date(),
             notificationsEnabled: true,
             emailNotifications: false,
-            unreadCount: 0
+            unreadCount: 0,
+            active: true,
+            isDeleted: false
           })
           .returning();
 

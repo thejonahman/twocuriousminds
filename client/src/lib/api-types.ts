@@ -31,7 +31,7 @@ export const messageSchema = baseEntitySchema.extend({
   updatedAt: z.string().datetime().nullish(),
 });
 
-// Group member schema
+// Group member schema with isDeleted flag
 export const groupMemberSchema = z.object({
   id: z.number(),
   userId: z.number(),
@@ -39,12 +39,13 @@ export const groupMemberSchema = z.object({
   role: z.string(),
   joinedAt: z.string().datetime().nullish(),
   lastReadAt: z.string().datetime().nullish(),
+  isDeleted: z.boolean().default(false),
   user: z.object({
     username: z.string()
   })
 });
 
-// Group schema
+// Group schema with isDeleted flag
 export const groupSchema = baseEntitySchema.extend({
   name: z.string(),
   description: z.string().nullable(),
@@ -52,6 +53,7 @@ export const groupSchema = baseEntitySchema.extend({
   creatorId: z.number(),
   isPrivate: z.boolean(),
   inviteCode: z.string(),
+  isDeleted: z.boolean().default(false),
   members: z.array(groupMemberSchema).optional(),
   video: videoSchema.optional(),
   updatedAt: z.string().datetime().nullish(),
@@ -63,6 +65,7 @@ export const lastActiveGroupSchema = groupSchema.pick({
   name: true,
   videoId: true,
   updatedAt: true,
+  isDeleted: true,
 });
 
 // API response types
@@ -71,12 +74,31 @@ export type Group = z.infer<typeof groupSchema>;
 export type GroupMember = z.infer<typeof groupMemberSchema>;
 export type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
 
-// Utility function to validate API responses
+// Utility function to validate API responses with enhanced error logging
 export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
   try {
-    return schema.parse(data);
+    console.log('[API Validation] Validating response:', {
+      schema: schema._def.typeName,
+      hasData: !!data,
+      timestamp: new Date().toISOString()
+    });
+
+    const result = schema.parse(data);
+
+    console.log('[API Validation] Validation successful:', {
+      schema: schema._def.typeName,
+      resultType: typeof result,
+      timestamp: new Date().toISOString()
+    });
+
+    return result;
   } catch (error) {
-    console.error('API Response validation error:', error);
+    console.error('[API Validation] Validation error:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      schema: schema._def.typeName,
+      data: JSON.stringify(data).slice(0, 200) + '...',
+      timestamp: new Date().toISOString()
+    });
     throw new Error('Invalid API response format');
   }
 }

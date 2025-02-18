@@ -79,6 +79,7 @@ export const discussionGroups = pgTable("discussion_groups", {
   creatorId: integer("creator_id").notNull().references(() => users.id),
   isPrivate: boolean("is_private").default(true).notNull(),
   inviteCode: text("invite_code").notNull().unique(),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => ({
@@ -97,6 +98,7 @@ export const groupMembers = pgTable("group_members", {
   lastReadAt: timestamp("last_read_at").defaultNow(),
   unreadCount: integer("unread_count").default(0),
   joinedAt: timestamp("joined_at").defaultNow(),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
   reminderCount: integer("reminder_count").default(0),
 }, (table) => ({
   groupIdIdx: index("group_members_group_id_idx").on(table.groupId),

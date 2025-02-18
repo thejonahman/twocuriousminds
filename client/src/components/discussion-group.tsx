@@ -51,14 +51,28 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // Query for last active group if no initialGroupId is provided
+  // Query for last active group with enhanced debugging
   const { data: lastActiveGroup, error: lastActiveGroupError } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId,
     retry: 3,
     staleTime: 1000,
     refetchInterval: 30000,
-    select: (data) => validateApiResponse(lastActiveGroupSchema, data),
+    select: (data) => {
+      console.log('[GroupPersistence] Processing last active group data:', {
+        hasData: !!data,
+        groupId: data?.id,
+        memberCount: data?.members?.length || 0,
+        timestamp: new Date().toISOString()
+      });
+      return validateApiResponse(lastActiveGroupSchema, data);
+    },
+    onError: (error) => {
+      console.error('[GroupPersistence] Last active group query error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 
   // Use initialGroupId or lastActiveGroup?.id for the effective group ID
@@ -66,7 +80,16 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
   // Enhanced useEffect hook for group membership persistence
   useEffect(() => {
-    if (!user || !effectiveGroupId) return;
+    if (!user || !effectiveGroupId) {
+      console.log('[GroupPersistence] Skip - missing user or group:', {
+        hasUser: !!user,
+        effectiveGroupId,
+        videoId,
+        location: window.location.pathname,
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
 
     let isMounted = true;
     let retryCount = 0;
@@ -80,6 +103,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         console.log('[GroupPersistence] Setting up membership:', {
           userId: user.id,
           groupId: effectiveGroupId,
+          videoId,
+          path: window.location.pathname,
           timestamp: new Date().toISOString(),
           retryCount
         });
@@ -93,7 +118,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         });
 
         if (!touchResponse.ok) {
-          throw new Error(`Failed to update membership persistence: ${touchResponse.status}`);
+          const errorText = await touchResponse.text();
+          throw new Error(`Failed to update membership persistence: ${touchResponse.status} - ${errorText}`);
         }
 
         const touchResult = await touchResponse.json();
@@ -112,12 +138,24 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
             queryClient.invalidateQueries({ queryKey: [`/api/videos/${videoId}/last-active-group`] })
           ]);
 
-          console.log('[GroupPersistence] Cache invalidated');
+          console.log('[GroupPersistence] Cache invalidated for paths:', {
+            paths: [
+              `/api/groups/${effectiveGroupId}`,
+              `/api/groups/${effectiveGroupId}/messages`,
+              `/api/videos/${videoId}/last-active-group`
+            ],
+            timestamp: new Date().toISOString()
+          });
         }
       } catch (error) {
         console.error('[GroupPersistence] Error:', {
           error: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
           retryCount,
+          videoId,
+          groupId: effectiveGroupId,
+          userId: user.id,
+          path: window.location.pathname,
           timestamp: new Date().toISOString()
         });
 
@@ -136,18 +174,35 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     };
 
     // Initial setup
-    console.log('[GroupPersistence] Initializing persistence mechanism');
+    console.log('[GroupPersistence] Initializing persistence mechanism:', {
+      videoId,
+      groupId: effectiveGroupId,
+      userId: user.id,
+      path: window.location.pathname,
+      timestamp: new Date().toISOString()
+    });
+
     setupGroupMembership();
 
     // Set up interval for continuous updates
     const persistenceInterval = setInterval(() => {
-      console.log('[GroupPersistence] Running scheduled update');
+      console.log('[GroupPersistence] Running scheduled update:', {
+        videoId,
+        groupId: effectiveGroupId,
+        userId: user.id,
+        timestamp: new Date().toISOString()
+      });
       setupGroupMembership();
     }, 15000);
 
     // Cleanup function
     return () => {
-      console.log('[GroupPersistence] Cleaning up persistence mechanism');
+      console.log('[GroupPersistence] Cleaning up persistence mechanism:', {
+        videoId,
+        groupId: effectiveGroupId,
+        userId: user.id,
+        timestamp: new Date().toISOString()
+      });
       isMounted = false;
       clearInterval(persistenceInterval);
     };

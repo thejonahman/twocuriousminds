@@ -5,7 +5,6 @@ import { insertGroupMessageSchema } from "@db/schema";
 import { Router, Request, Response, RequestHandler } from "express";
 import type {Request as TypedRequest, Response as TypedResponse} from "express";
 
-
 const router = Router();
 
 interface TypedRequestUser extends Request {
@@ -27,10 +26,19 @@ router.get("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res: 
       return res.status(400).json({ error: "Invalid group ID" });
     }
 
+    console.log('[GroupMessages] Processing request:', {
+      groupId: parsedGroupId,
+      userId: req.user?.id,
+      timestamp: new Date().toISOString()
+    });
+
     // First, ensure user is a member or add them if they're not
     if (req.user?.id) {
       const groupData = await db.query.discussionGroups.findFirst({
-        where: eq(discussionGroups.id, parsedGroupId),
+        where: and(
+          eq(discussionGroups.id, parsedGroupId),
+          eq(discussionGroups.isDeleted, false)
+        ),
         columns: {
           id: true,
           name: true,
@@ -40,14 +48,23 @@ router.get("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res: 
       });
 
       if (!groupData) {
+        console.log('[GroupMessages] Group not found or deleted:', parsedGroupId);
         return res.status(404).json({ error: "Group not found" });
       }
 
       const memberCheck = await db.query.groupMembers.findFirst({
         where: and(
           eq(groupMembers.groupId, parsedGroupId),
-          eq(groupMembers.userId, req.user.id)
+          eq(groupMembers.userId, req.user.id),
+          eq(groupMembers.isDeleted, false)
         )
+      });
+
+      console.log('[GroupMessages] Member check result:', {
+        groupId: parsedGroupId,
+        userId: req.user.id,
+        isMember: !!memberCheck,
+        timestamp: new Date().toISOString()
       });
 
       if (!memberCheck) {
@@ -61,16 +78,18 @@ router.get("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res: 
             lastReadAt: new Date(),
             notificationsEnabled: true,
             emailNotifications: false,
-            unreadCount: 0
+            unreadCount: 0,
+            isDeleted: false
           });
 
+        console.log('[GroupMessages] Added new member:', {
+          groupId: parsedGroupId,
+          userId: req.user.id,
+          timestamp: new Date().toISOString()
+        });
+
         // Always include group data in response headers
-        res.setHeader('X-Group-Data', JSON.stringify({
-          id: groupData.id,
-          name: groupData.name,
-          videoId: groupData.videoId,
-          updatedAt: groupData.updatedAt
-        }));
+        res.setHeader('X-Group-Data', JSON.stringify(groupData));
       }
 
       // Always update last read timestamp and unread count
@@ -81,8 +100,15 @@ router.get("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res: 
         })
         .where(and(
           eq(groupMembers.groupId, parsedGroupId),
-          eq(groupMembers.userId, req.user.id)
+          eq(groupMembers.userId, req.user.id),
+          eq(groupMembers.isDeleted, false)
         ));
+
+      console.log('[GroupMessages] Updated member timestamps:', {
+        groupId: parsedGroupId,
+        userId: req.user.id,
+        timestamp: new Date().toISOString()
+      });
     }
 
     // Get messages with user details
@@ -100,9 +126,19 @@ router.get("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res: 
       limit: 100
     });
 
+    console.log('[GroupMessages] Retrieved messages:', {
+      groupId: parsedGroupId,
+      messageCount: messages.length,
+      timestamp: new Date().toISOString()
+    });
+
     res.json(messages.reverse());
   } catch (error) {
-    console.error('Error fetching group messages:', error);
+    console.error('[GroupMessages] Error:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      timestamp: new Date().toISOString()
+    });
     res.status(500).json({ 
       error: "Failed to fetch messages",
       details: error instanceof Error ? error.message : "Unknown error" 
@@ -124,6 +160,12 @@ router.post("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res:
       return res.status(400).json({ error: "Invalid group ID" });
     }
 
+    console.log('[GroupMessages] Processing new message:', {
+      groupId: parsedGroupId,
+      userId: req.user.id,
+      timestamp: new Date().toISOString()
+    });
+
     const result = insertGroupMessageSchema.safeParse({
       content: req.body.content,
       groupId: parsedGroupId,
@@ -138,11 +180,17 @@ router.post("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res:
     const memberCheck = await db.query.groupMembers.findFirst({
       where: and(
         eq(groupMembers.groupId, parsedGroupId),
-        eq(groupMembers.userId, req.user.id)
+        eq(groupMembers.userId, req.user.id),
+        eq(groupMembers.isDeleted, false)
       )
     });
 
     if (!memberCheck) {
+      console.log('[GroupMessages] Member not found:', {
+        groupId: parsedGroupId,
+        userId: req.user.id,
+        timestamp: new Date().toISOString()
+      });
       return res.status(403).json({ error: "Not a member of this group" });
     }
 
@@ -155,6 +203,12 @@ router.post("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res:
         updatedAt: new Date()
       })
       .returning();
+
+    console.log('[GroupMessages] Created new message:', {
+      messageId: message.id,
+      groupId: parsedGroupId,
+      timestamp: new Date().toISOString()
+    });
 
     // Get full message details with user info for the response
     const messageWithUser = await db.query.groupMessages.findFirst({
@@ -176,7 +230,11 @@ router.post("/api/groups/:groupId/messages", (async (req: TypedRequestUser, res:
 
     res.json(messageWithUser);
   } catch (error) {
-    console.error('Error posting message:', error);
+    console.error('[GroupMessages] Error posting message:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      timestamp: new Date().toISOString()
+    });
     res.status(500).json({ 
       error: "Failed to send message",
       details: error instanceof Error ? error.message : "Unknown error"
