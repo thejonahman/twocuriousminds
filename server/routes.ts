@@ -29,6 +29,13 @@ const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextF
 export function registerRoutes(app: Express): Server {
   // Create HTTP server first
   const httpServer = createServer(app);
+  const PORT = process.env.PORT || 3000;
+
+  // Add logging for server startup
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`[Server] HTTP server listening on port ${PORT}`);
+    console.log('[Server] Binding address:', httpServer.address());
+  });
 
   // Setup auth and get session middleware BEFORE registering routes
   const sessionMiddleware = setupAuth(app);
@@ -195,7 +202,7 @@ export function registerRoutes(app: Express): Server {
     try {
       const result = await db.transaction(async (tx) => {
         // Find all active groups for this video that the user is a member of
-        // Modified query to ensure we get the most recently active group
+        // Using correct column names and adding more detailed conditions
         const groupsQuery = await tx.query.discussionGroups.findMany({
           where: and(
             eq(discussionGroups.videoId, videoId),
@@ -211,12 +218,17 @@ export function registerRoutes(app: Express): Server {
           with: {
             members: {
               where: eq(groupMembers.isDeleted, false),
+              columns: {
+                id: true,
+                userId: true,
+                lastReadAt: true,
+                unreadCount: true
+              },
               with: {
                 user: {
                   columns: {
                     id: true,
-                    username: true,
-                    email: true
+                    username: true
                   }
                 }
               }
@@ -237,8 +249,7 @@ export function registerRoutes(app: Express): Server {
             id: g.id,
             name: g.name,
             memberCount: g.members?.length || 0,
-            updatedAt: g.updatedAt,
-            isDeleted: g.isDeleted
+            updatedAt: g.updatedAt
           })),
           timestamp: new Date().toISOString()
         });
@@ -252,7 +263,7 @@ export function registerRoutes(app: Express): Server {
         const now = new Date();
 
         // Update member's lastReadAt and reset unread count
-        const [updatedMember] = await tx.update(groupMembers)
+        await tx.update(groupMembers)
           .set({
             lastReadAt: now,
             unreadCount: 0
@@ -261,29 +272,16 @@ export function registerRoutes(app: Express): Server {
             eq(groupMembers.groupId, mostRecentGroup.id),
             eq(groupMembers.userId, userId),
             eq(groupMembers.isDeleted, false)
-          ))
-          .returning();
-
-        console.log('[LastActiveGroup] Updated member status:', {
-          groupId: mostRecentGroup.id,
-          userId,
-          member: updatedMember,
-          timestamp: now.toISOString()
-        });
+          ));
 
         // Update group's activity timestamp
-        const [updatedGroup] = await tx.update(discussionGroups)
+        await tx.update(discussionGroups)
           .set({ updatedAt: now })
-          .where(and(
-            eq(discussionGroups.id, mostRecentGroup.id),
-            eq(discussionGroups.isDeleted, false)
-          ))
-          .returning();
+          .where(eq(discussionGroups.id, mostRecentGroup.id));
 
-        console.log('[LastActiveGroup] Updated group:', {
-          groupId: updatedGroup.id,
-          updatedAt: updatedGroup.updatedAt,
-          timestamp: now.toISOString()
+        console.log('[LastActiveGroup] Updated group and member:', {
+          groupId: mostRecentGroup.id,
+          updatedAt: now.toISOString()
         });
 
         return mostRecentGroup;

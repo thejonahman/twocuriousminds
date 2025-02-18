@@ -31,6 +31,7 @@ import {
 } from "@/lib/api-types";
 import { z } from "zod";
 import { ShareGroupDialog } from "@/components/ui/share-group-dialog";
+import path from "path-browserify";
 
 interface Props {
   videoId: number;
@@ -40,6 +41,14 @@ interface Props {
 // Define a type for the last active group response
 const lastActiveGroupSchema = groupSchema.nullable();
 type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
+
+// Helper function to normalize URLs
+function normalizeUrl(base: string, ...parts: string[]): string {
+  // Remove any leading/trailing slashes from parts
+  const cleanParts = parts.map(part => part.replace(/^\/+|\/+$/g, ''));
+  // Join with single slashes and ensure no double slashes
+  return `/${cleanParts.join('/')}`.replace(/\/+/g, '/');
+}
 
 export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const { user } = useAuth();
@@ -51,7 +60,26 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // Query for last active group with enhanced debugging
+  // Enhanced debug logging for component lifecycle
+  useEffect(() => {
+    console.log('[GroupPersistence] Component lifecycle:', {
+      videoId,
+      initialGroupId,
+      hasUser: !!user,
+      path: window.location.pathname,
+      timestamp: new Date().toISOString()
+    });
+
+    return () => {
+      console.log('[GroupPersistence] Component cleanup:', {
+        videoId,
+        initialGroupId,
+        timestamp: new Date().toISOString()
+      });
+    };
+  }, [videoId, initialGroupId, user]);
+
+  // Query for last active group with enhanced error handling
   const { data: lastActiveGroup, error: lastActiveGroupError } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId,
@@ -70,13 +98,31 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     onError: (error) => {
       console.error('[GroupPersistence] Last active group query error:', {
         error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
+      });
+
+      toast({
+        title: "Connection Error",
+        description: "Unable to retrieve group information. Please try refreshing the page.",
+        variant: "destructive",
       });
     }
   });
 
-  // Use initialGroupId or lastActiveGroup?.id for the effective group ID
+  // Use initialGroupId or lastActiveGroup?.id for the effective group ID with validation
   const effectiveGroupId = initialGroupId || (lastActiveGroup && lastActiveGroup.id);
+
+  // Log whenever effectiveGroupId changes
+  useEffect(() => {
+    console.log('[GroupPersistence] EffectiveGroupId updated:', {
+      effectiveGroupId,
+      initialGroupId,
+      lastActiveGroupId: lastActiveGroup?.id,
+      hasUser: !!user,
+      timestamp: new Date().toISOString()
+    });
+  }, [effectiveGroupId, initialGroupId, lastActiveGroup, user]);
 
   // Enhanced useEffect hook for group membership persistence
   useEffect(() => {
@@ -173,36 +219,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       }
     };
 
-    // Initial setup
-    console.log('[GroupPersistence] Initializing persistence mechanism:', {
-      videoId,
-      groupId: effectiveGroupId,
-      userId: user.id,
-      path: window.location.pathname,
-      timestamp: new Date().toISOString()
-    });
-
     setupGroupMembership();
 
-    // Set up interval for continuous updates
-    const persistenceInterval = setInterval(() => {
-      console.log('[GroupPersistence] Running scheduled update:', {
-        videoId,
-        groupId: effectiveGroupId,
-        userId: user.id,
-        timestamp: new Date().toISOString()
-      });
-      setupGroupMembership();
-    }, 15000);
+    const persistenceInterval = setInterval(setupGroupMembership, 15000);
 
-    // Cleanup function
     return () => {
-      console.log('[GroupPersistence] Cleaning up persistence mechanism:', {
-        videoId,
-        groupId: effectiveGroupId,
-        userId: user.id,
-        timestamp: new Date().toISOString()
-      });
       isMounted = false;
       clearInterval(persistenceInterval);
     };
@@ -328,8 +349,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         queryClient.invalidateQueries({ queryKey: [`/api/groups/${newGroup.id}`] })
       ]);
 
-      // Navigate to the new group
-      setLocation(`/video/${videoId}/group/${newGroup.id}`);
+      // Navigate to the new group using normalized URL
+      setLocation(normalizeUrl('/video', videoId.toString(), 'group', newGroup.id.toString()));
 
       toast({
         title: "Success",
@@ -369,7 +390,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         queryKey: [`/api/groups/${effectiveGroupId}`]
       });
 
-      setLocation(`/video/${videoId}`);
+      setLocation(normalizeUrl('/video', videoId.toString()));
 
       toast({
         title: "Success",
@@ -384,6 +405,19 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       });
     }
   };
+
+  // Handle navigation with normalized URLs
+  const handleGroupNavigation = (groupId: number) => {
+    const normalizedPath = normalizeUrl('video', videoId.toString(), 'group', groupId.toString());
+    setLocation(normalizedPath);
+  };
+
+  // Update share URL construction
+  const getShareUrl = (inviteCode: string) => {
+    const baseUrl = window.location.origin;
+    return normalizeUrl(baseUrl, 'join-group', inviteCode) + `?videoId=${videoId}`;
+  };
+
 
   if (!user) {
     return (
@@ -436,7 +470,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           {group && (
             <div className="flex items-center gap-2">
               <ShareGroupDialog
-                url={`${window.location.origin}/join-group/${group.inviteCode}?videoId=${videoId}`}
+                url={getShareUrl(group.inviteCode)}
                 groupName={group.name}
                 videoTitle={group.video?.title || "Video Discussion"}
                 memberCount={group.members?.length ?? 0}

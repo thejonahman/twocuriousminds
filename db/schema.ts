@@ -85,7 +85,8 @@ export const discussionGroups = pgTable("discussion_groups", {
 }, (table) => ({
   videoIdIdx: index("discussion_group_video_id_idx").on(table.videoId),
   creatorIdIdx: index("discussion_group_creator_id_idx").on(table.creatorId),
-  inviteCodeIdx: index("discussion_group_invite_code_idx").on(table.inviteCode)
+  inviteCodeIdx: index("discussion_group_invite_code_idx").on(table.inviteCode),
+  updatedAtIdx: index("discussion_group_updated_at_idx").on(table.updatedAt)
 }));
 
 export const groupMembers = pgTable("group_members", {
@@ -102,7 +103,9 @@ export const groupMembers = pgTable("group_members", {
   reminderCount: integer("reminder_count").default(0),
 }, (table) => ({
   groupIdIdx: index("group_members_group_id_idx").on(table.groupId),
-  userIdIdx: index("group_members_user_id_idx").on(table.userId)
+  userIdIdx: index("group_members_user_id_idx").on(table.userId),
+  lastReadAtIdx: index("group_members_last_read_at_idx").on(table.lastReadAt),
+  membershipIdx: index("group_members_membership_idx").on(table.groupId, table.userId)
 }));
 
 export const groupMessages = pgTable("group_messages", {
