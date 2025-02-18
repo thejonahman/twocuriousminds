@@ -31,12 +31,12 @@ export const messageSchema = baseEntitySchema.extend({
   updatedAt: z.string().datetime().nullish(),
 });
 
-// Group member schema
+// Group member schema with role validation
 export const groupMemberSchema = z.object({
   id: z.number(),
   userId: z.number(),
   groupId: z.number(),
-  role: z.string(),  // Changed from enum to string to support "admin" role
+  role: z.enum(["admin", "member"]).default("admin"),
   joinedAt: z.string().datetime().nullish(),
   lastReadAt: z.string().datetime().nullish(),
   user: z.object({
@@ -80,13 +80,3 @@ export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
     throw new Error('Invalid API response format');
   }
 }
-
-// Assuming createInsertSchema is defined elsewhere
-// This part is incomplete in the edited snippet but needed for completeness
-//  This is a reasonable guess based on the context.  Without more context, it is impossible to correctly generate this section
-export const insertGroupMemberSchema = createInsertSchema(groupMembers, { // groupMembers assumed to be defined elsewhere
-  role: z.enum(["admin", "member"]).default("admin"),  // Changed default to "admin"
-  notificationsEnabled: z.boolean().default(true),
-  emailNotifications: z.boolean().default(true),
-  unreadCount: z.number().default(0),
-});
