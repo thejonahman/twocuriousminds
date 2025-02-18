@@ -10,6 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { normalizeUrl } from "@/lib/utils";
 
 const loginSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
@@ -37,7 +38,7 @@ export default function Auth() {
       setIsJoining(true);
       try {
         console.log('Attempting to join group:', { inviteCode, videoId });
-        const response = await fetch(`/api/groups/invite/${inviteCode}/join`, {
+        const response = await fetch(normalizeUrl(`/api/groups/invite/${inviteCode}/join`), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ videoId })
@@ -58,7 +59,7 @@ export default function Auth() {
 
         // Clear any stored invite data
         sessionStorage.removeItem('pendingInvite');
-        navigate(`/video/${videoId}/group/${data.group.id}`);
+        navigate(normalizeUrl(`/video/${videoId}/group/${data.group.id}`));
       } catch (error) {
         console.error('Error joining group:', error);
         toast({
@@ -66,7 +67,7 @@ export default function Auth() {
           description: error instanceof Error ? error.message : "Could not join the group. Please try again.",
           variant: "destructive",
         });
-        navigate(`/video/${videoId}`);
+        navigate(normalizeUrl(`/video/${videoId}`));
       } finally {
         setIsJoining(false);
       }

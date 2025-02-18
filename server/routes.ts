@@ -228,18 +228,14 @@ export function registerRoutes(app: Express): Server {
         const groupsQuery = await tx.query.discussionGroups.findMany({
           where: and(
             eq(discussionGroups.videoId, videoId),
-            eq(discussionGroups.isDeleted, false),
-            sql`exists (
-              select 1 from ${groupMembers}
-              where ${groupMembers.groupId} = ${discussionGroups.id}
-              and ${groupMembers.userId} = ${userId}
-              and ${groupMembers.isDeleted} = false
-              and ${groupMembers.lastReadAt} > current_timestamp - interval '7 days'
-            )`
+            eq(discussionGroups.isDeleted, false)
           ),
           with: {
             members: {
-              where: eq(groupMembers.isDeleted, false),
+              where: and(
+                eq(groupMembers.isDeleted, false),
+                eq(groupMembers.userId, userId)
+              ),
               columns: {
                 id: true,
                 userId: true,
@@ -276,12 +272,21 @@ export function registerRoutes(app: Express): Server {
           timestamp: new Date().toISOString()
         });
 
-        if (!groupsQuery.length) {
+        // Filter to only groups where user is a member and has recent activity
+        const activeGroups = groupsQuery.filter(g =>
+          g.members?.some(m =>
+            m.userId === userId &&
+            m.lastReadAt &&
+            new Date(m.lastReadAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+          )
+        );
+
+        if (!activeGroups.length) {
           console.log('[LastActiveGroup] No active groups found');
           return null;
         }
 
-        const mostRecentGroup = groupsQuery[0];
+        const mostRecentGroup = activeGroups[0];
         const now = new Date();
 
         // Update member's lastReadAt and reset unread count
@@ -324,7 +329,11 @@ export function registerRoutes(app: Express): Server {
         query: { videoId, userId },
         timestamp: new Date().toISOString()
       });
-      throw error;
+      res.status(500).json({
+        error: error instanceof Error ? error.message : 'Unknown error',
+        success: false,
+        timestamp: new Date().toISOString()
+      });
     }
   }));
 

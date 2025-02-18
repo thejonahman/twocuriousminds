@@ -6,13 +6,15 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { normalizeUrl } from "@/lib/utils";
 
 export default function JoinGroup() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
-  const inviteCode = window.location.pathname.split('/join-group/')[1];
+  // Use normalizeUrl to clean the path before extracting invite code
+  const inviteCode = normalizeUrl(window.location.pathname).split('/join-group/')[1];
   const videoId = new URLSearchParams(window.location.search).get('videoId');
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export default function JoinGroup() {
     const joinGroup = async () => {
       try {
         console.log('Joining group with invite code:', inviteCode);
-        const response = await fetch(`/api/groups/invite/${inviteCode}/join`, {
+        const response = await fetch(normalizeUrl(`/api/groups/invite/${inviteCode}/join`), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -54,7 +56,7 @@ export default function JoinGroup() {
         console.log('Successfully joined group:', group);
 
         // Initialize group persistence immediately after joining
-        const touchResponse = await fetch(`/api/groups/${group.id}/touch`, {
+        const touchResponse = await fetch(normalizeUrl(`/api/groups/${group.id}/touch`), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -79,8 +81,8 @@ export default function JoinGroup() {
           description: `You've successfully joined the discussion group "${group.name}".`,
         });
 
-        // Redirect to group page
-        setLocation(`/video/${videoId}/group/${group.id}`);
+        // Redirect to group page using normalized URL
+        setLocation(normalizeUrl(`/video/${videoId}/group/${group.id}`));
       } catch (error) {
         console.error('Error joining group:', error);
         toast({
@@ -88,7 +90,7 @@ export default function JoinGroup() {
           description: error instanceof Error ? error.message : "Failed to join the group. Please try again.",
           variant: "destructive",
         });
-        setLocation(`/video/${videoId}`);
+        setLocation(normalizeUrl(`/video/${videoId}`));
       }
     };
 
