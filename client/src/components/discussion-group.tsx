@@ -47,24 +47,33 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // Effect to handle automatic group joining when initialGroupId is present
+  // Effect to ensure group membership for all users
   useEffect(() => {
     if (!user || !initialGroupId) return;
 
     const setupGroupMembership = async () => {
       try {
+        console.log('Setting up group membership:', {
+          groupId: initialGroupId,
+          userId: user.id,
+          timestamp: new Date().toISOString()
+        });
+
+        // Call the membership endpoint with admin role to ensure persistence
         const response = await fetch(`/api/groups/${initialGroupId}/members`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
+            role: 'admin',  // Set role to admin for all group members
             notificationsEnabled: true,
             emailNotifications: true
           })
         });
 
         if (!response.ok) {
+          console.error('Failed to maintain group membership:', await response.text());
           throw new Error('Failed to maintain group membership');
         }
 
@@ -73,22 +82,28 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}`] }),
           queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}/messages`] })
         ]);
+
+        console.log('Group membership setup completed');
       } catch (error) {
         console.error('Error setting up group membership:', error);
-        // Don't show error toast here as it might be too intrusive
+        toast({
+          title: "Error",
+          description: "Failed to join the discussion group. Please try refreshing the page.",
+          variant: "destructive",
+        });
       }
     };
 
     setupGroupMembership();
-  }, [user, initialGroupId, queryClient]);
+  }, [user, initialGroupId, queryClient, toast]);
 
   // Query for group details with enhanced persistence
   const { data: group, isLoading: isGroupLoading } = useQuery({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data: unknown) => validateApiResponse(groupSchema, data),
-    staleTime: 5 * 60 * 1000, // Data considered fresh for 5 minutes
-    gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours
+    staleTime: 5 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
     retry: 3,
   });
 
@@ -103,14 +118,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     retry: 3,
   });
 
-  // Effect for scrolling to bottom on new messages
   useEffect(() => {
     if (messages.length > 0) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
 
-  // Handle message submission with optimistic updates
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim() || !initialGroupId) return;
@@ -143,7 +156,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error("Failed to send message");
       }
 
-      // Update both messages and group cache
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: [`/api/groups/${initialGroupId}/messages`]
@@ -165,7 +177,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
-  // Handle group creation
   const handleCreateGroup = async () => {
     if (!user) return;
 
@@ -189,7 +200,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       setIsCreateGroupOpen(false);
       setGroupNameInput("");
 
-      // Navigate to the new group
       setLocation(`/video/${videoId}/group/${newGroup.id}`);
 
       toast({
@@ -206,7 +216,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
-  // Handle leaving group with proper cleanup
   const handleLeaveGroup = async () => {
     if (!initialGroupId) return;
 
@@ -220,7 +229,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error("Failed to leave group");
       }
 
-      // Clear cache data
       queryClient.setQueryData(
         [`/api/videos/${videoId}/last-active-group`],
         null
@@ -308,12 +316,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
               </Button>
             </div>
           )}
-        </CardTitle>
-      </CardHeader>
-
-      <CardContent>
-        {!group && (
-          <div className="flex items-center justify-between gap-2 mb-4">
+          {!initialGroupId && (
             <Dialog open={isCreateGroupOpen} onOpenChange={setIsCreateGroupOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -341,9 +344,11 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-          </div>
-        )}
+          )}
+        </CardTitle>
+      </CardHeader>
 
+      <CardContent>
         <div className="h-[300px] space-y-4 overflow-y-auto p-4 border rounded-lg">
           {isMessagesLoading ? (
             <div className="animate-pulse space-y-4">
