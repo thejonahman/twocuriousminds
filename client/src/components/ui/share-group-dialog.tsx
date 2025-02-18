@@ -18,9 +18,21 @@ export function ShareGroupDialog({ url, groupName, videoTitle, memberCount, mess
   const dialogId = `share-dialog-${groupName.toLowerCase().replace(/\s+/g, '-')}`;
   const descriptionId = `${dialogId}-description`;
 
+  // Ensure the invite URL is properly formatted
+  const getShareableUrl = () => {
+    const baseUrl = window.location.origin;
+    // Extract just the path portion, removing any protocol, domain, and extra slashes
+    let path = url.replace(/^(?:https?:\/\/[^/]+|\/)*/g, '');
+    // Ensure exactly one leading slash for the path
+    path = path ? `/${path}` : '/';
+    // Combine base URL with clean path
+    return `${baseUrl}${path}`;
+  };
+
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(url);
+      const shareableUrl = getShareableUrl();
+      await navigator.clipboard.writeText(shareableUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
       toast({
@@ -37,12 +49,13 @@ export function ShareGroupDialog({ url, groupName, videoTitle, memberCount, mess
   };
 
   const handleEmail = () => {
+    const shareableUrl = getShareableUrl();
     const subject = encodeURIComponent(`Join our video discussion: ${groupName} 🎥`);
     const body = encodeURIComponent(
       `Hey! 👋\n\n` +
       `I've started an interesting discussion about ${videoTitle ? `"${videoTitle}"` : 'this video'} and would love to hear your thoughts!\n\n` +
       `Already ${memberCount} member${memberCount !== 1 ? 's' : ''} have shared ${messageCount} message${messageCount !== 1 ? 's' : ''}.\n\n` +
-      `Click to join the conversation instantly (no sign-up required): ${url}`
+      `Click to join the conversation instantly (no sign-up required): ${shareableUrl}`
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
@@ -91,7 +104,7 @@ export function ShareGroupDialog({ url, groupName, videoTitle, memberCount, mess
                 aria-readonly="true"
                 onClick={handleCopy}
               >
-                {url}
+                {getShareableUrl()}
                 <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-md" />
               </div>
             </div>

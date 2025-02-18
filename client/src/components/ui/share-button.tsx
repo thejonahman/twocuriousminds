@@ -20,13 +20,24 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
 
-  // Ensure the URL is absolute
-  const absoluteUrl = new URL(url, window.location.origin).toString();
+  // Enhanced URL formatting to handle all edge cases
+  const getShareableUrl = () => {
+    const baseUrl = window.location.origin;
+    // Clean the URL by removing protocol, domain, and normalizing slashes
+    const cleanPath = url
+      .replace(/^(?:https?:\/\/[^/]+)+/g, '') // Remove any protocol and domain
+      .replace(/^\/+/, '')                     // Remove leading slashes
+      .replace(/\/+/g, '/');                   // Normalize multiple slashes to single
+
+    // Ensure proper URL construction
+    return `${baseUrl}/${cleanPath}`;
+  };
 
   const handleNativeShare = async () => {
+    const shareableUrl = getShareableUrl();
     try {
       await navigator.share({
-        url: absoluteUrl,
+        url: shareableUrl,
         title,
         text,
       });
@@ -43,7 +54,8 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(absoluteUrl);
+      const shareableUrl = getShareableUrl();
+      await navigator.clipboard.writeText(shareableUrl);
       setCopied(true);
       toast({
         title: "Link copied!",
@@ -59,8 +71,8 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
     }
   };
 
-  // If native sharing is available, show both options in a dropdown
-  if (navigator.share) {
+  // Only show native sharing if it's available in the browser
+  if (typeof navigator !== 'undefined' && 'share' in navigator) {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -87,7 +99,7 @@ export function ShareButton({ url, title, text, className }: ShareButtonProps) {
     );
   }
 
-  // If native sharing is not available, show only copy button
+  // Fallback to copy-only button
   return (
     <Button
       variant="outline"

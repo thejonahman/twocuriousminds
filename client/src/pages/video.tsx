@@ -49,9 +49,9 @@ export default function Video() {
   // Enhanced type definition for group membership state
   const { data: lastActiveGroup } = useQuery<LastActiveGroup | null>({
     queryKey: [`/api/videos/${id}/last-active-group`],
-    enabled: !!id && !!user && !groupId, // Only fetch if we have video ID, user is logged in, and not already in a group
-    gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours for better persistence
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
+    enabled: !!id && !!user && !groupId,
+    gcTime: 24 * 60 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
     select: (data: unknown) => {
       if (!data) return null;
       try {
@@ -90,7 +90,7 @@ export default function Video() {
     }
 
     // Check if we have a valid last active group that matches the current video
-    if (lastActiveGroup && lastActiveGroup.videoId === parseInt(id)) {
+    if (lastActiveGroup?.videoId === parseInt(id)) {
       console.log('Restoring last active group:', {
         groupId: lastActiveGroup.id,
         groupName: lastActiveGroup.name,
@@ -119,15 +119,21 @@ export default function Video() {
   };
 
   const handleShare = async (type: string) => {
-    const baseUrl = window.location.origin;
+    // Construct base share URL without protocol/domain to prevent duplication
     const shareUrl = groupId
-      ? `${baseUrl}/video/${id}/group/${groupId}`
-      : window.location.href;
+      ? `/video/${id}/group/${groupId}`  // Use relative path for group discussions
+      : `/video/${id}`;  // Use relative path for single video
+
+    // Get the complete URL only when needed
+    const getFullUrl = () => {
+      const baseUrl = window.location.origin;
+      return `${baseUrl}${shareUrl}`;
+    };
 
     switch (type) {
       case 'copy':
         try {
-          await navigator.clipboard.writeText(shareUrl);
+          await navigator.clipboard.writeText(getFullUrl());
           setCopied(true);
           setTimeout(() => setCopied(false), 2000);
           toast({
@@ -143,13 +149,13 @@ export default function Video() {
         }
         break;
       case 'email':
-        window.location.href = `mailto:?subject=Check out this video discussion&body=I thought you might like this video discussion: ${shareUrl}`;
+        window.location.href = `mailto:?subject=Check out this video discussion&body=I thought you might like this video discussion: ${getFullUrl()}`;
         break;
       case 'twitter':
-        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`Check out this video discussion: ${video?.title}`)}`);
+        window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(getFullUrl())}&text=${encodeURIComponent(`Check out this video discussion: ${video?.title}`)}`);
         break;
       case 'linkedin':
-        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`);
+        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(getFullUrl())}`);
         break;
     }
   };
