@@ -46,32 +46,12 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [messageInput, setMessageInput] = useState("");
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
-  const isNavigatingRef = useRef(false);
-  const isMountedRef = useRef(true);
-
-  // Query for last active group with improved caching
-  const { data: lastActiveGroup } = useQuery({
-    queryKey: [`/api/videos/${videoId}/last-active-group`],
-    enabled: !!videoId && !!user && !initialGroupId && !isNavigatingRef.current,
-    staleTime: 1000,
-    gcTime: 24 * 60 * 60 * 1000,
-    retry: 2,
-    refetchOnWindowFocus: false
-  });
 
   // Effect to handle automatic group joining when initialGroupId is present
   useEffect(() => {
-    if (!user || !initialGroupId || isNavigatingRef.current) return;
-
-    let isMounted = true;
+    if (!user || !initialGroupId) return;
 
     const setupGroupMembership = async () => {
-      console.log('Setting up group membership:', {
-        groupId: initialGroupId,
-        userId: user.id,
-        timestamp: new Date().toISOString()
-      });
-
       try {
         const response = await fetch(`/api/groups/${initialGroupId}/members`, {
           method: 'POST',
@@ -88,113 +68,47 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
           throw new Error('Failed to maintain group membership');
         }
 
-        if (isMounted && !isNavigatingRef.current) {
-          // Update both group and last-active-group cache
-          const groupData = await response.json();
-
-          queryClient.setQueryData(
-            [`/api/groups/${initialGroupId}`],
-            groupData
-          );
-
-          queryClient.setQueryData(
-            [`/api/videos/${videoId}/last-active-group`],
-            groupData
-          );
-
-          // Only invalidate messages to refresh them
-          await queryClient.invalidateQueries({
-            queryKey: [`/api/groups/${initialGroupId}/messages`]
-          });
-        }
+        // Invalidate queries to ensure fresh data
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}`] }),
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}/messages`] })
+        ]);
       } catch (error) {
         console.error('Error setting up group membership:', error);
-        if (isMounted && !isNavigatingRef.current) {
-          toast({
-            title: "Error",
-            description: "Failed to join the discussion group. Please try refreshing the page.",
-            variant: "destructive",
-          });
-        }
+        // Don't show error toast here as it might be too intrusive
       }
     };
 
     setupGroupMembership();
+  }, [user, initialGroupId, queryClient]);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [user, initialGroupId, queryClient, videoId, toast]);
-
-  // Query for group details with improved caching
+  // Query for group details with enhanced persistence
   const { data: group, isLoading: isGroupLoading } = useQuery({
     queryKey: [`/api/groups/${initialGroupId}`],
-    enabled: !!initialGroupId && !!user && !isNavigatingRef.current,
+    enabled: !!initialGroupId && !!user,
     select: (data: unknown) => validateApiResponse(groupSchema, data),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 24 * 60 * 60 * 1000,
+    staleTime: 5 * 60 * 1000, // Data considered fresh for 5 minutes
+    gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours
     retry: 3,
-    onError: (error) => {
-      console.error('Error fetching group:', error);
-      if (!isNavigatingRef.current) {
-        toast({
-          title: "Error",
-          description: "Failed to load discussion group. Please try refreshing the page.",
-          variant: "destructive",
-        });
-      }
-    }
   });
 
-  // Query for messages with enhanced error handling
+  // Query for messages with proper error handling
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery({
     queryKey: [`/api/groups/${initialGroupId}/messages`],
-    enabled: !!initialGroupId && !!user && !!group && !isNavigatingRef.current,
+    enabled: !!initialGroupId && !!user && !!group,
     select: (data: unknown) => validateApiResponse(z.array(messageSchema), data),
     refetchInterval: 3000,
     staleTime: 1000,
     gcTime: 5 * 60 * 1000,
     retry: 3,
-    onError: (error) => {
-      console.error('Error fetching messages:', error);
-      if (!isNavigatingRef.current) {
-        toast({
-          title: "Error",
-          description: "Failed to load messages. Please try refreshing the page.",
-          variant: "destructive",
-        });
-      }
-    }
   });
 
-  // Effect for handling cleanup
+  // Effect for scrolling to bottom on new messages
   useEffect(() => {
-    isMountedRef.current = true;
-    isNavigatingRef.current = false;
-
-    return () => {
-      isMountedRef.current = false;
-      isNavigatingRef.current = true;
-    };
-  }, []);
-
-  // Effect for handling last active group with improved cache handling
-  useEffect(() => {
-    if (lastActiveGroup && !initialGroupId && !isNavigatingRef.current && isMountedRef.current) {
-      // Update cache before navigation
-      queryClient.setQueryData(
-        [`/api/groups/${lastActiveGroup.id}`],
-        lastActiveGroup
-      );
-
-      // Ensure navigation happens after cache update
-      Promise.resolve().then(() => {
-        if (isMountedRef.current) {
-          setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
-        }
-      });
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [lastActiveGroup, initialGroupId, videoId, setLocation, queryClient]);
+  }, [messages]);
 
   // Handle message submission with optimistic updates
   const handleSubmit = async (e: React.FormEvent) => {
@@ -251,7 +165,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
-  // Handle group creation with improved cache management
+  // Handle group creation
   const handleCreateGroup = async () => {
     if (!user) return;
 
@@ -274,17 +188,6 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       const newGroup = await response.json();
       setIsCreateGroupOpen(false);
       setGroupNameInput("");
-
-      // Update both caches before navigation
-      queryClient.setQueryData(
-        [`/api/videos/${videoId}/last-active-group`],
-        newGroup
-      );
-
-      queryClient.setQueryData(
-        [`/api/groups/${newGroup.id}`],
-        newGroup
-      );
 
       // Navigate to the new group
       setLocation(`/video/${videoId}/group/${newGroup.id}`);
