@@ -47,40 +47,74 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // Effect to handle automatic group joining when initialGroupId is present
+  // Enhanced useEffect for group membership persistence
   useEffect(() => {
     if (!user || !initialGroupId) return;
 
     const setupGroupMembership = async () => {
       try {
-        const response = await fetch(`/api/groups/${initialGroupId}/members`, {
+        console.log('Setting up group membership:', {
+          userId: user.id,
+          groupId: initialGroupId,
+          timestamp: new Date().toISOString()
+        });
+
+        // First, validate current membership
+        const membershipResponse = await fetch(`/api/groups/${initialGroupId}/members/${user.id}`);
+
+        if (!membershipResponse.ok) {
+          console.log('No active membership found, creating new membership');
+          // Create or restore membership
+          const response = await fetch(`/api/groups/${initialGroupId}/members`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              notificationsEnabled: true,
+              emailNotifications: true
+            })
+          });
+
+          if (!response.ok) {
+            throw new Error('Failed to setup group membership');
+          }
+
+          console.log('Successfully created group membership');
+        }
+
+        // Touch the membership to maintain persistence
+        const touchResponse = await fetch(`/api/groups/${initialGroupId}/members/${user.id}/touch`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            notificationsEnabled: true,
-            emailNotifications: true
-          })
+          }
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to maintain group membership');
+        if (!touchResponse.ok) {
+          throw new Error('Failed to update membership persistence');
         }
+
+        console.log('Successfully updated membership persistence');
 
         // Invalidate queries to ensure fresh data
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}`] }),
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}/messages`] })
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}/messages`] }),
+          queryClient.invalidateQueries({ queryKey: [`/api/videos/${videoId}/last-active-group`] })
         ]);
       } catch (error) {
         console.error('Error setting up group membership:', error);
-        // Don't show error toast here as it might be too intrusive
+        toast({
+          title: "Connection Error",
+          description: "Having trouble connecting to the group. Please refresh the page.",
+          variant: "destructive",
+        });
       }
     };
 
     setupGroupMembership();
-  }, [user, initialGroupId, queryClient]);
+  }, [user, initialGroupId, queryClient, videoId, toast]);
 
   // Query for group details with enhanced persistence
   const { data: group, isLoading: isGroupLoading } = useQuery({

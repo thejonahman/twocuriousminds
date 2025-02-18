@@ -830,7 +830,7 @@ export function registerRoutes(app: Express): Server {
     }
   }));
 
-  // Update the group creation endpoint
+  // Update the group creation endpoint to ensure proper membership persistence
   app.post("/api/groups", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const { name, videoId, description } = req.body;
     const userId = req.user?.id;
@@ -861,7 +861,7 @@ export function registerRoutes(app: Express): Server {
         const [newGroup] = await tx
           .insert(discussionGroups)
           .values({
-            name, // Changed from groupName to name to match schema
+            name,
             description: description || `Discussion group for video ${videoId}`,
             videoId,
             creatorId: userId,
@@ -872,8 +872,8 @@ export function registerRoutes(app: Express): Server {
           })
           .returning();
 
-        // Add the creator as a member and admin
-        await tx
+        // Add the creator as a member with enhanced persistence
+        const [member] = await tx
           .insert(groupMembers)
           .values({
             userId,
@@ -882,12 +882,14 @@ export function registerRoutes(app: Express): Server {
             joinedAt: new Date(),
             lastReadAt: new Date(),
             notificationsEnabled: true,
-            emailNotifications: false,
+            emailNotifications: true,
             unreadCount: 0
-          });
+          })
+          .returning();
 
-        console.log('Successfully created group:', {
+        console.log('Created group and member:', {
           groupId: newGroup.id,
+          memberId: member.id,
           creatorId: userId,
           timestamp: new Date().toISOString()
         });
@@ -895,7 +897,7 @@ export function registerRoutes(app: Express): Server {
         return [newGroup];
       });
 
-      // Update the group response to include username
+      // Get group with full details including membership info
       const groupWithDetails = await db.query.discussionGroups.findFirst({
         where: eq(discussionGroups.id, group.id),
         with: {
@@ -909,13 +911,25 @@ export function registerRoutes(app: Express): Server {
                 }
               }
             }
+          },
+          video: {
+            columns: {
+              id: true,
+              title: true
+            }
           }
         }
       });
 
       if (!groupWithDetails) {
-        throw new Error('Failed to create group');
+        throw new Error('Failed to create group with details');
       }
+
+      console.log('Successfully created group with details:', {
+        groupId: groupWithDetails.id,
+        memberCount: groupWithDetails.members.length,
+        timestamp: new Date().toISOString()
+      });
 
       // Transform the response to match the expected schema
       const response = {
@@ -935,7 +949,7 @@ export function registerRoutes(app: Express): Server {
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
       });
-      throw error; // Let the global error handler handle it
+      throw error;
     }
   }));
 
@@ -983,9 +997,9 @@ export function registerRoutes(app: Express): Server {
         unreadCount: 0,
         reminderCount: 0,
         user: {
-          id: req.user!.id,
+                    id: req.user!.id,
           createdAt: new Date(),
-          username: req.user!.username,
+          username:req.user!.username,
           email: req.user!.email,
           password: '', // Empty string for security
           isAdmin: false
@@ -1447,6 +1461,139 @@ export function registerRoutes(app: Express): Server {
         timestamp: new Date().toISOString()
       });
       throw error;
+    }
+  }));
+
+  // Add membership validation endpoint
+  app.get("/api/groups/:groupId/members/:userId", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { groupId, userId } = req.params;
+    console.log('Checking membership:', {
+      groupId,
+      userId,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!groupId || !userId) {
+      return res.status(400).json({ message: "Missing required parameters" });
+    }
+
+    const member = await db.query.groupMembers.findFirst({
+      where: and(
+        eq(groupMembers.groupId, parseInt(groupId)),
+        eq(groupMembers.userId, parseInt(userId))
+      )
+    });
+
+    if (!member) {
+      console.log('No membership found:', {
+        groupId,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+      return res.status(404).json({ message: "Membership not found" });
+    }
+
+    console.log('Found membership:', {
+      memberId: member.id,
+      lastReadAt: member.lastReadAt,
+      timestamp: new Date().toISOString()
+    });
+
+    res.json(member);
+  }));
+
+  // Add membership touch endpoint for persistence
+  app.post("/api/groups/:groupId/members/:userId/touch", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
+    const { groupId, userId } = req.params;
+    console.log('[MembershipTouch] Request received:', {
+      groupId,
+      userId,
+      authenticatedUserId: req.user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+    // Validate user is touching their own membership
+    if (parseInt(userId) !== req.user?.id) {
+      console.error('[MembershipTouch] User ID mismatch:', {
+        requestedUserId: userId,
+        authenticatedUserId: req.user?.id
+      });
+      return res.status(403).json({ message: "Not authorized to update this membership" });
+    }
+
+    try {
+      // First check if membership exists
+      const currentMember = await db.query.groupMembers.findFirst({
+        where: and(
+          eq(groupMembers.groupId, parseInt(groupId)),
+          eq(groupMembers.userId, parseInt(userId))
+        )
+      });
+
+      if (!currentMember) {
+        console.log('[MembershipTouch] No membership found:', {
+          groupId,
+          userId,
+          timestamp: new Date().toISOString()
+        });
+
+        // Try to create the membership if it doesn't exist
+        const [newMember] = await db.insert(groupMembers)
+          .values({
+            groupId: parseInt(groupId),
+            userId: parseInt(userId),
+            role: 'member',
+            joinedAt: new Date(),
+            lastReadAt: new Date(),
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0
+          })
+          .returning();
+
+        console.log('[MembershipTouch] Created new membership:', {
+          memberId: newMember.id,
+          groupId: newMember.groupId,
+          userId: newMember.userId,
+          timestamp: new Date().toISOString()
+        });
+
+        return res.json(newMember);
+      }
+
+      // Update existing membership's lastReadAt timestamp
+      const [updatedMember] = await db.update(groupMembers)
+        .set({
+          lastReadAt: new Date(),
+          unreadCount: 0 // Reset unread count when user touches the group
+        })
+        .where(and(
+          eq(groupMembers.groupId, parseInt(groupId)),
+          eq(groupMembers.userId, parseInt(userId))
+        ))
+        .returning();
+
+      console.log('[MembershipTouch] Updated existing membership:', {
+        memberId: updatedMember.id,
+        groupId: updatedMember.groupId,
+        userId: updatedMember.userId,
+        lastReadAt: updatedMember.lastReadAt,
+        timestamp: new Date().toISOString()
+      });
+
+      res.json(updatedMember);
+    } catch (error) {
+      console.error('[MembershipTouch] Error:', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        groupId,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+      res.status(500).json({
+        message: "Failed to update membership",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   }));
 

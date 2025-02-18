@@ -29,13 +29,11 @@ export default function JoinGroup() {
 
     if (!user) {
       console.log('User not logged in, storing invite info');
-      // Store invite info and redirect to auth
       sessionStorage.setItem('pendingInvite', JSON.stringify({ inviteCode, videoId }));
       setLocation('/auth');
       return;
     }
 
-    // Process group join with enhanced persistence
     const joinGroup = async () => {
       try {
         console.log('Joining group with invite code:', inviteCode);
@@ -54,34 +52,26 @@ export default function JoinGroup() {
         const group = await response.json();
         console.log('Successfully joined group:', group);
 
-        // Invalidate existing queries to ensure fresh data
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}`] }),
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] })
-        ]);
-
-        // Set up persistence by calling the members endpoint
-        const memberResponse = await fetch(`/api/groups/${group.id}/members`, {
+        // Update membership persistence
+        await fetch(`/api/groups/${group.id}/members/${user.id}/touch`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            notificationsEnabled: true,
-            emailNotifications: true
-          })
+          }
         });
 
-        if (!memberResponse.ok) {
-          console.warn('Member persistence setup failed:', await memberResponse.text());
-        }
+        // Invalidate existing queries to ensure fresh data
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}`] }),
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${group.id}/messages`] }),
+          queryClient.invalidateQueries({ queryKey: [`/api/videos/${videoId}/last-active-group`] })
+        ]);
 
         toast({
           title: "Welcome!",
           description: "You've successfully joined the discussion group.",
         });
 
-        // Redirect to the video page with the group
         setLocation(`/video/${videoId}/group/${group.id}`);
       } catch (error) {
         console.error('Error joining group:', error);
