@@ -25,64 +25,50 @@ interface AuthContextType {
   isLoading: boolean;
   error: Error | null;
   login: (username: string, password: string) => Promise<void>;
-  loginMutation: ReturnType<typeof useMutation>;
-  logoutMutation: ReturnType<typeof useMutation>;
-  registerMutation: ReturnType<typeof useMutation>;
+  loginMutation: ReturnType<typeof useMutation<User, Error, LoginData>>;
+  logoutMutation: ReturnType<typeof useMutation<void, Error>>;
+  registerMutation: ReturnType<typeof useMutation<User, Error, RegisterData>>;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
+export function AuthProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
-  const { data: userData, isLoading } = useQuery<User>({
+  const { data: user, isLoading } = useQuery<User>({
     queryKey: ["/api/user"],
     retry: false,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
 
-  const user = userData || null;
+  const loginMutation = useMutation<User, Error, LoginData>({
+    mutationFn: async (credentials) => {
+      const res = await apiRequest("POST", "/api/login", credentials);
+      if (!res.ok) {
+        const contentType = res.headers.get('content-type');
+        let errorMessage;
 
-  const loginMutation = useMutation({
-    mutationFn: async (credentials: LoginData) => {
-      console.log('[Auth] Attempting login with:', { username: credentials.username });
-      try {
-        const res = await apiRequest("POST", "/api/login", credentials);
-        if (!res.ok) {
-          const contentType = res.headers.get('content-type');
-          let errorMessage;
-
-          if (contentType?.includes('application/json')) {
-            const errorData = await res.json();
-            errorMessage = errorData.message || errorData.error;
-          } else {
-            errorMessage = await res.text();
-          }
-
-          console.error('[Auth] Login failed:', errorMessage);
-          throw new Error(errorMessage || 'Login failed');
+        if (contentType?.includes('application/json')) {
+          const errorData = await res.json();
+          errorMessage = errorData.message || errorData.error;
+        } else {
+          errorMessage = await res.text();
         }
-
-        const data = await res.json();
-        console.log('[Auth] Login successful:', data);
-        return data;
-      } catch (error) {
-        console.error('[Auth] Login error:', error);
-        throw error;
+        throw new Error(errorMessage || 'Login failed');
       }
+      return res.json();
     },
-    onSuccess: (user: User) => {
+    onSuccess: (user) => {
       queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome back!",
         description: `Logged in as ${user.username}`,
       });
     },
-    onError: (error: Error) => {
-      console.error('[Auth] Login mutation error:', error);
+    onError: (error) => {
       toast({
         title: "Login failed",
         description: error.message,
@@ -91,63 +77,11 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     },
   });
 
-  const registerMutation = useMutation({
-    mutationFn: async (newUser: RegisterData) => {
-      console.log('[Auth] Attempting registration:', { username: newUser.username });
-      try {
-        const res = await apiRequest("POST", "/api/register", newUser);
-        if (!res.ok) {
-          const contentType = res.headers.get('content-type');
-          let errorMessage;
-
-          if (contentType?.includes('application/json')) {
-            const errorData = await res.json();
-            errorMessage = errorData.message || errorData.error;
-          } else {
-            errorMessage = await res.text();
-          }
-
-          console.error('[Auth] Registration failed:', errorMessage);
-          throw new Error(errorMessage || 'Registration failed');
-        }
-
-        const data = await res.json();
-        console.log('[Auth] Registration successful:', data);
-        return data;
-      } catch (error) {
-        console.error('[Auth] Registration error:', error);
-        throw error;
-      }
-    },
-    onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/user"], user);
-      toast({
-        title: "Welcome!",
-        description: "Your account has been created successfully.",
-      });
-    },
-    onError: (error: Error) => {
-      console.error('[Auth] Registration mutation error:', error);
-      toast({
-        title: "Registration failed",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
-  const logoutMutation = useMutation({
+  const logoutMutation = useMutation<void, Error>({
     mutationFn: async () => {
-      try {
-        const res = await apiRequest("POST", "/api/logout");
-        if (!res.ok) {
-          const error = await res.text();
-          console.error('[Auth] Logout failed:', error);
-          throw new Error(error || 'Logout failed');
-        }
-      } catch (error) {
-        console.error('[Auth] Logout error:', error);
-        throw error;
+      const res = await apiRequest("POST", "/api/logout");
+      if (!res.ok) {
+        throw new Error(await res.text());
       }
     },
     onSuccess: () => {
@@ -158,8 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         description: "See you next time!",
       });
     },
-    onError: (error: Error) => {
-      console.error('[Auth] Logout mutation error:', error);
+    onError: (error) => {
       toast({
         title: "Logout failed",
         description: error.message,
@@ -168,22 +101,51 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     },
   });
 
+  const registerMutation = useMutation<User, Error, RegisterData>({
+    mutationFn: async (newUser) => {
+      const res = await apiRequest("POST", "/api/register", newUser);
+      if (!res.ok) {
+        const contentType = res.headers.get('content-type');
+        let errorMessage;
+
+        if (contentType?.includes('application/json')) {
+          const errorData = await res.json();
+          errorMessage = errorData.message || errorData.error;
+        } else {
+          errorMessage = await res.text();
+        }
+        throw new Error(errorMessage || 'Registration failed');
+      }
+      return res.json();
+    },
+    onSuccess: (user) => {
+      queryClient.setQueryData(["/api/user"], user);
+      toast({
+        title: "Welcome!",
+        description: "Your account has been created successfully.",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Registration failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const login = async (username: string, password: string): Promise<void> => {
     try {
-      console.log('[Auth] Starting login process for:', username);
       await loginMutation.mutateAsync({ username, password });
 
       const pendingInvite = sessionStorage.getItem('pendingInvite');
       if (pendingInvite) {
         try {
           const { inviteCode, videoId } = JSON.parse(pendingInvite);
-          console.log('[Auth] Found pending invite:', { inviteCode, videoId });
           sessionStorage.removeItem('pendingInvite');
 
           if (inviteCode && videoId) {
-            const joinUrl = `/join-group/${inviteCode}?videoId=${videoId}`;
-            console.log('[Auth] Redirecting to pending invite:', joinUrl);
-            setLocation(joinUrl);
+            setLocation(`/join-group/${inviteCode}?videoId=${videoId}`);
             return;
           }
         } catch (error) {
@@ -192,10 +154,8 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
         }
       }
 
-      console.log('[Auth] No pending invite, navigating to home');
       setLocation("/");
     } catch (error) {
-      console.error('[Auth] Login process error:', error);
       throw error;
     }
   };
@@ -206,18 +166,18 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
     };
   }, []);
 
-  const contextValue: AuthContextType = {
-    user,
-    isLoading,
-    error: null,
-    login,
-    loginMutation,
-    logoutMutation,
-    registerMutation,
-  };
-
   return (
-    <AuthContext.Provider value={contextValue}>
+    <AuthContext.Provider
+      value={{
+        user: user || null,
+        isLoading,
+        error: null,
+        login,
+        loginMutation,
+        logoutMutation,
+        registerMutation
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
