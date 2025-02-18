@@ -463,7 +463,7 @@ export function registerRoutes(app: Express): Server {
     });
 
     try {
-      // Find any group for this video where the user is a member
+      // Find the most recently active group for this video where the user is a member
       const activeGroup = await db.query.discussionGroups.findFirst({
         where: and(
           eq(discussionGroups.videoId, videoId),
@@ -473,11 +473,13 @@ export function registerRoutes(app: Express): Server {
             and ${groupMembers.userId} = ${req.user!.id}
           )`
         ),
-        columns: {
-          id: true,
-          name: true,
-          videoId: true,
-          updatedAt: true
+        with: {
+          video: true,
+          members: {
+            where: eq(groupMembers.userId, req.user!.id),
+            orderBy: [desc(groupMembers.lastReadAt)],
+            limit: 1
+          }
         },
         orderBy: [desc(discussionGroups.updatedAt)]
       });
@@ -487,7 +489,9 @@ export function registerRoutes(app: Express): Server {
           id: activeGroup.id,
           name: activeGroup.name,
           videoId: activeGroup.videoId,
-          updatedAt: activeGroup.updatedAt
+          updatedAt: activeGroup.updatedAt,
+          memberCount: activeGroup.members?.length,
+          lastReadAt: activeGroup.members?.[0]?.lastReadAt
         } : null,
         timestamp: new Date().toISOString()
       });
@@ -946,69 +950,112 @@ export function registerRoutes(app: Express): Server {
       return res.status(400).json({ message: "Invalid group ID" });
     }
 
-    console.log('Fetching group:', groupId, 'for user:', req.user?.id);
+    if (!req.user?.id) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
 
-    // Get group with members and messages
-    const group = await db.query.discussionGroups.findFirst({
-      where: eq(discussionGroups.id, groupId),
-      with: {
-        members: {
-          with: {
-            user: true
+    console.log('Fetching group:', groupId, 'for user:', req.user.id);
+
+    try {
+      // Get group with members and messages
+      const group = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, groupId),
+        with: {
+          members: {
+            with: {
+              user: true
+            }
           }
         }
+      });
+
+      if (!group) {
+        return res.status(404).json({ message: "Group not found" });
       }
-    });
 
-    if (!group) {
-      return res.status(404).json({ message: "Group not found" });
-    }
+      console.log('Found group with', group.members?.length || 0, 'members');
 
-    // Remove messages length check since messages are queried separately
-    console.log('Found group with', group.members?.length || 0, 'members');
+      // Check if user is already a member
+      const existingMember = group.members.find(member => member.userId === req.user!.id);
 
-    // Check if user is already a member
-    const existingMember = group.members.find(member => member.userId === req.user!.id);
+      if (!existingMember) {
+        // Add user as member with better error handling
+        try {
+          const [newMember] = await db.insert(groupMembers)
+            .values({
+              userId: req.user.id,
+              groupId: group.id,
+              role: 'member',
+              joinedAt: new Date(),
+              lastReadAt: new Date(),
+              notificationsEnabled: true,
+              emailNotifications: false              unreadCount: 0            })
+            .returning();
 
-    if (!existingMember) {
-      const newMember = {
-        id: -1, // Temporary ID for UI purposes
-        userId: req.user!.id,
-        groupId: group.id,
-        role: 'member',
-        joinedAt: new Date(),
-        lastReadAt: new Date(),
-        notificationsEnabled: true,
-        emailNotifications: false,
-        unreadCount: 0,
-        reminderCount: 0,
-        user: {
-          id: req.user!.id,
-          createdAt: new Date(),
-          username: req.user!.username,
-          email: req.user!.email,
-          password: '', // Empty string for security
-          isAdmin: false
+          console.log('Added new member:', {memberId: newMember.id,
+            userId: req.user.id,
+            groupId: group.id,
+            timestamp: new Date().toISOString()
+          });
+
+          // Get fresh group data with updated membership
+          const updatedGroup = await db.query.discussionGroups.findFirst({            where: eq(discussionGroups.id, groupId),
+            with: {
+              members: {
+                with: {
+                  user: true
+                }
+              }
+            }
+          });
+
+          if (!updatedGroup) {
+            throw new Error('Failed to fetch updated group data');
+          }
+
+          res.json(updatedGroup);
+        } catch (error) {
+          console.error('Error adding new member:', error);
+          res.status(500).json({
+            message: "Failed to join group",
+            error: error instanceof Error ? error.message : "Unknown error"
+          });
         }
-      };
+      } else {
+        // Update lastReadAt to ensure persistence
+        try {
+          await db.update(groupMembers)
+            .set({
+              lastReadAt: new Date(),
+              unreadCount: 0
+            })
+            .where(and(
+              eq(groupMembers.groupId, group.id),
+              eq(groupMembers.userId, req.user.id)
+            ));
 
-      // Add user as member in database
-      await db.insert(groupMembers)
-        .values({
-          userId: req.user!.id,
-          groupId: group.id,
-          role: 'member',
-          joinedAt: new Date(),
-          lastReadAt: new Date(),
-          notificationsEnabled: true,
-          emailNotifications: false,
-          unreadCount: 0
-        });
+          console.log('Updated existing member:', {
+            userId: req.user.id,
+            groupId: group.id,
+            timestamp: new Date().toISOString()
+          });
 
-      group.members.push(newMember);
+          res.json(group);
+        } catch (error) {
+          console.error('Error updating member:', error);
+          res.status(500).json({
+            message: "Failed to update group membership",
+            error: error instanceof Error ? error.message : "Unknown error"
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error in group retrieval:', error);
+      res.status(500).json({
+        message: "Failed to retrieve group",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
     }
-
-    res.json(group);
   }));
 
   // Add this new endpoint after the other group-related endpoints
