@@ -47,15 +47,31 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // Get group details if we have an initialGroupId
+  // Query for last active group
+  const { data: lastActiveGroup } = useQuery({
+    queryKey: [`/api/videos/${videoId}/last-active-group`],
+    enabled: !!videoId && !!user,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+  });
+
+  // Effect to restore group from last active when appropriate
+  useEffect(() => {
+    if (!initialGroupId && lastActiveGroup?.id && lastActiveGroup.videoId === videoId) {
+      setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
+    }
+  }, [lastActiveGroup, initialGroupId, videoId, setLocation]);
+
+  // Query for group details
   const { data: group } = useQuery({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data: unknown) => validateApiResponse(groupSchema, data),
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
     onSuccess: (data) => {
-      // Update the last active group in cache when group data is loaded
-      if (data) {
+      // Update last active group in cache whenever group data is loaded
+      if (data && data.videoId === videoId) {
         queryClient.setQueryData(
           [`/api/videos/${videoId}/last-active-group`],
           {
@@ -69,20 +85,45 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   });
 
-  // Get messages for current group
+  // Query for messages with proper header handling
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery({
     queryKey: [`/api/groups/${initialGroupId}/messages`],
     enabled: !!initialGroupId && !!user,
     select: (data: unknown) => validateApiResponse(z.array(messageSchema), data),
     refetchInterval: 3000,
-    staleTime: 1000 // Consider messages stale after 1 second
+    staleTime: 1000,
+    gcTime: 5 * 60 * 1000,
+    onSuccess: (_, context) => {
+      // Check response headers for group data
+      const response = context?.signal?.response as Response;
+      if (response?.headers) {
+        const groupDataHeader = response.headers.get('X-Group-Data');
+        if (groupDataHeader) {
+          try {
+            const groupData = JSON.parse(groupDataHeader);
+            if (groupData.videoId === videoId) {
+              // Update last active group in cache
+              queryClient.setQueryData(
+                [`/api/videos/${videoId}/last-active-group`],
+                groupData
+              );
+            }
+          } catch (error) {
+            console.error('Error parsing group data header:', error);
+          }
+        }
+      }
+    }
   });
 
-  // Scroll to bottom when new messages arrive
+  // Effect for scrolling to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length > 0) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
+  // Handle message submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim() || !initialGroupId) return;
@@ -102,24 +143,30 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       (old: Message[] = []) => [...old, optimisticMessage]
     );
 
-    setMessageInput('');
+    setMessageInput("");
 
     try {
       const response = await fetch(`/api/groups/${initialGroupId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: messageInput.trim() })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: messageInput.trim() }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to send message');
+        throw new Error("Failed to send message");
       }
 
-      queryClient.invalidateQueries({
-        queryKey: [`/api/groups/${initialGroupId}/messages`]
-      });
+      // Update both messages and group cache
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: [`/api/groups/${initialGroupId}/messages`]
+        }),
+        queryClient.invalidateQueries({
+          queryKey: [`/api/groups/${initialGroupId}`]
+        })
+      ]);
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error("Error sending message:", error);
       queryClient.invalidateQueries({
         queryKey: [`/api/groups/${initialGroupId}/messages`]
       });
@@ -131,36 +178,37 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
+  // Handle group creation
   const handleCreateGroup = async () => {
     if (!user) return;
 
     const groupName = groupNameInput.trim() || "Discussion Group";
     try {
-      const response = await fetch('/api/groups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: groupName,
           videoId,
-          description: `Discussion group for video ${videoId}`
-        })
+          description: `Discussion group for video ${videoId}`,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to create group');
+        throw new Error("Failed to create group");
       }
 
       const newGroup: Group = await response.json();
       setIsCreateGroupOpen(false);
 
-      // Update the cache before navigation
+      // Update cache with new group data
       queryClient.setQueryData(
         [`/api/videos/${videoId}/last-active-group`],
         {
           id: newGroup.id,
           name: newGroup.name,
           videoId: newGroup.videoId,
-          updatedAt: newGroup.updatedAt
+          updatedAt: newGroup.updatedAt,
         }
       );
 
@@ -172,7 +220,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: `Group "${newGroup.name}" created! Share the link with friends to join the discussion.`,
       });
     } catch (error) {
-      console.error('Error creating group:', error);
+      console.error("Error creating group:", error);
       toast({
         title: "Error",
         description: "Failed to create group. Please try again.",
@@ -181,24 +229,29 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
+  // Handle leaving group
   const handleLeaveGroup = async () => {
     if (!initialGroupId) return;
 
     try {
       const response = await fetch(`/api/groups/${initialGroupId}/leave`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
       });
 
       if (!response.ok) {
-        throw new Error('Failed to leave group');
+        throw new Error("Failed to leave group");
       }
 
-      // Clear the last active group data when leaving
+      // Clear cache data
       queryClient.setQueryData(
         [`/api/videos/${videoId}/last-active-group`],
         null
       );
+
+      queryClient.removeQueries({
+        queryKey: [`/api/groups/${initialGroupId}`]
+      });
 
       setLocation(`/video/${videoId}`);
 
@@ -207,7 +260,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         description: "Successfully left the group",
       });
     } catch (error) {
-      console.error('Error leaving group:', error);
+      console.error("Error leaving group:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to leave group",

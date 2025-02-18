@@ -2,7 +2,8 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@db";
 import { groupMessages, groupMembers, discussionGroups } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
-import { Router, type Request, type Response } from "express";
+import { Router } from "express";
+import type { Request, Response } from "express";
 
 const router = Router();
 
@@ -27,6 +28,20 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
 
     // First, ensure user is a member or add them if they're not
     if (req.user?.id) {
+      const groupData = await db.query.discussionGroups.findFirst({
+        where: eq(discussionGroups.id, parsedGroupId),
+        columns: {
+          id: true,
+          name: true,
+          videoId: true,
+          updatedAt: true
+        }
+      });
+
+      if (!groupData) {
+        return res.status(404).json({ error: "Group not found" });
+      }
+
       const memberCheck = await db.query.groupMembers.findFirst({
         where: and(
           eq(groupMembers.groupId, parsedGroupId),
@@ -47,11 +62,18 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
             emailNotifications: false,
             unreadCount: 0
           });
+
+        // Always include group data in response headers
+        res.setHeader('X-Group-Data', JSON.stringify({
+          id: groupData.id,
+          name: groupData.name,
+          videoId: groupData.videoId,
+          updatedAt: groupData.updatedAt
+        }));
       }
 
       // Always update last read timestamp and unread count
-      await db
-        .update(groupMembers)
+      await db.update(groupMembers)
         .set({
           lastReadAt: new Date(),
           unreadCount: 0
