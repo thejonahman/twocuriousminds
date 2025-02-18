@@ -1,9 +1,8 @@
-import { and, desc, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@db";
-import { groupMessages, users, groupMembers, discussionGroups } from "@db/schema";
+import { groupMessages, groupMembers, discussionGroups } from "@db/schema";
 import { insertGroupMessageSchema } from "@db/schema";
 import { Router, type Request, type Response } from "express";
-import { sendUnreadMessagesNotification } from "../lib/email";
 
 const router = Router();
 
@@ -26,7 +25,7 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
       return res.status(400).json({ error: "Invalid group ID" });
     }
 
-    // Check if user is member of group
+    // First, ensure user is a member or add them if they're not
     if (req.user?.id) {
       const memberCheck = await db.query.groupMembers.findFirst({
         where: and(
@@ -36,10 +35,34 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
       });
 
       if (!memberCheck) {
-        return res.status(403).json({ error: "Not a member of this group" });
+        // Add user as a member if they're not already
+        await db.insert(groupMembers)
+          .values({
+            groupId: parsedGroupId,
+            userId: req.user.id,
+            role: 'member',
+            joinedAt: new Date(),
+            lastReadAt: new Date(),
+            notificationsEnabled: true,
+            emailNotifications: false,
+            unreadCount: 0
+          });
       }
+
+      // Always update last read timestamp and unread count
+      await db
+        .update(groupMembers)
+        .set({
+          lastReadAt: new Date(),
+          unreadCount: 0
+        })
+        .where(and(
+          eq(groupMembers.groupId, parsedGroupId),
+          eq(groupMembers.userId, req.user.id)
+        ));
     }
 
+    // Get messages with user details
     const messages = await db.query.groupMessages.findMany({
       where: eq(groupMessages.groupId, parsedGroupId),
       with: {
@@ -53,20 +76,6 @@ router.get("/api/groups/:groupId/messages", async (req: TypedRequestUser, res: R
       orderBy: [desc(groupMessages.createdAt)],
       limit: 100
     });
-
-    // Update last read timestamp for the current user
-    if (req.user?.id) {
-      await db
-        .update(groupMembers)
-        .set({
-          lastReadAt: new Date(),
-          unreadCount: 0
-        })
-        .where(and(
-          eq(groupMembers.groupId, parsedGroupId),
-          eq(groupMembers.userId, req.user.id)
-        ));
-    }
 
     res.json(messages.reverse());
   } catch (error) {
