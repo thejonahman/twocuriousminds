@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useLocation } from "wouter";
 import { VideoPlayer } from "@/components/video-player";
 import { RecommendationSidebar } from "@/components/recommendation-sidebar";
@@ -23,6 +23,7 @@ export default function Video() {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
   const { user } = useUser();
+  const queryClient = useQueryClient();
 
   // Query for video details
   const { data: video, isLoading } = useQuery<{

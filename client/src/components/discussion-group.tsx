@@ -17,10 +17,10 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   type Message,
@@ -47,73 +47,60 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // Query for last active group
-  const { data: lastActiveGroup } = useQuery({
-    queryKey: [`/api/videos/${videoId}/last-active-group`],
-    enabled: !!videoId && !!user,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-  });
-
-  // Effect to restore group from last active when appropriate
+  // Effect to handle automatic group joining when initialGroupId is present
   useEffect(() => {
-    if (!initialGroupId && lastActiveGroup?.id && lastActiveGroup.videoId === videoId) {
-      setLocation(`/video/${videoId}/group/${lastActiveGroup.id}`);
-    }
-  }, [lastActiveGroup, initialGroupId, videoId, setLocation]);
+    if (!user || !initialGroupId) return;
 
-  // Query for group details
-  const { data: group } = useQuery({
+    const setupGroupMembership = async () => {
+      try {
+        const response = await fetch(`/api/groups/${initialGroupId}/members`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            notificationsEnabled: true,
+            emailNotifications: true
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to maintain group membership');
+        }
+
+        // Invalidate queries to ensure fresh data
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}`] }),
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}/messages`] })
+        ]);
+      } catch (error) {
+        console.error('Error setting up group membership:', error);
+        // Don't show error toast here as it might be too intrusive
+      }
+    };
+
+    setupGroupMembership();
+  }, [user, initialGroupId, queryClient]);
+
+  // Query for group details with enhanced persistence
+  const { data: group, isLoading: isGroupLoading } = useQuery({
     queryKey: [`/api/groups/${initialGroupId}`],
     enabled: !!initialGroupId && !!user,
     select: (data: unknown) => validateApiResponse(groupSchema, data),
-    staleTime: 5 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-    onSuccess: (data) => {
-      // Update last active group in cache whenever group data is loaded
-      if (data && data.videoId === videoId) {
-        queryClient.setQueryData(
-          [`/api/videos/${videoId}/last-active-group`],
-          {
-            id: data.id,
-            name: data.name,
-            videoId: data.videoId,
-            updatedAt: data.updatedAt
-          }
-        );
-      }
-    }
+    staleTime: 5 * 60 * 1000, // Data considered fresh for 5 minutes
+    gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours
+    retry: 3,
   });
 
-  // Query for messages with proper header handling
+  // Query for messages with proper error handling
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery({
     queryKey: [`/api/groups/${initialGroupId}/messages`],
-    enabled: !!initialGroupId && !!user,
+    enabled: !!initialGroupId && !!user && !!group,
     select: (data: unknown) => validateApiResponse(z.array(messageSchema), data),
     refetchInterval: 3000,
     staleTime: 1000,
     gcTime: 5 * 60 * 1000,
-    onSuccess: (_, context) => {
-      // Check response headers for group data
-      const response = context?.signal?.response as Response;
-      if (response?.headers) {
-        const groupDataHeader = response.headers.get('X-Group-Data');
-        if (groupDataHeader) {
-          try {
-            const groupData = JSON.parse(groupDataHeader);
-            if (groupData.videoId === videoId) {
-              // Update last active group in cache
-              queryClient.setQueryData(
-                [`/api/videos/${videoId}/last-active-group`],
-                groupData
-              );
-            }
-          } catch (error) {
-            console.error('Error parsing group data header:', error);
-          }
-        }
-      }
-    }
+    retry: 3,
   });
 
   // Effect for scrolling to bottom on new messages
@@ -123,7 +110,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   }, [messages]);
 
-  // Handle message submission
+  // Handle message submission with optimistic updates
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!messageInput.trim() || !initialGroupId) return;
@@ -198,19 +185,9 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         throw new Error("Failed to create group");
       }
 
-      const newGroup: Group = await response.json();
+      const newGroup = await response.json();
       setIsCreateGroupOpen(false);
-
-      // Update cache with new group data
-      queryClient.setQueryData(
-        [`/api/videos/${videoId}/last-active-group`],
-        {
-          id: newGroup.id,
-          name: newGroup.name,
-          videoId: newGroup.videoId,
-          updatedAt: newGroup.updatedAt,
-        }
-      );
+      setGroupNameInput("");
 
       // Navigate to the new group
       setLocation(`/video/${videoId}/group/${newGroup.id}`);
@@ -229,7 +206,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
-  // Handle leaving group
+  // Handle leaving group with proper cleanup
   const handleLeaveGroup = async () => {
     if (!initialGroupId) return;
 
@@ -284,6 +261,22 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     );
   }
 
+  if (isGroupLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Loading discussion group...</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="animate-pulse space-y-4">
+            <div className="h-14 bg-muted rounded"></div>
+            <div className="h-14 bg-muted rounded"></div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -306,7 +299,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
               <ShareGroupDialog
                 url={`${window.location.origin}/join-group/${group.inviteCode}?videoId=${videoId}`}
                 groupName={group.name}
-                videoTitle="Video Discussion"
+                videoTitle={group.video?.title || "Video Discussion"}
                 memberCount={group.members?.length ?? 0}
                 messageCount={messages?.length || 0}
               />

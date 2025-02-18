@@ -12,6 +12,14 @@ const userSchema = z.object({
   username: z.string(),
 });
 
+// Video schema for group reference
+const videoSchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  url: z.string(),
+  platform: z.string(),
+});
+
 // Message schemas 
 export const messageSchema = baseEntitySchema.extend({
   content: z.string(),
@@ -45,6 +53,7 @@ export const groupSchema = baseEntitySchema.extend({
   isPrivate: z.boolean(),
   inviteCode: z.string(),
   members: z.array(groupMemberSchema).optional(),
+  video: videoSchema.optional(),
   updatedAt: z.string().datetime().nullish(),
 });
 
