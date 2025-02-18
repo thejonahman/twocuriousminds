@@ -15,19 +15,19 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   error: Error | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   loginMutation: any;
   logoutMutation: any;
   registerMutation: any;
 }
 
 interface LoginData {
-  email: string;
+  username: string;
   password: string;
 }
 
 interface RegisterData extends LoginData {
-  username: string;
+  email: string;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -37,29 +37,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
+  // Use the full API path for the auth endpoint
   const { data: userData, isLoading } = useQuery<User>({
     queryKey: ["/api/auth/me"],
     retry: false,
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-    gcTime: 10 * 60 * 1000, // Keep unused data for 10 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 
-  // Ensure user is properly typed as User | null
   const user = userData || null;
 
   const loginMutation = useMutation({
     mutationFn: async (credentials: LoginData) => {
-      console.log('[Auth] Attempting login for:', credentials.email);
-      const res = await apiRequest("POST", "/api/auth/login", credentials);
-      if (!res.ok) {
-        const error = await res.text();
-        console.error('[Auth] Login failed:', error);
-        throw new Error(error || 'Login failed');
+      console.log('[Auth] Attempting login with:', { username: credentials.username });
+      try {
+        // Use full API path for login
+        const res = await apiRequest("POST", "/api/auth/login", credentials);
+        if (!res.ok) {
+          const contentType = res.headers.get('content-type');
+          let errorMessage;
+
+          if (contentType?.includes('application/json')) {
+            const errorData = await res.json();
+            errorMessage = errorData.message || errorData.error;
+          } else {
+            errorMessage = await res.text();
+          }
+
+          console.error('[Auth] Login failed:', errorMessage);
+          throw new Error(errorMessage || 'Login failed');
+        }
+
+        const data = await res.json();
+        console.log('[Auth] Login successful:', data);
+        return data;
+      } catch (error) {
+        console.error('[Auth] Login error:', error);
+        throw error;
       }
-      return res.json();
     },
     onSuccess: (user: User) => {
-      console.log('[Auth] Login successful:', user);
       queryClient.setQueryData(["/api/auth/me"], user);
       toast({
         title: "Welcome back!",
@@ -67,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error: Error) => {
-      console.error('[Auth] Login error:', error);
+      console.error('[Auth] Login mutation error:', error);
       toast({
         title: "Login failed",
         description: error.message,
@@ -79,16 +96,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const registerMutation = useMutation({
     mutationFn: async (newUser: RegisterData) => {
       console.log('[Auth] Attempting registration:', { username: newUser.username });
-      const res = await apiRequest("POST", "/api/auth/register", newUser);
-      if (!res.ok) {
-        const error = await res.text();
-        console.error('[Auth] Registration failed:', error);
-        throw new Error(error || 'Registration failed');
+      try {
+        // Use full API path for registration
+        const res = await apiRequest("POST", "/api/auth/register", newUser);
+        if (!res.ok) {
+          const contentType = res.headers.get('content-type');
+          let errorMessage;
+
+          if (contentType?.includes('application/json')) {
+            const errorData = await res.json();
+            errorMessage = errorData.message || errorData.error;
+          } else {
+            errorMessage = await res.text();
+          }
+
+          console.error('[Auth] Registration failed:', errorMessage);
+          throw new Error(errorMessage || 'Registration failed');
+        }
+
+        const data = await res.json();
+        console.log('[Auth] Registration successful:', data);
+        return data;
+      } catch (error) {
+        console.error('[Auth] Registration error:', error);
+        throw error;
       }
-      return res.json();
     },
     onSuccess: (user: User) => {
-      console.log('[Auth] Registration successful:', user);
       queryClient.setQueryData(["/api/auth/me"], user);
       toast({
         title: "Welcome!",
@@ -96,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error: Error) => {
-      console.error('[Auth] Registration error:', error);
+      console.error('[Auth] Registration mutation error:', error);
       toast({
         title: "Registration failed",
         description: error.message,
@@ -107,21 +141,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/auth/logout");
-      if (!res.ok) {
-        throw new Error('Logout failed');
+      try {
+        // Use full API path for logout
+        const res = await apiRequest("POST", "/api/auth/logout");
+        if (!res.ok) {
+          const error = await res.text();
+          console.error('[Auth] Logout failed:', error);
+          throw new Error(error || 'Logout failed');
+        }
+      } catch (error) {
+        console.error('[Auth] Logout error:', error);
+        throw error;
       }
     },
     onSuccess: () => {
       queryClient.setQueryData(["/api/auth/me"], null);
-      queryClient.clear(); // Clear all queries on logout
+      queryClient.clear();
       toast({
         title: "Logged out",
         description: "See you next time!",
       });
     },
     onError: (error: Error) => {
-      console.error('[Auth] Logout error:', error);
+      console.error('[Auth] Logout mutation error:', error);
       toast({
         title: "Logout failed",
         description: error.message,
@@ -130,11 +172,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const login = async (email: string, password: string) => {
+  const login = async (username: string, password: string) => {
     try {
-      await loginMutation.mutateAsync({ email, password });
+      console.log('[Auth] Starting login process for:', username);
+      await loginMutation.mutateAsync({ username, password });
 
-      // Check for pending invite after successful login
       const pendingInvite = sessionStorage.getItem('pendingInvite');
       if (pendingInvite) {
         try {
@@ -142,7 +184,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log('[Auth] Found pending invite:', { inviteCode, videoId });
           sessionStorage.removeItem('pendingInvite');
 
-          // Ensure we have both required parameters before redirecting
           if (inviteCode && videoId) {
             const joinUrl = `/join-group/${inviteCode}?videoId=${videoId}`;
             console.log('[Auth] Redirecting to pending invite:', joinUrl);
@@ -157,16 +198,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Default navigation if no pending invite or if invite processing fails
       console.log('[Auth] No pending invite, navigating to home');
       setLocation("/");
     } catch (error) {
-      console.error('[Auth] Login error:', error);
+      console.error('[Auth] Login process error:', error);
       throw error;
     }
   };
 
-  // Clear stored navigation data on unmount
   useEffect(() => {
     return () => {
       sessionStorage.removeItem('pendingInvite');

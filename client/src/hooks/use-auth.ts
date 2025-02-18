@@ -1,42 +1,178 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ReactNode, createContext, useContext, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 
-export function useAuth() {
-  const [, setLocation] = useLocation();
-  const queryClient = useQueryClient();
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+  isAdmin?: boolean;
+}
 
-  const { data: user, isLoading } = useQuery<{
-    id: number;
-    username: string;
-    email: string;
-    isAdmin?: boolean;
-  }>({
+interface LoginData {
+  username: string;
+  password: string;
+}
+
+interface RegisterData extends LoginData {
+  email: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  isLoading: boolean;
+  error: Error | null;
+  login: (username: string, password: string) => Promise<void>;
+  loginMutation: ReturnType<typeof useMutation>;
+  logoutMutation: ReturnType<typeof useMutation>;
+  registerMutation: ReturnType<typeof useMutation>;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+
+  const { data: userData, isLoading } = useQuery<User>({
     queryKey: ["/api/auth/me"],
     retry: false,
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-    gcTime: 10 * 60 * 1000, // Keep unused data for 10 minutes
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 
-  const login = async (email: string, password: string) => {
-    try {
-      console.log('[Auth] Attempting login for:', email);
+  const user = userData || null;
 
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+  const loginMutation = useMutation({
+    mutationFn: async (credentials: LoginData) => {
+      console.log('[Auth] Attempting login with:', { username: credentials.username });
+      try {
+        const res = await apiRequest("POST", "/api/auth/login", credentials);
+        if (!res.ok) {
+          const contentType = res.headers.get('content-type');
+          let errorMessage;
 
-      if (!response.ok) {
-        const errorData = await response.text();
-        console.error('[Auth] Login failed:', errorData);
-        throw new Error("Login failed");
+          if (contentType?.includes('application/json')) {
+            const errorData = await res.json();
+            errorMessage = errorData.message || errorData.error;
+          } else {
+            errorMessage = await res.text();
+          }
+
+          console.error('[Auth] Login failed:', errorMessage);
+          throw new Error(errorMessage || 'Login failed');
+        }
+
+        const data = await res.json();
+        console.log('[Auth] Login successful:', data);
+        return data;
+      } catch (error) {
+        console.error('[Auth] Login error:', error);
+        throw error;
       }
+    },
+    onSuccess: (user: User) => {
+      queryClient.setQueryData(["/api/auth/me"], user);
+      toast({
+        title: "Welcome back!",
+        description: `Logged in as ${user.username}`,
+      });
+    },
+    onError: (error: Error) => {
+      console.error('[Auth] Login mutation error:', error);
+      toast({
+        title: "Login failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
-      // Invalidate auth query to refresh user data
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+  const registerMutation = useMutation({
+    mutationFn: async (newUser: RegisterData) => {
+      console.log('[Auth] Attempting registration:', { username: newUser.username });
+      try {
+        const res = await apiRequest("POST", "/api/auth/register", newUser);
+        if (!res.ok) {
+          const contentType = res.headers.get('content-type');
+          let errorMessage;
 
-      // Check for pending invite after successful login
+          if (contentType?.includes('application/json')) {
+            const errorData = await res.json();
+            errorMessage = errorData.message || errorData.error;
+          } else {
+            errorMessage = await res.text();
+          }
+
+          console.error('[Auth] Registration failed:', errorMessage);
+          throw new Error(errorMessage || 'Registration failed');
+        }
+
+        const data = await res.json();
+        console.log('[Auth] Registration successful:', data);
+        return data;
+      } catch (error) {
+        console.error('[Auth] Registration error:', error);
+        throw error;
+      }
+    },
+    onSuccess: (user: User) => {
+      queryClient.setQueryData(["/api/auth/me"], user);
+      toast({
+        title: "Welcome!",
+        description: "Your account has been created successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      console.error('[Auth] Registration mutation error:', error);
+      toast({
+        title: "Registration failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      try {
+        const res = await apiRequest("POST", "/api/auth/logout");
+        if (!res.ok) {
+          const error = await res.text();
+          console.error('[Auth] Logout failed:', error);
+          throw new Error(error || 'Logout failed');
+        }
+      } catch (error) {
+        console.error('[Auth] Logout error:', error);
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.setQueryData(["/api/auth/me"], null);
+      queryClient.clear();
+      toast({
+        title: "Logged out",
+        description: "See you next time!",
+      });
+    },
+    onError: (error: Error) => {
+      console.error('[Auth] Logout mutation error:', error);
+      toast({
+        title: "Logout failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const login = async (username: string, password: string) => {
+    try {
+      console.log('[Auth] Starting login process for:', username);
+      await loginMutation.mutateAsync({ username, password });
+
       const pendingInvite = sessionStorage.getItem('pendingInvite');
       if (pendingInvite) {
         try {
@@ -44,7 +180,6 @@ export function useAuth() {
           console.log('[Auth] Found pending invite:', { inviteCode, videoId });
           sessionStorage.removeItem('pendingInvite');
 
-          // Ensure we have both required parameters before redirecting
           if (inviteCode && videoId) {
             const joinUrl = `/join-group/${inviteCode}?videoId=${videoId}`;
             console.log('[Auth] Redirecting to pending invite:', joinUrl);
@@ -59,14 +194,41 @@ export function useAuth() {
         }
       }
 
-      // Default navigation if no pending invite or if invite processing fails
       console.log('[Auth] No pending invite, navigating to home');
       setLocation("/");
     } catch (error) {
-      console.error('[Auth] Login error:', error);
+      console.error('[Auth] Login process error:', error);
       throw error;
     }
   };
 
-  return { user, login, isLoading };
+  useEffect(() => {
+    return () => {
+      sessionStorage.removeItem('pendingInvite');
+    };
+  }, []);
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        error: null,
+        login,
+        loginMutation,
+        logoutMutation,
+        registerMutation,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return context;
 }

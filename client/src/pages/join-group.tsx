@@ -14,28 +14,41 @@ export default function JoinGroup() {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    // Get invite info from URL with enhanced error handling and logging
+    // Enhanced getInviteInfo with better error handling and validation
     const getInviteInfo = () => {
-      console.log('[JoinGroup] Processing URL:', window.location.href);
+      try {
+        console.log('[JoinGroup] Starting invite info extraction from URL:', window.location.href);
 
-      const inviteCode = window.location.pathname.split('/join-group/')[1];
-      const videoId = new URLSearchParams(window.location.search).get('videoId');
+        const urlPath = window.location.pathname;
+        const urlParams = new URLSearchParams(window.location.search);
 
-      console.log('[JoinGroup] Extracted parameters:', { inviteCode, videoId });
+        const inviteCode = urlPath.split('/join-group/')[1];
+        const videoId = urlParams.get('videoId');
 
-      // Validate parameters
-      if (!inviteCode || !videoId) {
-        console.error('[JoinGroup] Invalid parameters:', { inviteCode, videoId });
+        console.log('[JoinGroup] Extracted parameters:', { inviteCode, videoId, path: urlPath });
+
+        if (!inviteCode || !videoId) {
+          console.error('[JoinGroup] Missing required parameters:', { inviteCode, videoId });
+          toast({
+            title: "Invalid Invite Link",
+            description: "The invite link is missing required information. Please check the URL.",
+            variant: "destructive",
+          });
+          setLocation('/');
+          return null;
+        }
+
+        return { inviteCode, videoId };
+      } catch (error) {
+        console.error('[JoinGroup] Error extracting invite info:', error);
         toast({
-          title: "Invalid Link",
-          description: "The invite link appears to be invalid. Please check the URL.",
+          title: "Error",
+          description: "Failed to process the invite link. Please try again.",
           variant: "destructive",
         });
         setLocation('/');
         return null;
       }
-
-      return { inviteCode, videoId };
     };
 
     const processInviteAndJoin = async (inviteInfo: { inviteCode: string; videoId: string }) => {
@@ -50,18 +63,18 @@ export default function JoinGroup() {
         // First verify if the group exists and is valid
         const verifyResponse = await fetch(`/api/groups/invite/${inviteInfo.inviteCode}/verify`);
         if (!verifyResponse.ok) {
+          const errorText = await verifyResponse.text();
+          console.error('[JoinGroup] Group verification failed:', errorText);
           throw new Error('Invalid or expired invite link');
         }
 
-        // Join the group with admin role for persistence
+        // Join the group
         const joinResponse = await fetch(`/api/groups/invite/${inviteInfo.inviteCode}/join`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 
             videoId: inviteInfo.videoId,
-            role: 'admin'
+            role: 'admin'  // Set role to admin for persistence
           })
         });
 
@@ -72,9 +85,11 @@ export default function JoinGroup() {
         }
 
         const { group } = await joinResponse.json();
+
         console.log('[JoinGroup] Successfully joined group:', {
           groupId: group.id,
-          videoId: inviteInfo.videoId
+          videoId: inviteInfo.videoId,
+          timestamp: new Date().toISOString()
         });
 
         // Invalidate and prefetch relevant queries
@@ -86,14 +101,15 @@ export default function JoinGroup() {
           })
         ]);
 
+        // Store target location before navigation
+        const targetLocation = `/video/${inviteInfo.videoId}/group/${group.id}`;
+        console.log('[JoinGroup] Preparing to navigate to:', targetLocation);
+
+        // Show success message
         toast({
           title: "Welcome!",
           description: "You've successfully joined the discussion group.",
         });
-
-        // Store navigation target before redirect
-        const targetLocation = `/video/${inviteInfo.videoId}/group/${group.id}`;
-        console.log('[JoinGroup] Navigating to:', targetLocation);
 
         // Return location for controlled navigation
         return targetLocation;
@@ -109,6 +125,8 @@ export default function JoinGroup() {
     };
 
     const initializeJoinProcess = async () => {
+      console.log('[JoinGroup] Initializing join process');
+
       // First, try to get invite info from URL
       const inviteInfo = getInviteInfo();
       if (!inviteInfo) {
@@ -127,11 +145,12 @@ export default function JoinGroup() {
       // Process the join request and handle navigation
       const targetLocation = await processInviteAndJoin(inviteInfo);
       if (targetLocation) {
-        console.log('[JoinGroup] Navigation target:', targetLocation);
+        console.log('[JoinGroup] Navigating to target location:', targetLocation);
         setLocation(targetLocation);
       }
     };
 
+    // Start the join process
     initializeJoinProcess();
   }, [toast, setLocation, user, queryClient]);
 
