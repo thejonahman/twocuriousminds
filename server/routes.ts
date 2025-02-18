@@ -448,7 +448,7 @@ export function registerRoutes(app: Express): Server {
     next();
   });
 
-  // Update the /api/videos/:videoId/last-active-group endpoint
+  // Remove isDeleted checks and use last_read_at for persistence
   app.get("/api/videos/:videoId/last-active-group", requireAuth, asyncHandler(async (req: AuthenticatedRequest, res: Response) => {
     const videoId = parseInt(req.params.videoId);
 
@@ -463,7 +463,7 @@ export function registerRoutes(app: Express): Server {
     });
 
     try {
-      // Find any group for this video where the user is a member
+      // Find any group for this video where the user is a member, order by most recently active
       const activeGroup = await db.query.discussionGroups.findFirst({
         where: and(
           eq(discussionGroups.videoId, videoId),
@@ -471,13 +471,28 @@ export function registerRoutes(app: Express): Server {
             select 1 from ${groupMembers}
             where ${groupMembers.groupId} = ${discussionGroups.id}
             and ${groupMembers.userId} = ${req.user!.id}
+            and ${groupMembers.lastReadAt} > NOW() - INTERVAL '24 hours'
           )`
         ),
-        columns: {
-          id: true,
-          name: true,
-          videoId: true,
-          updatedAt: true
+        with: {
+          members: {
+            where: eq(groupMembers.userId, req.user!.id),
+            with: {
+              user: {
+                columns: {
+                  id: true,
+                  username: true,
+                  email: true
+                }
+              }
+            }
+          },
+          video: {
+            columns: {
+              id: true,
+              title: true
+            }
+          }
         },
         orderBy: [desc(discussionGroups.updatedAt)]
       });
@@ -486,11 +501,28 @@ export function registerRoutes(app: Express): Server {
         foundGroup: activeGroup ? {
           id: activeGroup.id,
           name: activeGroup.name,
-          videoId: activeGroup.videoId,
-          updatedAt: activeGroup.updatedAt
-        } : null,
-        timestamp: new Date().toISOString()
+          memberCount: activeGroup.members?.length || 0,
+          timestamp: new Date().toISOString()
+        } : null
       });
+
+      if (activeGroup?.members[0]) {
+        // Touch the membership to maintain persistence
+        await db.update(groupMembers)
+          .set({
+            lastReadAt: new Date()
+          })
+          .where(and(
+            eq(groupMembers.groupId, activeGroup.id),
+            eq(groupMembers.userId, req.user!.id)
+          ));
+
+        console.log('[LastActiveGroup] Updated membership persistence:', {
+          groupId: activeGroup.id,
+          userId: req.user!.id,
+          timestamp: new Date().toISOString()
+        });
+      }
 
       res.json(activeGroup);
     } catch (error) {
@@ -499,11 +531,7 @@ export function registerRoutes(app: Express): Server {
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
       });
-      res.status(500).json({
-        error: error instanceof Error ? error.message : 'Unknown error',
-        success: false,
-        timestamp: new Date().toISOString()
-      });
+      throw error;
     }
   }));
 
@@ -835,7 +863,7 @@ export function registerRoutes(app: Express): Server {
     const { name, videoId, description } = req.body;
     const userId = req.user?.id;
 
-    console.log('Creating new group:', {
+    console.log('[CreateGroup] Request received:', {
       name,
       videoId,
       userId,
@@ -843,7 +871,7 @@ export function registerRoutes(app: Express): Server {
     });
 
     if (!userId || !videoId || !name) {
-      console.error('Missing required fields:', {
+      console.error('[CreateGroup] Missing required fields:', {
         hasUserId: !!userId,
         hasVideoId: !!videoId,
         hasName: !!name
@@ -887,10 +915,9 @@ export function registerRoutes(app: Express): Server {
           })
           .returning();
 
-        console.log('Created group and member:', {
+        console.log('[CreateGroup] Created group and member:', {
           groupId: newGroup.id,
           memberId: member.id,
-          creatorId: userId,
           timestamp: new Date().toISOString()
         });
 
@@ -925,7 +952,7 @@ export function registerRoutes(app: Express): Server {
         throw new Error('Failed to create group with details');
       }
 
-      console.log('Successfully created group with details:', {
+      console.log('[CreateGroup] Successfully created group:', {
         groupId: groupWithDetails.id,
         memberCount: groupWithDetails.members.length,
         timestamp: new Date().toISOString()
@@ -944,7 +971,7 @@ export function registerRoutes(app: Express): Server {
 
       res.status(201).json(response);
     } catch (error) {
-      console.error('Error creating group:', {
+      console.error('[CreateGroup] Error:', {
         error: error instanceof Error ? error.message : 'Unknown error',
         stack: error instanceof Error ? error.stack : undefined,
         timestamp: new Date().toISOString()
@@ -978,7 +1005,6 @@ export function registerRoutes(app: Express): Server {
       return res.status(404).json({ message: "Group not found" });
     }
 
-    // Remove messages length check since messages are queried separately
     console.log('Found group with', group.members?.length || 0, 'members');
 
     // Check if user is already a member
@@ -997,16 +1023,16 @@ export function registerRoutes(app: Express): Server {
         unreadCount: 0,
         reminderCount: 0,
         user: {
-                    id: req.user!.id,
+          id: req.user!.id,
           createdAt: new Date(),
-          username:req.user!.username,
+          username: req.user!.username,
           email: req.user!.email,
           password: '', // Empty string for security
           isAdmin: false
         }
       };
 
-      // Add user as member in database
+      // Add user as member in database with proper persistence
       await db.insert(groupMembers)
         .values({
           userId: req.user!.id,

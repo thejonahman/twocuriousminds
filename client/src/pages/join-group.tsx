@@ -52,7 +52,7 @@ export default function JoinGroup() {
         const group = await response.json();
         console.log('Successfully joined group:', group);
 
-        // Update membership persistence
+        // Update membership persistence immediately
         await fetch(`/api/groups/${group.id}/members/${user.id}/touch`, {
           method: 'POST',
           headers: {

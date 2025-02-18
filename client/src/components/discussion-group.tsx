@@ -47,44 +47,32 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [groupNameInput, setGroupNameInput] = useState("");
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
-  // Enhanced useEffect for group membership persistence
+  // Query for last active group if no initialGroupId is provided
+  const { data: lastActiveGroup } = useQuery({
+    queryKey: [`/api/videos/${videoId}/last-active-group`],
+    enabled: !!videoId && !!user && !initialGroupId,
+    retry: 3,
+    staleTime: 1000, // Consider data fresh for 1 second
+    refetchInterval: 30000, // Refetch every 30 seconds to maintain persistence
+  });
+
+  // Use initialGroupId or lastActiveGroup?.id for the effective group ID
+  const effectiveGroupId = initialGroupId || (lastActiveGroup && lastActiveGroup.id);
+
+  // Update the useEffect hook for group membership persistence
   useEffect(() => {
-    if (!user || !initialGroupId) return;
+    if (!user || !effectiveGroupId) return;
 
     const setupGroupMembership = async () => {
       try {
         console.log('Setting up group membership:', {
           userId: user.id,
-          groupId: initialGroupId,
+          groupId: effectiveGroupId,
           timestamp: new Date().toISOString()
         });
 
-        // First, validate current membership
-        const membershipResponse = await fetch(`/api/groups/${initialGroupId}/members/${user.id}`);
-
-        if (!membershipResponse.ok) {
-          console.log('No active membership found, creating new membership');
-          // Create or restore membership
-          const response = await fetch(`/api/groups/${initialGroupId}/members`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              notificationsEnabled: true,
-              emailNotifications: true
-            })
-          });
-
-          if (!response.ok) {
-            throw new Error('Failed to setup group membership');
-          }
-
-          console.log('Successfully created group membership');
-        }
-
         // Touch the membership to maintain persistence
-        const touchResponse = await fetch(`/api/groups/${initialGroupId}/members/${user.id}/touch`, {
+        const touchResponse = await fetch(`/api/groups/${effectiveGroupId}/members/${user.id}/touch`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -99,8 +87,8 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
         // Invalidate queries to ensure fresh data
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}`] }),
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${initialGroupId}/messages`] }),
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${effectiveGroupId}`] }),
+          queryClient.invalidateQueries({ queryKey: [`/api/groups/${effectiveGroupId}/messages`] }),
           queryClient.invalidateQueries({ queryKey: [`/api/videos/${videoId}/last-active-group`] })
         ]);
       } catch (error) {
@@ -114,22 +102,26 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     };
 
     setupGroupMembership();
-  }, [user, initialGroupId, queryClient, videoId, toast]);
+
+    // Set up interval to maintain persistence (every 15 seconds)
+    const persistenceInterval = setInterval(setupGroupMembership, 15000);
+
+    return () => clearInterval(persistenceInterval);
+  }, [user, effectiveGroupId, queryClient, videoId, toast]);
 
   // Query for group details with enhanced persistence
   const { data: group, isLoading: isGroupLoading } = useQuery({
-    queryKey: [`/api/groups/${initialGroupId}`],
-    enabled: !!initialGroupId && !!user,
+    queryKey: [`/api/groups/${effectiveGroupId}`],
+    enabled: !!effectiveGroupId && !!user,
     select: (data: unknown) => validateApiResponse(groupSchema, data),
-    staleTime: 5 * 60 * 1000, // Data considered fresh for 5 minutes
-    gcTime: 24 * 60 * 60 * 1000, // Keep in cache for 24 hours
-    retry: 3,
+    staleTime: 5000, // Consider data fresh for 5 seconds
+    refetchInterval: 10000, // Refetch every 10 seconds
   });
 
   // Query for messages with proper error handling
   const { data: messages = [], isLoading: isMessagesLoading } = useQuery({
-    queryKey: [`/api/groups/${initialGroupId}/messages`],
-    enabled: !!initialGroupId && !!user && !!group,
+    queryKey: [`/api/groups/${effectiveGroupId}/messages`],
+    enabled: !!effectiveGroupId && !!user && !!group,
     select: (data: unknown) => validateApiResponse(z.array(messageSchema), data),
     refetchInterval: 3000,
     staleTime: 1000,
@@ -147,27 +139,27 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   // Handle message submission with optimistic updates
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messageInput.trim() || !initialGroupId) return;
+    if (!messageInput.trim() || !effectiveGroupId) return;
 
     const optimisticMessage: Message = {
       id: Math.random(),
       content: messageInput.trim(),
       userId: user!.id,
-      groupId: initialGroupId,
+      groupId: effectiveGroupId,
       user: { username: user!.username },
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
     queryClient.setQueryData(
-      [`/api/groups/${initialGroupId}/messages`],
+      [`/api/groups/${effectiveGroupId}/messages`],
       (old: Message[] = []) => [...old, optimisticMessage]
     );
 
     setMessageInput("");
 
     try {
-      const response = await fetch(`/api/groups/${initialGroupId}/messages`, {
+      const response = await fetch(`/api/groups/${effectiveGroupId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: messageInput.trim() }),
@@ -180,16 +172,16 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       // Update both messages and group cache
       await Promise.all([
         queryClient.invalidateQueries({
-          queryKey: [`/api/groups/${initialGroupId}/messages`]
+          queryKey: [`/api/groups/${effectiveGroupId}/messages`]
         }),
         queryClient.invalidateQueries({
-          queryKey: [`/api/groups/${initialGroupId}`]
+          queryKey: [`/api/groups/${effectiveGroupId}`]
         })
       ]);
     } catch (error) {
       console.error("Error sending message:", error);
       queryClient.invalidateQueries({
-        queryKey: [`/api/groups/${initialGroupId}/messages`]
+        queryKey: [`/api/groups/${effectiveGroupId}/messages`]
       });
       toast({
         title: "Error",
@@ -199,7 +191,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
     }
   };
 
-  // Handle group creation
+  // Handle group creation with proper persistence
   const handleCreateGroup = async () => {
     if (!user) return;
 
@@ -223,6 +215,20 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       setIsCreateGroupOpen(false);
       setGroupNameInput("");
 
+      // Ensure group persistence is set up immediately
+      await fetch(`/api/groups/${newGroup.id}/members/${user.id}/touch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      // Invalidate queries to ensure fresh data
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: [`/api/videos/${videoId}/last-active-group`] }),
+        queryClient.invalidateQueries({ queryKey: [`/api/groups/${newGroup.id}`] })
+      ]);
+
       // Navigate to the new group
       setLocation(`/video/${videoId}/group/${newGroup.id}`);
 
@@ -242,10 +248,10 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
 
   // Handle leaving group with proper cleanup
   const handleLeaveGroup = async () => {
-    if (!initialGroupId) return;
+    if (!effectiveGroupId) return;
 
     try {
-      const response = await fetch(`/api/groups/${initialGroupId}/leave`, {
+      const response = await fetch(`/api/groups/${effectiveGroupId}/leave`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -261,7 +267,7 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
       );
 
       queryClient.removeQueries({
-        queryKey: [`/api/groups/${initialGroupId}`]
+        queryKey: [`/api/groups/${effectiveGroupId}`]
       });
 
       setLocation(`/video/${videoId}`);
