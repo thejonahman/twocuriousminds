@@ -37,6 +37,10 @@ interface Props {
   initialGroupId?: number;
 }
 
+// Define a type for the last active group response
+const lastActiveGroupSchema = groupSchema.nullable();
+type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
+
 export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -48,27 +52,36 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   // Query for last active group if no initialGroupId is provided
-  const { data: lastActiveGroup } = useQuery({
+  const { data: lastActiveGroup, error: lastActiveGroupError } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${videoId}/last-active-group`],
     enabled: !!videoId && !!user && !initialGroupId,
     retry: 3,
-    staleTime: 1000, // Consider data fresh for 1 second
-    refetchInterval: 30000, // Refetch every 30 seconds to maintain persistence
+    staleTime: 1000,
+    refetchInterval: 30000,
+    select: (data) => validateApiResponse(lastActiveGroupSchema, data),
   });
 
   // Use initialGroupId or lastActiveGroup?.id for the effective group ID
   const effectiveGroupId = initialGroupId || (lastActiveGroup && lastActiveGroup.id);
 
-  // Update the useEffect hook for group membership persistence
+  // Enhanced useEffect hook for group membership persistence
   useEffect(() => {
     if (!user || !effectiveGroupId) return;
 
+    let isMounted = true;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 5000;
+
     const setupGroupMembership = async () => {
+      if (!isMounted) return;
+
       try {
-        console.log('Setting up group membership:', {
+        console.log('[GroupPersistence] Setting up membership:', {
           userId: user.id,
           groupId: effectiveGroupId,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          retryCount
         });
 
         // Touch the membership to maintain persistence
@@ -80,33 +93,64 @@ export function DiscussionGroup({ videoId, initialGroupId }: Props) {
         });
 
         if (!touchResponse.ok) {
-          throw new Error('Failed to update membership persistence');
+          throw new Error(`Failed to update membership persistence: ${touchResponse.status}`);
         }
 
-        console.log('Successfully updated membership persistence');
-
-        // Invalidate queries to ensure fresh data
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${effectiveGroupId}`] }),
-          queryClient.invalidateQueries({ queryKey: [`/api/groups/${effectiveGroupId}/messages`] }),
-          queryClient.invalidateQueries({ queryKey: [`/api/videos/${videoId}/last-active-group`] })
-        ]);
-      } catch (error) {
-        console.error('Error setting up group membership:', error);
-        toast({
-          title: "Connection Error",
-          description: "Having trouble connecting to the group. Please refresh the page.",
-          variant: "destructive",
+        const touchResult = await touchResponse.json();
+        console.log('[GroupPersistence] Updated successfully:', {
+          result: touchResult,
+          timestamp: new Date().toISOString()
         });
+
+        retryCount = 0; // Reset retry count on success
+
+        if (isMounted) {
+          // Invalidate queries to ensure fresh data
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: [`/api/groups/${effectiveGroupId}`] }),
+            queryClient.invalidateQueries({ queryKey: [`/api/groups/${effectiveGroupId}/messages`] }),
+            queryClient.invalidateQueries({ queryKey: [`/api/videos/${videoId}/last-active-group`] })
+          ]);
+
+          console.log('[GroupPersistence] Cache invalidated');
+        }
+      } catch (error) {
+        console.error('[GroupPersistence] Error:', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          retryCount,
+          timestamp: new Date().toISOString()
+        });
+
+        if (isMounted && retryCount < MAX_RETRIES) {
+          retryCount++;
+          console.log(`[GroupPersistence] Retrying in ${RETRY_DELAY}ms (attempt ${retryCount}/${MAX_RETRIES})`);
+          setTimeout(setupGroupMembership, RETRY_DELAY);
+        } else if (isMounted) {
+          toast({
+            title: "Connection Error",
+            description: "Having trouble maintaining group connection. Please refresh the page.",
+            variant: "destructive",
+          });
+        }
       }
     };
 
+    // Initial setup
+    console.log('[GroupPersistence] Initializing persistence mechanism');
     setupGroupMembership();
 
-    // Set up interval to maintain persistence (every 15 seconds)
-    const persistenceInterval = setInterval(setupGroupMembership, 15000);
+    // Set up interval for continuous updates
+    const persistenceInterval = setInterval(() => {
+      console.log('[GroupPersistence] Running scheduled update');
+      setupGroupMembership();
+    }, 15000);
 
-    return () => clearInterval(persistenceInterval);
+    // Cleanup function
+    return () => {
+      console.log('[GroupPersistence] Cleaning up persistence mechanism');
+      isMounted = false;
+      clearInterval(persistenceInterval);
+    };
   }, [user, effectiveGroupId, queryClient, videoId, toast]);
 
   // Query for group details with enhanced persistence

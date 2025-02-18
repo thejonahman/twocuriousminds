@@ -49,16 +49,22 @@ export default function JoinGroup() {
           throw new Error('Failed to join group');
         }
 
-        const group = await response.json();
+        const { group } = await response.json();
         console.log('Successfully joined group:', group);
 
-        // Update membership persistence immediately
-        await fetch(`/api/groups/${group.id}/members/${user.id}/touch`, {
+        // Initialize group persistence immediately
+        const touchResponse = await fetch(`/api/groups/${group.id}/members/${user.id}/touch`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           }
         });
+
+        if (!touchResponse.ok) {
+          console.warn('Initial touch request failed:', touchResponse.status);
+        } else {
+          console.log('Initial persistence established');
+        }
 
         // Invalidate existing queries to ensure fresh data
         await Promise.all([
