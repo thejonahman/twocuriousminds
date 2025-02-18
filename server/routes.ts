@@ -125,7 +125,7 @@ export function registerRoutes(app: Express): Server {
     }
   }));
 
-  // Add thumbnail upload endpoint with improved error handling
+  // Update the upload endpoint with improved URL handling and logging
   app.post('/api/upload/thumbnail', upload.single('thumbnail'), (req: Request, res: Response) => {
     console.log('[Upload] Processing thumbnail upload request');
 
@@ -150,10 +150,20 @@ export function registerRoutes(app: Express): Server {
         size: req.file.size
       });
 
-      // Test file existence
-      if (!fs.existsSync(req.file.path)) {
-        throw new Error('File was not saved properly');
+      // Test file existence and permissions
+      try {
+        fs.accessSync(req.file.path, fs.constants.R_OK | fs.constants.W_OK);
+        console.log('[Upload] File permissions verified:', req.file.path);
+      } catch (error) {
+        console.error('[Upload] File permission error:', error);
+        throw new Error('File permission error');
       }
+
+      // Set proper cache headers
+      res.set({
+        'Cache-Control': 'public, max-age=31536000',
+        'Content-Type': 'application/json'
+      });
 
       res.json({
         url: fileUrl,
@@ -993,7 +1003,7 @@ export function registerRoutes(app: Express): Server {
     });
 
     if (!group) {
-      return res.status(404).json({ message: "Group not found" });
+      return res.status(404).json({ message: "Group notfound" });
     }
 
     console.log('Found group with', group.members?.length || 0, 'members');

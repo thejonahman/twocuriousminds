@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { apiRequest } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
 import { ImageIcon, UploadIcon, Loader2 } from "lucide-react";
 
@@ -41,17 +40,33 @@ export function ThumbnailUpload({ onUploadComplete, currentThumbnail }: Thumbnai
       const formData = new FormData();
       formData.append('thumbnail', file);
 
+      console.log('Uploading thumbnail:', {
+        fileName: file.name,
+        fileType: file.type,
+        fileSize: file.size
+      });
+
       const response = await fetch('/api/upload/thumbnail', {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('Upload failed');
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Upload failed');
       }
 
       const data = await response.json();
-      onUploadComplete(data.url);
+      console.log('Upload response:', data);
+
+      if (!data.url) {
+        throw new Error('No URL in upload response');
+      }
+
+      // Ensure URL starts with a forward slash
+      const thumbnailUrl = data.url.startsWith('/') ? data.url : `/${data.url}`;
+      onUploadComplete(thumbnailUrl);
+
       toast({
         title: "Upload successful",
         description: "Your thumbnail has been uploaded",
@@ -60,11 +75,16 @@ export function ThumbnailUpload({ onUploadComplete, currentThumbnail }: Thumbnai
       console.error('Upload error:', error);
       toast({
         title: "Upload failed",
-        description: "There was an error uploading your thumbnail",
+        description: error instanceof Error ? error.message : "There was an error uploading your thumbnail",
         variant: "destructive"
       });
     } finally {
       setIsUploading(false);
+      // Reset the file input
+      const fileInput = document.getElementById('thumbnail-upload') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.value = '';
+      }
     }
   };
 
@@ -76,6 +96,11 @@ export function ThumbnailUpload({ onUploadComplete, currentThumbnail }: Thumbnai
             src={currentThumbnail} 
             alt="Video thumbnail" 
             className="w-full h-full object-cover"
+            onError={(e) => {
+              console.error('Thumbnail load error:', e);
+              const img = e.currentTarget;
+              img.src = '/placeholder-thumbnail.png'; // Fallback image
+            }}
           />
         </div>
       ) : (

@@ -14,23 +14,6 @@ import { Loader2 } from 'lucide-react';
 import { VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory } from "@/types/video";
 import { ThumbnailUpload } from "./thumbnail-upload";
 
-async function uploadThumbnail(file: File): Promise<string> {
-  const formData = new FormData();
-  formData.append('thumbnail', file);
-
-  const response = await fetch('/api/upload/thumbnail', {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to upload thumbnail');
-  }
-
-  const data = await response.json();
-  return data.url;
-}
-
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
@@ -40,6 +23,8 @@ export function AdminVideoForm() {
     defaultValues: {
       platform: "youtube",
       description: "",
+      thumbnailUrl: null,
+      customThumbnail: false
     },
   });
 
@@ -380,4 +365,22 @@ export function AdminVideoForm() {
       </Form>
     </Card>
   );
+}
+
+async function uploadThumbnail(file: File): Promise<string> {
+  const formData = new FormData();
+  formData.append('thumbnail', file);
+
+  const response = await fetch('/api/upload/thumbnail', {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.error || 'Failed to upload thumbnail');
+  }
+
+  const data = await response.json();
+  return data.url;
 }

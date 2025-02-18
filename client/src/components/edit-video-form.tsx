@@ -40,6 +40,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
       subcategoryId: video.subcategoryId ? String(video.subcategoryId) : undefined,
       platform: video.platform as "youtube" | "tiktok" | "instagram",
       thumbnailUrl: video.thumbnailUrl || null,
+      customThumbnail: video.customThumbnail || false,
     }
   });
 
@@ -73,7 +74,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           categoryId: parseInt(data.categoryId),
           subcategoryId: data.subcategoryId ? parseInt(data.subcategoryId) : null,
           thumbnailUrl,
-          customThumbnail: !!data.thumbnailFile || video.customThumbnail
+          customThumbnail: !!data.thumbnailFile || !!data.thumbnailUrl
         };
 
         // Remove the file from the payload as it's already uploaded
@@ -140,6 +141,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" ref={formRef}>
+        {/* Title field */}
         <FormField
           control={form.control}
           name="title"
@@ -164,6 +166,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
               <FormControl>
                 <ThumbnailUpload
                   onUploadComplete={(url: string) => {
+                    console.log('Thumbnail upload complete, setting URL:', url);
                     form.setValue("thumbnailUrl", url, { shouldValidate: true });
                     form.setValue("customThumbnail", true, { shouldValidate: true });
                   }}
@@ -175,6 +178,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
+        {/* Description field */}
         <FormField
           control={form.control}
           name="description"
@@ -189,6 +193,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
+        {/* URL field */}
         <FormField
           control={form.control}
           name="url"
@@ -203,6 +208,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
+        {/* Category field */}
         <FormField
           control={form.control}
           name="categoryId"
@@ -240,6 +246,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
+        {/* Subcategory field */}
         <FormField
           control={form.control}
           name="subcategoryId"
@@ -275,6 +282,7 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
+        {/* Platform field */}
         <FormField
           control={form.control}
           name="platform"
@@ -324,15 +332,31 @@ async function uploadThumbnail(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('thumbnail', file);
 
+  console.log('Starting thumbnail upload:', {
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type
+  });
+
   const response = await fetch('/api/upload/thumbnail', {
     method: 'POST',
     body: formData,
   });
 
   if (!response.ok) {
-    throw new Error('Failed to upload thumbnail');
+    const errorData = await response.json();
+    console.error('Thumbnail upload failed:', errorData);
+    throw new Error(errorData.error || 'Failed to upload thumbnail');
   }
 
   const data = await response.json();
-  return data.url;
+  console.log('Thumbnail upload response:', data);
+
+  if (!data.url) {
+    throw new Error('No URL in upload response');
+  }
+
+  // Ensure URL starts with a forward slash
+  const thumbnailUrl = data.url.startsWith('/') ? data.url : `/${data.url}`;
+  return thumbnailUrl;
 }
