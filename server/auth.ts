@@ -9,8 +9,7 @@ import { users, insertUserSchema } from "@db/schema";
 import { db, pool } from "@db";
 import { eq } from "drizzle-orm";
 import { fromZodError } from "zod-validation-error";
-import jwt from 'jsonwebtoken'; // Added JWT for temporary login
-
+import jwt from 'jsonwebtoken';
 
 const scryptAsync = promisify(scrypt);
 const PostgresSessionStore = connectPg(session);
@@ -180,17 +179,31 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/login", passport.authenticate("local"), (req, res) => {
+    console.log('[Auth] Login successful for user:', req.user);
     res.status(200).json(req.user);
   });
 
   app.post("/api/logout", (req, res, next) => {
+    console.log('[Auth] Logout request received for user:', req.user);
     req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
+      if (err) {
+        console.error('[Auth] Logout error:', err);
+        return next(err);
+      }
+      req.session.destroy((err) => {
+        if (err) {
+          console.error('[Auth] Session destruction error:', err);
+          return next(err);
+        }
+        res.clearCookie('connect.sid');
+        console.log('[Auth] Logout successful, session destroyed');
+        res.sendStatus(200);
+      });
     });
   });
 
   app.get("/api/user", requireAuth, (req, res) => {
+    console.log('[Auth] User data requested:', req.user);
     res.json(req.user);
   });
 
@@ -221,8 +234,6 @@ export async function login(email?: string, password?: string, isTemporary = fal
   }
 
   //This section needs further implementation to handle actual login with email/password
-
-  // ... (rest of the login logic) ...  //This part is omitted because complete implementation would require details not provided
 
   throw new Error('Login logic not fully implemented');
 }

@@ -32,13 +32,13 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: ReactNode }): JSX.Element {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
 
   const { data: userData, isLoading } = useQuery<User>({
-    queryKey: ["/api/auth/me"],
+    queryKey: ["/api/user"],
     retry: false,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
@@ -50,7 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: async (credentials: LoginData) => {
       console.log('[Auth] Attempting login with:', { username: credentials.username });
       try {
-        const res = await apiRequest("POST", "/api/auth/login", credentials);
+        const res = await apiRequest("POST", "/api/login", credentials);
         if (!res.ok) {
           const contentType = res.headers.get('content-type');
           let errorMessage;
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/auth/me"], user);
+      queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome back!",
         description: `Logged in as ${user.username}`,
@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mutationFn: async (newUser: RegisterData) => {
       console.log('[Auth] Attempting registration:', { username: newUser.username });
       try {
-        const res = await apiRequest("POST", "/api/auth/register", newUser);
+        const res = await apiRequest("POST", "/api/register", newUser);
         if (!res.ok) {
           const contentType = res.headers.get('content-type');
           let errorMessage;
@@ -120,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     onSuccess: (user: User) => {
-      queryClient.setQueryData(["/api/auth/me"], user);
+      queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Welcome!",
         description: "Your account has been created successfully.",
@@ -139,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logoutMutation = useMutation({
     mutationFn: async () => {
       try {
-        const res = await apiRequest("POST", "/api/auth/logout");
+        const res = await apiRequest("POST", "/api/logout");
         if (!res.ok) {
           const error = await res.text();
           console.error('[Auth] Logout failed:', error);
@@ -151,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     },
     onSuccess: () => {
-      queryClient.setQueryData(["/api/auth/me"], null);
+      queryClient.setQueryData(["/api/user"], null);
       queryClient.clear();
       toast({
         title: "Logged out",
@@ -168,7 +168,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
   });
 
-  const login = async (username: string, password: string) => {
+  const login = async (username: string, password: string): Promise<void> => {
     try {
       console.log('[Auth] Starting login process for:', username);
       await loginMutation.mutateAsync({ username, password });
@@ -185,8 +185,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             console.log('[Auth] Redirecting to pending invite:', joinUrl);
             setLocation(joinUrl);
             return;
-          } else {
-            console.error('[Auth] Invalid pending invite data:', { inviteCode, videoId });
           }
         } catch (error) {
           console.error('[Auth] Error processing pending invite:', error);
@@ -208,18 +206,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const contextValue: AuthContextType = {
+    user,
+    isLoading,
+    error: null,
+    login,
+    loginMutation,
+    logoutMutation,
+    registerMutation,
+  };
+
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isLoading,
-        error: null,
-        login,
-        loginMutation,
-        logoutMutation,
-        registerMutation,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );
