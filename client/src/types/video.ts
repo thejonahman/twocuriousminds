@@ -25,21 +25,45 @@ export interface Video {
   subcategory: Subcategory | null;
 }
 
+export function detectPlatform(url: string): "youtube" | "tiktok" | "instagram" | null {
+  try {
+    const urlLower = url.toLowerCase();
+    if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
+      return 'youtube';
+    }
+    if (urlLower.includes('tiktok.com')) {
+      return 'tiktok';
+    }
+    if (urlLower.includes('instagram.com')) {
+      return 'instagram';
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export const videoSchema = z.object({
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
-  url: z.string().url("Must be a valid URL")
-    .refine((url) => {
-      return (
-        url.includes("youtube.com") ||
-        url.includes("youtu.be") ||
-        url.includes("tiktok.com") ||
-        url.includes("instagram.com")
-      );
-    }, "Must be a YouTube, TikTok, or Instagram URL"),
+  url: z.string()
+    .url("Must be a valid URL")
+    .refine(
+      (url) => {
+        const platform = detectPlatform(url);
+        return platform !== null;
+      },
+      {
+        message: "URL must be from a supported platform (YouTube, TikTok, or Instagram). Please check the URL and try again."
+      }
+    )
+    .transform((url) => {
+      // Ensure the URL is properly formatted
+      return url.trim();
+    }),
   categoryId: z.string().min(1, "Category is required"),
   subcategoryId: z.string().optional(),
-  platform: z.enum(["youtube", "tiktok", "instagram"]),
+  platform: z.enum(["youtube", "tiktok", "instagram"]).optional(),
   thumbnailFile: z
     .instanceof(File)
     .optional()

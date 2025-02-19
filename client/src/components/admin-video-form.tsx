@@ -11,8 +11,9 @@ import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { Loader2 } from 'lucide-react';
-import { VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory } from "@/types/video";
+import { VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory, detectPlatform } from "@/types/video";
 import { ThumbnailUpload } from "./thumbnail-upload";
+import { useEffect } from "react";
 
 export function AdminVideoForm() {
   const queryClient = useQueryClient();
@@ -21,18 +22,22 @@ export function AdminVideoForm() {
   const form = useForm<VideoFormData>({
     resolver: zodResolver(videoSchema),
     defaultValues: {
-      platform: "youtube",
       description: "",
       thumbnailUrl: null,
       customThumbnail: false
     },
   });
 
-  // Log form errors for debugging
-  const formErrors = form.formState.errors;
-  if (Object.keys(formErrors).length > 0) {
-    console.log('Form validation errors:', formErrors);
-  }
+  // Watch URL to automatically detect platform
+  const videoUrl = form.watch("url");
+  useEffect(() => {
+    if (videoUrl) {
+      const platform = detectPlatform(videoUrl);
+      if (platform) {
+        form.setValue("platform", platform);
+      }
+    }
+  }, [videoUrl, form]);
 
   // Fetch categories
   const { data: categories = [], isLoading: isCategoriesLoading, error: categoriesError } = useQuery<Category[]>({
@@ -48,7 +53,6 @@ export function AdminVideoForm() {
   // Watch selected category to fetch subcategories
   const selectedCategoryId = form.watch("categoryId");
   const selectedPlatform = form.watch("platform");
-  const videoUrl = form.watch("url");
 
   // Log current form values for debugging
   console.log('Current form values:', {
@@ -85,7 +89,7 @@ export function AdminVideoForm() {
         // Handle thumbnail upload if provided
         let thumbnailUrl = data.thumbnailFile 
           ? await uploadThumbnail(data.thumbnailFile)
-          : data.thumbnailUrl || getVideoThumbnail(data.url, data.platform);
+          : data.thumbnailUrl || (data.url && data.platform ? getVideoThumbnail(data.url, data.platform) : null);
 
         console.log('Generated/Uploaded thumbnail URL:', thumbnailUrl);
 
@@ -204,7 +208,10 @@ export function AdminVideoForm() {
                 <FormItem>
                   <FormLabel>URL</FormLabel>
                   <FormControl>
-                    <Input placeholder="Paste video URL" {...field} />
+                    <Input 
+                      placeholder="Paste video URL" 
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -232,7 +239,7 @@ export function AdminVideoForm() {
               )}
             />
 
-            {/* Category selection */}
+            {/* Category field */}
             <FormField
               control={form.control}
               name="categoryId"
@@ -272,7 +279,7 @@ export function AdminVideoForm() {
               )}
             />
 
-            {/* Subcategory selection */}
+            {/* Subcategory field */}
             <FormField
               control={form.control}
               name="subcategoryId"
@@ -313,33 +320,6 @@ export function AdminVideoForm() {
                       </Select>
                     )}
                   </div>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            {/* Platform selection */}
-            <FormField
-              control={form.control}
-              name="platform"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Platform</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    value={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select platform" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="youtube">YouTube</SelectItem>
-                      <SelectItem value="tiktok">TikTok</SelectItem>
-                      <SelectItem value="instagram">Instagram</SelectItem>
-                    </SelectContent>
-                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

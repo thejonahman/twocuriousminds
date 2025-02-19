@@ -10,7 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
-import { Video, VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory } from "@/types/video";
+import { Video, VideoFormData, videoSchema, getVideoThumbnail, Category, Subcategory, detectPlatform } from "@/types/video";
 import { ThumbnailUpload } from "./thumbnail-upload";
 
 interface EditVideoFormProps {
@@ -44,6 +44,17 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
     }
   });
 
+  // Watch URL to automatically update platform
+  const videoUrl = form.watch("url");
+  useEffect(() => {
+    if (videoUrl) {
+      const platform = detectPlatform(videoUrl);
+      if (platform) {
+        form.setValue("platform", platform);
+      }
+    }
+  }, [videoUrl, form]);
+
   const { data: categories = [], isLoading: isCategoriesLoading } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     staleTime: 30000,
@@ -63,9 +74,9 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
         console.log('Making PATCH request to /api/videos', { videoId: video.id, data });
 
         // Handle thumbnail upload if provided
-        let thumbnailUrl = data.thumbnailFile 
+        let thumbnailUrl = data.thumbnailFile
           ? await uploadThumbnail(data.thumbnailFile)
-          : data.thumbnailUrl || getVideoThumbnail(data.url, data.platform);
+          : data.thumbnailUrl || (data.url && data.platform ? getVideoThumbnail(data.url, data.platform) : null);
 
         console.log('Generated/Uploaded thumbnail URL:', thumbnailUrl);
 
@@ -156,28 +167,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
-        {/* Thumbnail Upload field */}
-        <FormField
-          control={form.control}
-          name="thumbnailFile"
-          render={({ field: { onChange, value, ...field } }) => (
-            <FormItem>
-              <FormLabel>Thumbnail</FormLabel>
-              <FormControl>
-                <ThumbnailUpload
-                  onUploadComplete={(url: string) => {
-                    console.log('Thumbnail upload complete, setting URL:', url);
-                    form.setValue("thumbnailUrl", url, { shouldValidate: true });
-                    form.setValue("customThumbnail", true, { shouldValidate: true });
-                  }}
-                  currentThumbnail={form.getValues("thumbnailUrl")}
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
         {/* Description field */}
         <FormField
           control={form.control}
@@ -202,6 +191,28 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
               <FormLabel>URL</FormLabel>
               <FormControl>
                 <Input {...field} placeholder="Video URL" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        {/* Thumbnail Upload field */}
+        <FormField
+          control={form.control}
+          name="thumbnailFile"
+          render={({ field: { onChange, value, ...field } }) => (
+            <FormItem>
+              <FormLabel>Thumbnail</FormLabel>
+              <FormControl>
+                <ThumbnailUpload
+                  onUploadComplete={(url: string) => {
+                    console.log('Thumbnail upload complete, setting URL:', url);
+                    form.setValue("thumbnailUrl", url, { shouldValidate: true });
+                    form.setValue("customThumbnail", true, { shouldValidate: true });
+                  }}
+                  currentThumbnail={form.getValues("thumbnailUrl")}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -282,33 +293,6 @@ export function EditVideoForm({ video, onClose, scrollPosition }: EditVideoFormP
           )}
         />
 
-        {/* Platform field */}
-        <FormField
-          control={form.control}
-          name="platform"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Platform</FormLabel>
-              <Select
-                onValueChange={field.onChange}
-                value={field.value}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select platform" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="youtube">YouTube</SelectItem>
-                  <SelectItem value="tiktok">TikTok</SelectItem>
-                  <SelectItem value="instagram">Instagram</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
         <Button
           type="submit"
           className="w-full relative"
@@ -332,12 +316,6 @@ async function uploadThumbnail(file: File): Promise<string> {
   const formData = new FormData();
   formData.append('thumbnail', file);
 
-  console.log('Starting thumbnail upload:', {
-    fileName: file.name,
-    fileSize: file.size,
-    fileType: file.type
-  });
-
   const response = await fetch('/api/upload/thumbnail', {
     method: 'POST',
     body: formData,
@@ -345,16 +323,10 @@ async function uploadThumbnail(file: File): Promise<string> {
 
   if (!response.ok) {
     const errorData = await response.json();
-    console.error('Thumbnail upload failed:', errorData);
     throw new Error(errorData.error || 'Failed to upload thumbnail');
   }
 
   const data = await response.json();
-  console.log('Thumbnail upload response:', data);
-
-  if (!data.url) {
-    throw new Error('No URL in upload response');
-  }
 
   // Ensure URL starts with a forward slash
   const thumbnailUrl = data.url.startsWith('/') ? data.url : `/${data.url}`;
