@@ -60,12 +60,12 @@ export const groupSchema = baseEntitySchema.extend({
 });
 
 // Last active group schema
-export const lastActiveGroupSchema = groupSchema.pick({
-  id: true,
-  name: true,
-  videoId: true,
-  updatedAt: true,
-  isDeleted: true,
+export const lastActiveGroupSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  videoId: z.number(),
+  updatedAt: z.string().datetime().nullish(),
+  isDeleted: z.boolean().default(false),
 });
 
 // API response types
@@ -78,7 +78,7 @@ export type LastActiveGroup = z.infer<typeof lastActiveGroupSchema>;
 export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
   try {
     console.log('[API Validation] Validating response:', {
-      schema: schema._def.typeName,
+      schemaName: schema.description || 'Unknown Schema',
       hasData: !!data,
       timestamp: new Date().toISOString()
     });
@@ -86,7 +86,7 @@ export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
     const result = schema.parse(data);
 
     console.log('[API Validation] Validation successful:', {
-      schema: schema._def.typeName,
+      schemaName: schema.description || 'Unknown Schema',
       resultType: typeof result,
       timestamp: new Date().toISOString()
     });
@@ -95,7 +95,7 @@ export function validateApiResponse<T>(schema: z.ZodType<T>, data: unknown): T {
   } catch (error) {
     console.error('[API Validation] Validation error:', {
       error: error instanceof Error ? error.message : 'Unknown error',
-      schema: schema._def.typeName,
+      schemaName: schema.description || 'Unknown Schema',
       data: JSON.stringify(data).slice(0, 200) + '...',
       timestamp: new Date().toISOString()
     });

@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useUser } from "@/hooks/use-user";
 import { validateApiResponse, lastActiveGroupSchema, type LastActiveGroup } from "@/lib/api-types";
+import { DelphiBubble } from "@/components/delphi-bubble";
 
 export default function Video() {
   const { id, groupId } = useParams();
@@ -25,7 +26,6 @@ export default function Video() {
   const { user } = useUser();
   const queryClient = useQueryClient();
 
-  // Query for video details
   const { data: video, isLoading } = useQuery<{
     id: number;
     title: string;
@@ -46,28 +46,20 @@ export default function Video() {
     queryKey: [`/api/videos/${id}`],
   });
 
-  // Enhanced type definition for group membership state
-  const { data: lastActiveGroup } = useQuery<LastActiveGroup | null>({
+  const { data: lastActiveGroup } = useQuery<LastActiveGroup>({
     queryKey: [`/api/videos/${id}/last-active-group`],
     enabled: !!id && !!user && !groupId,
     gcTime: 24 * 60 * 60 * 1000,
     staleTime: 5 * 60 * 1000,
     select: (data: unknown) => {
       if (!data) return null;
-      try {
-        return validateApiResponse(lastActiveGroupSchema, data);
-      } catch (error) {
-        console.error('Failed to validate last active group:', error);
-        return null;
-      }
+      return validateApiResponse(lastActiveGroupSchema, data);
     }
   });
 
-  // Enhanced group restoration effect with priority to URL groupId
   useEffect(() => {
     if (!user?.id || !id) return;
 
-    // If we have a groupId in the URL, ensure membership
     if (groupId) {
       console.log('Processing group from URL:', {
         groupId,
@@ -76,7 +68,6 @@ export default function Video() {
         timestamp: new Date().toISOString()
       });
 
-      // Call the new membership endpoint to ensure persistence
       fetch(`/api/groups/${groupId}/members`, {
         method: 'POST',
         headers: {
@@ -89,8 +80,7 @@ export default function Video() {
       return;
     }
 
-    // Check if we have a valid last active group that matches the current video
-    if (lastActiveGroup?.videoId === parseInt(id)) {
+    if (lastActiveGroup && lastActiveGroup.videoId === parseInt(id)) {
       console.log('Restoring last active group:', {
         groupId: lastActiveGroup.id,
         groupName: lastActiveGroup.name,
@@ -100,12 +90,10 @@ export default function Video() {
         timestamp: new Date().toISOString()
       });
 
-      // Redirect to the group URL
       setLocation(`/video/${id}/group/${lastActiveGroup.id}`);
     }
   }, [user, id, groupId, lastActiveGroup, setLocation]);
 
-  // Scroll to top whenever the video ID changes
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [id]);
@@ -119,12 +107,10 @@ export default function Video() {
   };
 
   const handleShare = async (type: string) => {
-    // Construct base share URL without protocol/domain to prevent duplication
     const shareUrl = groupId
-      ? `/video/${id}/group/${groupId}`  // Use relative path for group discussions
-      : `/video/${id}`;  // Use relative path for single video
+      ? `/video/${id}/group/${groupId}`
+      : `/video/${id}`;
 
-    // Get the complete URL only when needed
     const getFullUrl = () => {
       const baseUrl = window.location.origin;
       return `${baseUrl}${shareUrl}`;
@@ -217,9 +203,10 @@ export default function Video() {
         <div className="space-y-8">
           <div className="rounded-xl border bg-card p-6 shadow-sm">
             <VideoPlayer video={video} />
+            <DelphiBubble videoId={video.id} />
             <div className="mt-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h1 className="text-2xl font-bold">{video?.title}</h1>
+                <h1 className="text-2xl font-bold">{video.title}</h1>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="icon" className="ml-2">
@@ -254,13 +241,13 @@ export default function Video() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-              <p className="text-muted-foreground">{video?.description}</p>
+              <p className="text-muted-foreground">{video.description}</p>
             </div>
           </div>
 
           <div className="rounded-xl border bg-card shadow-sm">
             <DiscussionGroup
-              videoId={video?.id}
+              videoId={video.id}
               initialGroupId={groupId ? parseInt(groupId) : undefined}
             />
           </div>
@@ -268,9 +255,9 @@ export default function Video() {
 
         <div className="lg:sticky lg:top-4 space-y-4">
           <RecommendationSidebar
-            currentVideoId={video?.id}
-            categoryId={video?.categoryId}
-            subcategoryId={video?.subcategoryId}
+            currentVideoId={video.id}
+            categoryId={video.categoryId}
+            subcategoryId={video.subcategoryId}
           />
         </div>
       </div>
